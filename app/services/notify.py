@@ -7,10 +7,16 @@ Two notification paths:
   For time-critical alerts (price, news). Instant full-content iOS push.
 """
 
+from typing import Literal
+
 import requests
 import resend
 from base64 import b64encode
+
 from app.config.settings import settings
+
+PrivateTopic = Literal["digests", "errors"]
+PublicChannel = Literal["price", "news"]
 
 _NTFY_AUTH = b64encode(f"{settings.NTFY_USER}:{settings.NTFY_PASS}".encode()).decode()
 _PRIORITY_MAP = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
@@ -45,7 +51,7 @@ def _publish(
 
 
 def push_private(
-    topic: str,
+    topic: PrivateTopic,
     title: str,
     message: str,
     priority: str = "default",
@@ -70,7 +76,7 @@ def push_private(
 
 
 def push_public(
-    channel: str,
+    channel: PublicChannel,
     title: str,
     message: str,
     priority: str = "default",
@@ -87,11 +93,7 @@ def push_public(
         "price": settings.NTFY_PUBLIC_TOPIC_PRICE,
         "news": settings.NTFY_PUBLIC_TOPIC_NEWS,
     }
-    topic = topic_map.get(channel)
-    if not topic:
-        raise ValueError(
-            f"Unknown public channel: {channel!r} (expected 'price' or 'news')"
-        )
+    topic = topic_map[channel]  # Literal type guarantees this is a valid key
 
     return _publish(
         base_url=settings.NTFY_PUBLIC_URL,
