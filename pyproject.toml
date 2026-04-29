@@ -1,0 +1,31 @@
+[project]
+name = "portfolio-advisor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40",
+    "apscheduler>=3.10",
+    "beautifulsoup4>=4.12",
+    "fastapi>=0.115",
+    "feedparser>=6.0",
+    "lxml>=5.3",
+    "pandas>=2.2",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "pymongo>=4.10",
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+    "resend>=2.4",
+    "tavily-python>=0.5",
+    "uvicorn[standard]>=0.32",
+    "yfinance>=0.2.50",
+]
+
+[dependency-groups]
+dev = ["ipython>=8.28", "pytest>=8.3", "ruff>=0.7"]
+[tool.uv]
+package = false
+[tool.pytest.ini_options]
+pythonpath = ["."]
