@@ -21,14 +21,9 @@ def _to_decimal(v: Any) -> Decimal:
     raise TypeError(f"Cannot convert {type(v).__name__} to Decimal")
 
 
-def _to_decimal128(v: Decimal) -> Decimal128:
-    return Decimal128(v)
-
-
 Money = Annotated[
     Decimal,
     BeforeValidator(_to_decimal),
-    PlainSerializer(_to_decimal128, when_used="json"),
 ]
 
 
