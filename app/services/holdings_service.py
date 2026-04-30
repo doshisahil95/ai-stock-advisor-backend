@@ -242,20 +242,32 @@ def recompute_holding(isin: str) -> Holding | None:
         }
 
     if computed["quantity"] == 0:
-        # Fully exited — soft delete but record final state
+        # Fully exited — record (or update) the soft-deleted final state.
+        # Filter on isin only (no deleted_at constraint) so this works whether
+        # we're soft-deleting an active row, refreshing an already-deleted row,
+        # or creating a fresh soft-deleted record (e.g., post --wipe-live).
+        update_doc = _convert_decimals_to_decimal128({
+            **computed,
+            **meta,
+            "last_recomputed_at": utcnow(),
+            "updated_at": utcnow(),
+            "deleted_at": utcnow(),
+        })
+        set_on_insert = _convert_decimals_to_decimal128({
+            "isin": isin,
+            "_schema_version": 1,
+            "created_at": utcnow(),
+            "user_notes": "",
+            "thesis": "",
+            "tags": [],
+            "stop_loss": None,
+            "target_price": None,
+            "alert_on": ["stop_loss", "target", "earnings", "news", "52w_high"],
+        })
         holdings_coll.update_one(
-            {"isin": isin, "deleted_at": None},
-            {
-                "$set": _convert_decimals_to_decimal128(
-                    {
-                        **computed,
-                        **meta,
-                        "last_recomputed_at": utcnow(),
-                        "updated_at": utcnow(),
-                        "deleted_at": utcnow(),
-                    }
-                )
-            },
+            {"isin": isin},
+            {"$set": update_doc, "$setOnInsert": set_on_insert},
+            upsert=True,
         )
         return None
 
