@@ -160,7 +160,8 @@ def ensure_all_indexes() -> dict[str, list[str]]:
                 unique=True,
             ),
             IndexModel([("isin", ASCENDING)], name="isin"),
-            IndexModel([("refreshed_at", DESCENDING)], name="refreshed_at_desc"),
+            IndexModel([("last_seen_at", DESCENDING)], name="last_seen_at_desc"),
+            IndexModel([("last_changed_at", DESCENDING)], name="last_changed_at_desc"),
         ]
     )
 

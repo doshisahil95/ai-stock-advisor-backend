@@ -1,7 +1,6 @@
-"""Tradable equity instrument from NSE or BSE.
+"""Tradable equity instrument from NSE.
 
-Sourced from Zerodha Kite's public instruments dump and refreshed daily by cron.
-This is reference data, not user data — no schema versioning needed.
+Sourced from NSE EQUITY_L.csv and refreshed daily by cron.
 """
 
 from datetime import datetime
@@ -26,5 +25,12 @@ class Instrument(BaseModel):
     lot_size: int = Field(default=1, ge=1)
     tick_size: float = Field(default=0.05, ge=0)
 
-    source: str = Field(default="kite")
-    refreshed_at: datetime = Field(default_factory=utcnow)
+    source: str = Field(default="nse_official")
+    last_seen_at: datetime = Field(
+        default_factory=utcnow,
+        description="Last refresh that confirmed this instrument exists",
+    )
+    last_changed_at: datetime = Field(
+        default_factory=utcnow,
+        description="Last refresh where any field actually changed",
+    )

@@ -223,51 +223,104 @@ def parse_equity_rows(csv_text: str) -> list[dict]:
 
 
 def refresh_from_nse() -> dict:
-    """Download NSE equity master and bulk-upsert into `instruments`.
+    """Download NSE equity master and update `instruments` collection.
 
-    Idempotent: existing instruments updated, new ones inserted, removed ones
-    are NOT deleted (in case historical transactions reference them).
+    Delta-aware: only writes rows where content actually changed.
+    Unchanged rows get a single-field `last_seen_at` update so we know
+    they're still listed.
+
+    Returns stats: {inserted, updated, unchanged, delisted_skipped, total}.
     """
     csv_text = fetch_nse_equity_csv()
-    rows = parse_equity_rows(csv_text)
+    new_rows = parse_equity_rows(csv_text)
 
-    if not rows:
+    if not new_rows:
         log.error("No equity rows parsed — aborting to avoid wiping collection")
-        return {"status": "no_rows", "fetched": 0, "upserted": 0, "modified": 0}
+        return {
+            "status": "no_rows",
+            "fetched": 0, "inserted": 0, "updated": 0, "unchanged": 0,
+        }
 
     coll = Collections.instruments()
+    now = datetime.now(timezone.utc)
 
-    operations = [
-        UpdateOne(
-            {"exchange": row["exchange"], "symbol": row["symbol"]},
-            {"$set": row},
-            upsert=True,
+    # Read existing instruments into memory (~50ms for 2.5K docs)
+    existing_docs = {
+        (d["exchange"], d["symbol"]): d
+        for d in coll.find(
+            {},
+            {"_id": 0, "exchange": 1, "symbol": 1, "isin": 1, "name": 1,
+             "instrument_type": 1, "segment": 1, "lot_size": 1, "tick_size": 1},
         )
-        for row in rows
-    ]
+    }
 
-    chunk_size = 1000
-    upserted = 0
-    modified = 0
-    for i in range(0, len(operations), chunk_size):
-        chunk = operations[i : i + chunk_size]
-        result = coll.bulk_write(chunk, ordered=False)
-        upserted += result.upserted_count
-        modified += result.modified_count
+    # Fields we compare to detect "real" changes (excludes timestamps)
+    compare_fields = ("isin", "name", "instrument_type", "segment", "lot_size", "tick_size")
+
+    inserts: list[UpdateOne] = []
+    updates: list[UpdateOne] = []
+    unchanged_keys: list[tuple[str, str]] = []
+
+    seen_keys: set[tuple[str, str]] = set()
+    for row in new_rows:
+        key = (row["exchange"], row["symbol"])
+        seen_keys.add(key)
+
+        existing = existing_docs.get(key)
+        if existing is None:
+            # New instrument
+            doc = {**row, "last_seen_at": now, "last_changed_at": now}
+            inserts.append(UpdateOne({"exchange": key[0], "symbol": key[1]},
+                                     {"$set": doc}, upsert=True))
+            continue
+
+        # Compare meaningful fields
+        changed = any(existing.get(f) != row.get(f) for f in compare_fields)
+        if changed:
+            doc = {**row, "last_seen_at": now, "last_changed_at": now}
+            updates.append(UpdateOne({"exchange": key[0], "symbol": key[1]},
+                                     {"$set": doc}))
+        else:
+            unchanged_keys.append(key)
+
+    # Apply changes — splits into separate bulk_write calls for clarity in logs
+    inserted_count = updated_count = 0
+
+    if inserts:
+        result = coll.bulk_write(inserts, ordered=False)
+        inserted_count = result.upserted_count
+    if updates:
+        result = coll.bulk_write(updates, ordered=False)
+        updated_count = result.modified_count
+
+    # Cheap "still alive" touch for unchanged rows — single-field write
+    if unchanged_keys:
+        # Use $or with manageable batch size for the WHERE clause
+        chunk_size = 500
+        for i in range(0, len(unchanged_keys), chunk_size):
+            batch = unchanged_keys[i : i + chunk_size]
+            coll.update_many(
+                {"$or": [{"exchange": e, "symbol": s} for e, s in batch]},
+                {"$set": {"last_seen_at": now}},
+            )
+
+    # Find any DB instruments not in this CSV — they may be delisted
+    db_keys = set(existing_docs.keys())
+    not_seen_today = db_keys - seen_keys
 
     total = coll.estimated_document_count()
     log.info(
-        "Refresh complete: %d upserted, %d modified, %d total in collection",
-        upserted,
-        modified,
-        total,
+        "Refresh complete: %d inserted, %d updated, %d unchanged, %d not in today's CSV (potentially delisted), %d total",
+        inserted_count, updated_count, len(unchanged_keys), len(not_seen_today), total,
     )
 
     return {
         "status": "ok",
-        "fetched": len(rows),
-        "upserted": upserted,
-        "modified": modified,
+        "fetched": len(new_rows),
+        "inserted": inserted_count,
+        "updated": updated_count,
+        "unchanged": len(unchanged_keys),
+        "not_in_today_csv": len(not_seen_today),
         "total_in_collection": total,
     }
 
