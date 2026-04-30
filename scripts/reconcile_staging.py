@@ -127,6 +127,26 @@ def _fifo_apply(state: StockState, txn: dict) -> None:
             remaining -= take
             if lot.qty == 0:
                 state.lots.popleft()
+    elif txn["type"] == "SPLIT":
+        ca = txn.get("corporate_action") or {}
+        ratio_from = Decimal(str(ca.get("ratio_from", 1)))
+        ratio_to = Decimal(str(ca.get("ratio_to", 1)))
+        if ratio_from > 0 and ratio_to > 0:
+            for lot in state.lots:
+                lot.qty = lot.qty * ratio_to / ratio_from
+                lot.price = lot.price * ratio_from / ratio_to
+
+    elif txn["type"] == "BONUS":
+        ca = txn.get("corporate_action") or {}
+        ratio_from = Decimal(str(ca.get("ratio_from", 1)))
+        ratio_to = Decimal(str(ca.get("ratio_to", 0)))
+        if ratio_from > 0 and ratio_to > 0:
+            for lot in state.lots:
+                bonus_qty = lot.qty * ratio_to / ratio_from
+                lot.qty += bonus_qty
+            for lot in state.lots:
+                if lot.qty > 0:
+                    lot.price = lot.price * (ratio_from / (ratio_from + ratio_to))
 
 
 def _iter_staging() -> Iterator[dict]:

@@ -167,6 +167,45 @@ MANUAL_TRANSACTIONS = [
         "source_ref": "DEMERGER_JIOFIN_2023:1to1_from_RELIANCE",
         "notes": "Jio Financial demerger from Reliance — 5 shares received (1:1 ratio for 5 RELIANCE held). Cost basis ₹113.43/share per ICICI demat allocation.",
     },
+    # ── Tata Steel 1:10 stock split (28-Jul-2022) ───────────────────────────
+    # Each share split into 10 (face value reduced from ₹10 to ₹1).
+    # You held 10 shares pre-split → 100 shares post-split.
+    # Avg cost: ₹1,170.27 → ₹117.027 per share. Total invested unchanged.
+    {
+        "isin": "INE081A01020",  # TATASTEEL
+        "symbol": "TATASTEEL",
+        "exchange": "NSE",
+        "type": "SPLIT",
+        "quantity": Decimal("0"),  # SPLIT type uses ratios in corporate_action, not qty
+        "price": Decimal("0"),
+        "trade_date": datetime(
+            2022, 7, 28, tzinfo=timezone.utc
+        ),  # Tata Steel split record date
+        "total_fees": Decimal("0"),
+        "corporate_action": {
+            "ratio_from": 1,
+            "ratio_to": 10,
+            "notes": "Tata Steel 1:10 sub-division (face value ₹10 → ₹1) effective 28-Jul-2022",
+        },
+        "source": "manual_corporate_action",
+        "source_ref": "SPLIT_TATASTEEL_2022:1to10",
+        "notes": "1:10 stock split. Held 10 shares pre-split → 100 shares post-split. Avg cost dilutes from ₹1170.27 to ₹117.03.",
+    },  # ── BPCL 1:1 Bonus (Sep 2024) ───────────────────────────────────────────
+    # 1 bonus share for every 1 share held. You held 46 BPCL → 46 bonus.
+    # Avg cost dilutes from ~₹522 to ~₹261. All 92 sold Feb 2025.
+    {
+        "isin": "INE029A01011",  # BPCL
+        "symbol": "BPCL",
+        "exchange": "NSE",
+        "type": "BUY",
+        "quantity": Decimal("46"),
+        "price": Decimal("0"),
+        "trade_date": datetime(2024, 9, 18, tzinfo=timezone.utc),
+        "total_fees": Decimal("0"),
+        "source": "manual_corporate_action",
+        "source_ref": "BONUS_BPCL_2024:1to1_46_bonus_on_46_held",
+        "notes": "BPCL 1:1 bonus issue — 46 bonus shares for 46 held. Zero cost. Avg cost dilutes from ~₹522 to ~₹261 before subsequent Feb 2025 sale.",
+    },
 ]
 
 # ── TMPV cost basis adjustment ───────────────────────────────────────────────

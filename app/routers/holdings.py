@@ -16,6 +16,12 @@ from app.models.holding import Holding
 from app.models.transaction import Transaction
 from app.services.holdings_service import recompute_holding
 from app.services.instrument_service import lookup_isin
+from app.services.price_service import (
+    annotate_with_current_price,
+    bulk_get_latest_prices,
+    get_latest_price,
+)
+from app.services.yfinance_lookup import fetch_metadata
 
 router = APIRouter(prefix="/portfolio/holdings", tags=["portfolio"])
 
@@ -95,23 +101,34 @@ def _doc_to_response(doc: dict) -> dict:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
-@router.get("", summary="List all active holdings")
+@router.get("", summary="List all active holdings (with live P&L)")
 def list_holdings() -> list[dict]:
-    """Return all currently held positions (excludes soft-deleted exits)."""
+    """Return all currently held positions, annotated with live P&L from latest prices."""
     docs = list(
         Collections.holdings().find({"deleted_at": None}).sort("invested_amount", -1)
     )
-    return [_doc_to_response(d) for d in docs]
+    if not docs:
+        return []
+
+    # Bulk-fetch latest prices for all ISINs in one query
+    isins = [d["isin"] for d in docs]
+    price_map = bulk_get_latest_prices(isins)
+
+    # Annotate each holding with live P&L
+    annotated = [annotate_with_current_price(d, price_map.get(d["isin"])) for d in docs]
+    return [_doc_to_response(d) for d in annotated]
 
 
-@router.get("/{isin}", summary="Get a single holding by ISIN")
+@router.get("/{isin}", summary="Get a single holding by ISIN (with live P&L)")
 def get_holding(isin: str) -> dict:
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
     if not doc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, f"No active holding for ISIN {isin}"
         )
-    return _doc_to_response(doc)
+    latest = get_latest_price(isin)
+    annotated = annotate_with_current_price(doc, latest)
+    return _doc_to_response(annotated)
 
 
 @router.post("", summary="Record a BUY (creates or adds to a holding)", status_code=201)
@@ -161,7 +178,9 @@ def add_buy(req: AddBuyRequest) -> dict:
         )
 
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
-    return _doc_to_response(doc)
+    latest = get_latest_price(isin)
+    annotated = annotate_with_current_price(doc, latest)
+    return _doc_to_response(annotated)
 
 
 @router.post("/{isin}/sell", summary="Record a SELL (FIFO depletion)")
@@ -201,7 +220,9 @@ def sell(isin: str, req: SellRequest) -> dict:
         return {"status": "exited", "isin": isin, "message": "Position fully closed"}
 
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
-    return _doc_to_response(doc)
+    latest = get_latest_price(isin)
+    annotated = annotate_with_current_price(doc, latest)
+    return _doc_to_response(annotated)
 
 
 @router.patch(
