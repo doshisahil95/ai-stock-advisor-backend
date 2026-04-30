@@ -84,7 +84,63 @@ def lookup_isin(
         {"exchange": exch, "symbol": sym},
         {"isin": 1, "_id": 0},
     )
-    return instr["isin"] if instr else None
+    if instr:
+        return instr["isin"]
+
+    # 3. NSE fallback for BSE lookups
+    if exch == "BSE":
+        instr = Collections.instruments().find_one(
+            {"exchange": "NSE", "symbol": sym},
+            {"isin": 1, "_id": 0},
+        )
+        if instr:
+            log.info("BSE fallback: resolved %s via NSE master", sym)
+            return instr["isin"]
+
+    return None
+
+
+def lookup_metadata(
+    symbol: str,
+    exchange: str = "NSE",
+    broker: BrokerType = "ICICI",
+) -> dict | None:
+    """Return full instrument metadata (name, isin, exchange, lot_size, etc.)
+    for a single (broker, symbol, exchange).
+
+    Same resolution order as lookup_isin: override → direct match.
+    """
+    sym = symbol.upper()
+    exch = exchange.upper()
+
+    # 1. Try override
+    override = Collections.symbol_overrides().find_one(
+        {
+            "source_broker": broker,
+            "source_symbol": sym,
+        }
+    )
+    if override:
+        target_exch = override["target_exchange"]
+        target_sym = override["target_symbol"]
+        return Collections.instruments().find_one(
+            {"exchange": target_exch, "symbol": target_sym},
+        )
+
+    # 2. Direct lookup
+    instr = Collections.instruments().find_one(
+        {"exchange": exch, "symbol": sym},
+    )
+    if instr:
+        return instr
+
+    # 3. NSE fallback for BSE
+    if exch == "BSE":
+        return Collections.instruments().find_one(
+            {"exchange": "NSE", "symbol": sym},
+        )
+
+    return None
 
 
 def bulk_lookup_isins(
@@ -129,6 +185,7 @@ def bulk_lookup_isins(
             direct_targets.append((s, s))
 
     # 3. ONE bulk query for direct lookups (all on same exchange)
+    # 3. ONE bulk query for direct lookups (all on same exchange)
     if direct_targets:
         direct_syms = [t[1] for t in direct_targets]
         direct_docs = Collections.instruments().find(
@@ -139,6 +196,28 @@ def bulk_lookup_isins(
         for input_sym, target_sym in direct_targets:
             results[input_sym] = isin_by_sym.get(target_sym)
 
+        # 3b. NSE fallback for any unresolved BSE lookups
+        # (ISIN is exchange-agnostic; same instrument may be dual-listed.
+        #  We only ingest NSE master, so unresolved BSE symbols may exist there.)
+        if exchange.upper() == "BSE":
+            unresolved_syms = [
+                target_sym
+                for input_sym, target_sym in direct_targets
+                if results.get(input_sym) is None
+            ]
+            if unresolved_syms:
+                fallback_docs = Collections.instruments().find(
+                    {"exchange": "NSE", "symbol": {"$in": unresolved_syms}},
+                    {"symbol": 1, "isin": 1, "_id": 0},
+                )
+                fallback_isin_by_sym = {d["symbol"]: d["isin"] for d in fallback_docs}
+                for input_sym, target_sym in direct_targets:
+                    if (
+                        results.get(input_sym) is None
+                        and target_sym in fallback_isin_by_sym
+                    ):
+                        results[input_sym] = fallback_isin_by_sym[target_sym]
+                        log.info("BSE fallback: resolved %s via NSE master", target_sym)
     # 4. Resolve overridden targets (typically very few — individual queries are fine)
     for input_sym, target_exch, target_sym in override_targets:
         instr = Collections.instruments().find_one(
@@ -238,7 +317,10 @@ def refresh_from_nse() -> dict:
         log.error("No equity rows parsed — aborting to avoid wiping collection")
         return {
             "status": "no_rows",
-            "fetched": 0, "inserted": 0, "updated": 0, "unchanged": 0,
+            "fetched": 0,
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
         }
 
     coll = Collections.instruments()
@@ -249,13 +331,29 @@ def refresh_from_nse() -> dict:
         (d["exchange"], d["symbol"]): d
         for d in coll.find(
             {},
-            {"_id": 0, "exchange": 1, "symbol": 1, "isin": 1, "name": 1,
-             "instrument_type": 1, "segment": 1, "lot_size": 1, "tick_size": 1},
+            {
+                "_id": 0,
+                "exchange": 1,
+                "symbol": 1,
+                "isin": 1,
+                "name": 1,
+                "instrument_type": 1,
+                "segment": 1,
+                "lot_size": 1,
+                "tick_size": 1,
+            },
         )
     }
 
     # Fields we compare to detect "real" changes (excludes timestamps)
-    compare_fields = ("isin", "name", "instrument_type", "segment", "lot_size", "tick_size")
+    compare_fields = (
+        "isin",
+        "name",
+        "instrument_type",
+        "segment",
+        "lot_size",
+        "tick_size",
+    )
 
     inserts: list[UpdateOne] = []
     updates: list[UpdateOne] = []
@@ -270,16 +368,20 @@ def refresh_from_nse() -> dict:
         if existing is None:
             # New instrument
             doc = {**row, "last_seen_at": now, "last_changed_at": now}
-            inserts.append(UpdateOne({"exchange": key[0], "symbol": key[1]},
-                                     {"$set": doc}, upsert=True))
+            inserts.append(
+                UpdateOne(
+                    {"exchange": key[0], "symbol": key[1]}, {"$set": doc}, upsert=True
+                )
+            )
             continue
 
         # Compare meaningful fields
         changed = any(existing.get(f) != row.get(f) for f in compare_fields)
         if changed:
             doc = {**row, "last_seen_at": now, "last_changed_at": now}
-            updates.append(UpdateOne({"exchange": key[0], "symbol": key[1]},
-                                     {"$set": doc}))
+            updates.append(
+                UpdateOne({"exchange": key[0], "symbol": key[1]}, {"$set": doc})
+            )
         else:
             unchanged_keys.append(key)
 
@@ -311,7 +413,11 @@ def refresh_from_nse() -> dict:
     total = coll.estimated_document_count()
     log.info(
         "Refresh complete: %d inserted, %d updated, %d unchanged, %d not in today's CSV (potentially delisted), %d total",
-        inserted_count, updated_count, len(unchanged_keys), len(not_seen_today), total,
+        inserted_count,
+        updated_count,
+        len(unchanged_keys),
+        len(not_seen_today),
+        total,
     )
 
     return {

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from app.db.client import ping
 from app.db.indexes import ensure_all_indexes
-from app.routers import holdings
+from app.routers import holdings, instruments
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +40,7 @@ app = FastAPI(
 )
 
 app.include_router(holdings.router)
-
+app.include_router(instruments.router)
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:

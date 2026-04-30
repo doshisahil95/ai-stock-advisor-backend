@@ -95,6 +95,11 @@ class Collections:
     def symbol_overrides() -> Collection:
         return get_db()["symbol_overrides"]
 
+    @staticmethod
+    def transactions_staging() -> Collection:
+        """Staging area for bulk imports — validated before promote."""
+        return get_db()["transactions_staging"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""
