@@ -134,7 +134,9 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
         invested = sum((lot.quantity * lot.price for lot in lots), Decimal("0")) + sum(
             (lot.fees for lot in lots), Decimal("0")
         )
-        avg_cost = (invested / remaining_qty).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        avg_cost = (invested / remaining_qty).quantize(
+            Decimal("0.0001"), rounding=ROUND_HALF_UP
+        )
         invested = invested.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     else:
         invested = Decimal("0")
@@ -219,15 +221,24 @@ def recompute_holding(isin: str) -> Holding | None:
             or transactions[0].get("exchange", "NSE"),
         }
     else:
-        # First time — fetch from yfinance
+        # First time — get name from NSE master (reliable),
+        # sector/industry from yfinance (NSE doesn't publish those)
         first_tx = transactions[0]
-        meta_full = fetch_metadata(first_tx["symbol"], first_tx.get("exchange", "NSE"))
+        symbol = first_tx["symbol"]
+        exchange = first_tx.get("exchange", "NSE")
+
+        nse_doc = Collections.instruments().find_one(
+            {"exchange": exchange, "symbol": symbol},
+            {"name": 1, "_id": 0},
+        )
+        yf_meta = fetch_metadata(symbol, exchange)
+
         meta = {
-            "name": meta_full["name"],
-            "sector": meta_full["sector"],
-            "industry": meta_full["industry"],
-            "symbol": first_tx["symbol"],
-            "exchange": first_tx.get("exchange", "NSE"),
+            "name": (nse_doc and nse_doc.get("name")) or yf_meta.get("name", ""),
+            "sector": yf_meta.get("sector", ""),
+            "industry": yf_meta.get("industry", ""),
+            "symbol": symbol,
+            "exchange": exchange,
         }
 
     if computed["quantity"] == 0:

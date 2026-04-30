@@ -87,6 +87,14 @@ class Collections:
     def conversations() -> Collection:
         return get_db()["conversations"]
 
+    @staticmethod
+    def instruments() -> Collection:
+        return get_db()["instruments"]
+
+    @staticmethod
+    def symbol_overrides() -> Collection:
+        return get_db()["symbol_overrides"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

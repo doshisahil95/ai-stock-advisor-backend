@@ -151,4 +151,28 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ── instruments ──────────────────────────────────────────────────────────
+    results["instruments"] = Collections.instruments().create_indexes(
+        [
+            IndexModel(
+                [("exchange", ASCENDING), ("symbol", ASCENDING)],
+                name="exchange_symbol_unique",
+                unique=True,
+            ),
+            IndexModel([("isin", ASCENDING)], name="isin"),
+            IndexModel([("refreshed_at", DESCENDING)], name="refreshed_at_desc"),
+        ]
+    )
+
+    # ── symbol_overrides ─────────────────────────────────────────────────────
+    results["symbol_overrides"] = Collections.symbol_overrides().create_indexes(
+        [
+            IndexModel(
+                [("source_broker", ASCENDING), ("source_symbol", ASCENDING)],
+                name="broker_symbol_unique",
+                unique=True,
+            ),
+        ]
+    )
+
     return results

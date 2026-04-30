@@ -15,7 +15,7 @@ from app.models._common import Money, _convert_decimals_to_decimal128, utcnow
 from app.models.holding import Holding
 from app.models.transaction import Transaction
 from app.services.holdings_service import recompute_holding
-from app.services.yfinance_lookup import fetch_metadata
+from app.services.instrument_service import lookup_isin
 
 router = APIRouter(prefix="/portfolio/holdings", tags=["portfolio"])
 
@@ -23,8 +23,8 @@ router = APIRouter(prefix="/portfolio/holdings", tags=["portfolio"])
 
 
 class AddBuyRequest(BaseModel):
-    """Record a buy. ISIN is auto-resolved from symbol+exchange via yfinance,
-    or you can supply it explicitly if the lookup fails."""
+    """Record a buy. ISIN is auto-resolved via the `instruments` collection
+    (NSE master), or you can supply it explicitly to override."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -37,7 +37,9 @@ class AddBuyRequest(BaseModel):
     notes: str = ""
     isin: str | None = Field(
         default=None,
-        description="Optional. If yfinance can't resolve the ISIN, supply it here.",
+        description="Optional override. By default, ISIN is looked up from the "
+        "instruments collection. Supply this only if the symbol isn't in the "
+        "master or you want to override the lookup.",
     )
 
 
@@ -121,14 +123,17 @@ def add_buy(req: AddBuyRequest) -> dict:
     """
     # Resolve ISIN
     # Resolve ISIN: prefer explicit, fall back to yfinance lookup
-    meta = fetch_metadata(req.symbol, req.exchange)
-    isin = (req.isin or meta["isin"] or "").strip().upper()
+    # Resolve ISIN: prefer explicit, fall back to instruments collection
+    isin = (req.isin or "").strip().upper()
+    if not isin:
+        looked_up = lookup_isin(req.symbol, req.exchange, broker="ICICI")
+        isin = (looked_up or "").upper()
     if not isin or len(isin) != 12 or not isin.isalnum():
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Could not resolve ISIN for {req.symbol} on {req.exchange} "
-            f"(yfinance returned '{meta['isin']}'). "
-            f"Please supply isin explicitly in the request body.",
+            f"Could not resolve ISIN for {req.symbol} on {req.exchange}. "
+            f"Either supply 'isin' explicitly in the request body, or add a "
+            f"symbol_overrides entry if this is an ICICI internal code.",
         )
 
     # Build the transaction
