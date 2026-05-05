@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.client import ping
 from app.db.indexes import ensure_all_indexes
@@ -39,9 +40,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — allow Next.js dashboard (running on EC2 + accessed via Tailscale)
+# Permissive for our Tailscale-only context; if we ever go public, tighten this.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://100.112.20.41:3000",  # EC2 IP, used during dev
+        "http://localhost:3000",  # Local fallback if needed
+        "https://*.ts.net",  # Tailscale Funnel domains
+    ],
+    allow_origin_regex=r"https://.*\.ts\.net",  # Funnel subdomain wildcard
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 app.include_router(holdings.router)
 app.include_router(instruments.router)
 app.include_router(portfolio.router)
+
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:
