@@ -100,6 +100,10 @@ class Collections:
         """Staging area for bulk imports — validated before promote."""
         return get_db()["transactions_staging"]
 
+    @staticmethod
+    def reconciliation_snapshots():
+        return get_db()["reconciliation_snapshots"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

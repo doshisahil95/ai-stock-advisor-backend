@@ -1,0 +1,295 @@
+"""Reconciliation service.
+
+Two flows:
+  1. Manual snapshot: user enters ICICI numbers via UI/API → service computes
+     deltas vs our system, compares to expected deltas, alerts if drift.
+  2. Automatic snapshot: daily cron captures our-side numbers only. Compares
+     against the last manual snapshot to detect "we changed but ICICI didn't"
+     (or vice-versa) drift over time.
+
+Expected deltas are stored in user_profile.reconciliation_baseline; when the
+user enters a manual snapshot that has zero drift, the deltas become the new
+baseline.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
+
+from app.db.client import Collections
+from app.services.notify import push_private, email
+from app.services.portfolio_service import compute_summary
+from app.services.price_service import bulk_get_latest_prices
+from app.models._common import _convert_decimals_to_decimal128
+
+log = logging.getLogger(__name__)
+
+# Drift over this absolute amount triggers an alert
+DRIFT_ALERT_THRESHOLD = Decimal("1000.00")
+
+
+def _to_dec(v: Any) -> Decimal:
+    if v is None:
+        return Decimal("0")
+    if isinstance(v, Decimal):
+        return v
+    return Decimal(str(v))
+
+
+def _get_our_numbers() -> dict:
+    """Snapshot our system's current invested / current / day_gain."""
+    holdings = list(Collections.holdings().find({"deleted_at": None}))
+    if not holdings:
+        return {
+            "our_invested": Decimal("0"),
+            "our_current_value": Decimal("0"),
+            "our_day_gain": Decimal("0"),
+            "our_unrealized_pnl": Decimal("0"),
+        }
+    isins = [h["isin"] for h in holdings]
+    latest_prices = bulk_get_latest_prices(isins)
+    summary = compute_summary(holdings, latest_prices)
+    totals = summary["totals"]
+    return {
+        "our_invested": _to_dec(totals["invested"]),
+        "our_current_value": _to_dec(totals["current_value"]),
+        "our_day_gain": _to_dec(totals["day_gain"]),
+        "our_unrealized_pnl": _to_dec(totals["unrealized_pnl"]),
+    }
+
+
+def _get_expected_deltas() -> dict:
+    """Read expected deltas from user_profile."""
+    profile = Collections.user_profile().find_one({})
+    if not profile:
+        return {}
+    baseline = profile.get("reconciliation_baseline") or {}
+    return {
+        "invested": _to_dec(baseline.get("expected_delta_invested", 0)),
+        "current_value": _to_dec(baseline.get("expected_delta_current_value", 0)),
+        "day_gain": _to_dec(baseline.get("expected_delta_day_gain", 0)),
+        "explanation": baseline.get("explanation", ""),
+        "set_at": baseline.get("set_at"),
+    }
+
+
+def take_auto_snapshot() -> dict:
+    """Daily cron-driven snapshot: our-side only, no ICICI input.
+
+    Compares against the last manual snapshot to detect drift.
+    """
+    our = _get_our_numbers()
+    snapshot = {
+        "taken_at": datetime.now(timezone.utc),
+        "type": "auto",
+        **our,
+        "_schema_version": 1,
+    }
+
+    # Compare to last manual snapshot
+    last_manual = Collections.reconciliation_snapshots().find_one(
+        {"type": "manual"}, sort=[("taken_at", -1)]
+    )
+    if last_manual:
+        # Did our numbers change in a way that should also have changed ICICI?
+        delta_invested_change = _to_dec(our["our_invested"]) - _to_dec(
+            last_manual.get("our_invested")
+        )
+        # Heuristic: if our_invested changed by more than ₹100 since last manual
+        # snapshot, but the user hasn't entered a new manual snapshot in 14+ days,
+        # nudge them to reconcile.
+        days_since = (datetime.now(timezone.utc) - last_manual["taken_at"]).days
+        if abs(delta_invested_change) > Decimal("100") and days_since >= 14:
+            snapshot["notes"] = (
+                f"Auto snapshot: our_invested changed by ₹{delta_invested_change} "
+                f"since last manual reconciliation {days_since} days ago. "
+                f"Consider entering current ICICI numbers."
+            )
+
+        Collections.reconciliation_snapshots().insert_one(
+            _convert_decimals_to_decimal128(snapshot)
+        )
+    return snapshot
+
+
+def take_manual_snapshot(
+    icici_invested: Decimal,
+    icici_current_value: Decimal,
+    icici_day_gain: Decimal | None = None,
+    notes: str | None = None,
+    set_as_baseline: bool = False,
+) -> dict:
+    """User-driven snapshot: capture both our + ICICI numbers, compute drift.
+
+    If set_as_baseline=True, the computed deltas become the new expected baseline.
+    Useful when you've manually reconciled and confirmed the difference is
+    explained (e.g., a known corporate action mismatch).
+    """
+    our = _get_our_numbers()
+    expected = _get_expected_deltas()
+
+    # Compute actual deltas (our - icici)
+    delta_invested = our["our_invested"] - _to_dec(icici_invested)
+    delta_current = our["our_current_value"] - _to_dec(icici_current_value)
+    delta_day_gain = (
+        our["our_day_gain"] - _to_dec(icici_day_gain)
+        if icici_day_gain is not None
+        else None
+    )
+
+    # Compute drift (actual delta vs expected)
+    drift_invested = abs(delta_invested - expected.get("invested", Decimal("0")))
+    drift_current = abs(delta_current - expected.get("current_value", Decimal("0")))
+    drift_day_gain = (
+        abs(delta_day_gain - expected.get("day_gain", Decimal("0")))
+        if delta_day_gain is not None
+        else None
+    )
+
+    has_drift = (
+        drift_invested > DRIFT_ALERT_THRESHOLD
+        or drift_current > DRIFT_ALERT_THRESHOLD
+        or (drift_day_gain is not None and drift_day_gain > DRIFT_ALERT_THRESHOLD)
+    )
+
+    snapshot = {
+        "taken_at": datetime.now(timezone.utc),
+        "type": "manual",
+        **our,
+        "icici_invested": _to_dec(icici_invested),
+        "icici_current_value": _to_dec(icici_current_value),
+        "icici_day_gain": _to_dec(icici_day_gain)
+        if icici_day_gain is not None
+        else None,
+        "delta_invested": delta_invested,
+        "delta_current_value": delta_current,
+        "delta_day_gain": delta_day_gain,
+        "drift_invested": drift_invested,
+        "drift_current_value": drift_current,
+        "drift_day_gain": drift_day_gain,
+        "has_drift": has_drift,
+        "notes": notes,
+        "alerts_sent": [],
+        "_schema_version": 1,
+    }
+
+    # If user wants to bake in this delta as the new baseline
+    if set_as_baseline:
+        Collections.user_profile().update_one(
+            {},
+            {
+                "$set": {
+                    "reconciliation_baseline": {
+                        "expected_delta_invested": float(delta_invested),
+                        "expected_delta_current_value": float(delta_current),
+                        "expected_delta_day_gain": float(delta_day_gain)
+                        if delta_day_gain
+                        else 0.0,
+                        "explanation": notes or "Baseline accepted by user",
+                        "set_at": datetime.now(timezone.utc),
+                    }
+                }
+            },
+            upsert=True,
+        )
+        log.info(
+            "Reconciliation baseline updated: invested=%s, current=%s",
+            delta_invested,
+            delta_current,
+        )
+
+    # Send alerts if there's drift
+    if has_drift:
+        alerts_sent = _send_drift_alerts(snapshot)
+        snapshot["alerts_sent"] = alerts_sent
+
+    Collections.reconciliation_snapshots().insert_one(
+        _convert_decimals_to_decimal128(snapshot)
+    )
+    return snapshot
+
+
+def _send_drift_alerts(snapshot: dict) -> list[str]:
+    """Fire ntfy + email when drift is detected. Returns which channels succeeded."""
+    sent = []
+
+    drift_lines = []
+    if snapshot.get("drift_invested", 0) > DRIFT_ALERT_THRESHOLD:
+        drift_lines.append(
+            f"Invested drift: ₹{snapshot['drift_invested']:,.2f} "
+            f"(actual delta ₹{snapshot['delta_invested']:,.2f})"
+        )
+    if snapshot.get("drift_current_value", 0) > DRIFT_ALERT_THRESHOLD:
+        drift_lines.append(
+            f"Current value drift: ₹{snapshot['drift_current_value']:,.2f} "
+            f"(actual delta ₹{snapshot['delta_current_value']:,.2f})"
+        )
+    if (
+        snapshot.get("drift_day_gain")
+        and snapshot["drift_day_gain"] > DRIFT_ALERT_THRESHOLD
+    ):
+        drift_lines.append(f"Day gain drift: ₹{snapshot['drift_day_gain']:,.2f}")
+
+    if not drift_lines:
+        return sent
+
+    body_text = (
+        "Portfolio Advisor: reconciliation drift detected\n\n"
+        + "\n".join(drift_lines)
+        + "\n\nThis usually means a corporate action was applied on one side but not the other."
+        + "\nReview at the dashboard's Reconciliation page."
+    )
+    body_html = (
+        "<h3>Portfolio Advisor: reconciliation drift detected</h3>"
+        + "<ul>"
+        + "".join(f"<li>{line}</li>" for line in drift_lines)
+        + "</ul>"
+        + "<p>This usually means a corporate action was applied on one side but not the other.</p>"
+        + "<p><a href='http://100.112.20.41:3000/reconciliation'>Review on dashboard</a></p>"
+    )
+
+    try:
+        push_private(
+            topic="errors",
+            title="Portfolio reconciliation drift",
+            message=body_text,
+            priority="high",
+            tags=["warning", "money_with_wings"],
+        )
+        sent.append("ntfy")
+    except Exception as exc:
+        log.error("ntfy alert failed: %s", exc)
+
+    try:
+        email(
+            subject="Portfolio reconciliation drift detected",
+            html=body_html,
+        )
+        sent.append("email")
+    except Exception as exc:
+        log.error("email alert failed: %s", exc)
+
+    return sent
+
+
+def get_latest_snapshot(snapshot_type: str | None = None) -> dict | None:
+    """Get the most recent snapshot, optionally filtered by type ('manual' or 'auto')."""
+    query = {}
+    if snapshot_type:
+        query["type"] = snapshot_type
+    return Collections.reconciliation_snapshots().find_one(
+        query, sort=[("taken_at", -1)]
+    )
+
+
+def get_snapshot_history(limit: int = 30) -> list[dict]:
+    """Get last N snapshots, newest first."""
+    return list(
+        Collections.reconciliation_snapshots()
+        .find({})
+        .sort("taken_at", -1)
+        .limit(limit)
+    )

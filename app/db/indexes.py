@@ -176,4 +176,21 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ── reconciliation_snapshots ─────────────────────────────────────────────
+    results["reconciliation_snapshots"] = (
+        Collections.reconciliation_snapshots().create_indexes(
+            [
+                IndexModel([("taken_at", DESCENDING)], name="taken_at_desc"),
+                IndexModel(
+                    [("type", ASCENDING), ("taken_at", DESCENDING)],
+                    name="type_taken_at_desc",
+                ),
+                IndexModel(
+                    [("has_drift", ASCENDING), ("taken_at", DESCENDING)],
+                    name="drift_taken_at_desc",
+                ),
+            ]
+        )
+    )
+
     return results
