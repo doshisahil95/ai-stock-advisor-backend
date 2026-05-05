@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable
+from bson import Decimal128
 
 import yfinance as yf
 from pymongo import ASCENDING, DESCENDING, UpdateOne
@@ -271,8 +272,52 @@ def get_price_history(isin: str, days: int = 30) -> list[dict]:
     return list(cursor)
 
 
+def bulk_get_previous_closes(
+    isin_to_latest_date: dict[str, datetime],
+) -> dict[str, Decimal | None]:
+    """For each ISIN, get the close from the most recent trading day BEFORE
+    that ISIN's latest_date. Returns {isin: previous_close_decimal_or_None}.
+
+    Used to compute day gain — paired with bulk_get_latest_prices.
+    """
+    if not isin_to_latest_date:
+        return {}
+
+    pipeline = [
+        {"$match": {"isin": {"$in": list(isin_to_latest_date.keys())}}},
+        {"$sort": {"isin": 1, "date": -1}},
+        {
+            "$group": {
+                "_id": "$isin",
+                "all_dates": {"$push": {"date": "$date", "close": "$close"}},
+            }
+        },
+    ]
+
+    result: dict[str, Decimal | None] = {}
+    for group in Collections.prices_daily().aggregate(pipeline):
+        isin = group["_id"]
+        latest_date = isin_to_latest_date[isin]
+        prev_close = None
+        for entry in group["all_dates"]:
+            if entry["date"] < latest_date:
+                v = entry["close"]
+                if isinstance(v, Decimal128):
+                    prev_close = v.to_decimal()
+                elif isinstance(v, Decimal):
+                    prev_close = v
+                else:
+                    prev_close = Decimal(str(v))
+                break
+        result[isin] = prev_close
+
+    return result
+
+
 def annotate_with_current_price(
-    holding_doc: dict, latest_price_doc: dict | None
+    holding_doc: dict,
+    latest_price_doc: dict | None,
+    previous_close: Decimal | None = None,
 ) -> dict:
     """Compute live P&L fields and add them to a holding doc.
 
@@ -281,10 +326,13 @@ def annotate_with_current_price(
       - current_value (Decimal) = qty * current_price
       - unrealized_pnl (Decimal) = current_value - invested_amount
       - unrealized_pnl_pct (float) = unrealized_pnl / invested_amount * 100
+      - day_gain (Decimal) = qty * (current_price - previous_close)
+      - day_gain_pct (float) = (current_price / previous_close - 1) * 100
       - price_as_of (datetime) = the date of the latest price used
       - price_stale (bool) = true if latest price is more than 4 trading days old
 
     If no price is available, sets all the above to None / 0.
+    Day gain fields are only populated if `previous_close` is provided.
     """
     from datetime import datetime, timezone, timedelta
     from bson import Decimal128
@@ -301,30 +349,42 @@ def annotate_with_current_price(
         holding_doc["current_value"] = None
         holding_doc["unrealized_pnl"] = None
         holding_doc["unrealized_pnl_pct"] = None
+        holding_doc["day_gain"] = None
+        holding_doc["day_gain_pct"] = None
         holding_doc["price_as_of"] = None
         holding_doc["price_stale"] = True
         return holding_doc
 
     qty = _to_dec(holding_doc["quantity"])
-    avg_cost = _to_dec(holding_doc["avg_cost"])
     invested = _to_dec(holding_doc["invested_amount"])
     current_price = _to_dec(latest_price_doc["close"])
     current_value = (qty * current_price).quantize(Decimal("0.01"))
     unrealized_pnl = (current_value - invested).quantize(Decimal("0.01"))
     pnl_pct = float((unrealized_pnl / invested) * 100) if invested > 0 else None
 
+    # Day's gain (if we have yesterday's close)
+    if previous_close is not None and previous_close > 0:
+        prev_value = (qty * previous_close).quantize(Decimal("0.01"))
+        day_gain = (current_value - prev_value).quantize(Decimal("0.01"))
+        day_gain_pct = float(((current_price / previous_close) - 1) * 100)
+    else:
+        day_gain = None
+        day_gain_pct = None
+
     price_date = latest_price_doc["date"]
     if price_date.tzinfo is None:
         price_date = price_date.replace(tzinfo=timezone.utc)
-    is_stale = (datetime.now(timezone.utc) - price_date) > timedelta(
-        days=6
-    )  # 4 trading days ≈ 6 calendar
+    is_stale = (datetime.now(timezone.utc) - price_date) > timedelta(days=6)
 
     holding_doc["current_price"] = current_price
     holding_doc["current_value"] = current_value
     holding_doc["unrealized_pnl"] = unrealized_pnl
     holding_doc["unrealized_pnl_pct"] = (
         round(pnl_pct, 2) if pnl_pct is not None else None
+    )
+    holding_doc["day_gain"] = day_gain
+    holding_doc["day_gain_pct"] = (
+        round(day_gain_pct, 2) if day_gain_pct is not None else None
     )
     holding_doc["price_as_of"] = price_date
     holding_doc["price_stale"] = is_stale

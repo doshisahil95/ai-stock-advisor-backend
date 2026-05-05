@@ -19,6 +19,7 @@ from app.services.instrument_service import lookup_isin
 from app.services.price_service import (
     annotate_with_current_price,
     bulk_get_latest_prices,
+    bulk_get_previous_closes,
     get_latest_price,
     get_price_history,
 )
@@ -137,7 +138,20 @@ def list_holdings() -> list[dict]:
     price_map = bulk_get_latest_prices(isins)
 
     # Annotate each holding with live P&L
-    annotated = [annotate_with_current_price(d, price_map.get(d["isin"])) for d in docs]
+    # Bulk-fetch previous trading day's close for day gain computation
+    isin_to_date = {
+        d["isin"]: price_map[d["isin"]]["date"] for d in docs if d["isin"] in price_map
+    }
+    prev_close_map = bulk_get_previous_closes(isin_to_date)
+
+    annotated = [
+        annotate_with_current_price(
+            d,
+            price_map.get(d["isin"]),
+            prev_close_map.get(d["isin"]),
+        )
+        for d in docs
+    ]
     return [_doc_to_response(d) for d in annotated]
 
 
