@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.db.client import Collections
-from app.services.notify import push_private, email
+from app.services.notify import push_public, email
 from app.services.portfolio_service import compute_summary
 from app.services.price_service import bulk_get_latest_prices
 from app.models._common import _convert_decimals_to_decimal128
@@ -149,10 +149,10 @@ def take_manual_snapshot(
         else None
     )
 
+    # Day-gain drift is excluded — it's noise from intra-day timing, not real drift.
+    # Invested + current value are stable enough through the day to be meaningful.
     has_drift = (
-        drift_invested > DRIFT_ALERT_THRESHOLD
-        or drift_current > DRIFT_ALERT_THRESHOLD
-        or (drift_day_gain is not None and drift_day_gain > DRIFT_ALERT_THRESHOLD)
+        drift_invested > DRIFT_ALERT_THRESHOLD or drift_current > DRIFT_ALERT_THRESHOLD
     )
 
     snapshot = {
@@ -252,8 +252,8 @@ def _send_drift_alerts(snapshot: dict) -> list[str]:
     )
 
     try:
-        push_private(
-            topic="errors",
+        push_public(
+            channel="price",  # reconciliation drift = portfolio impact = price channel
             title="Portfolio reconciliation drift",
             message=body_text,
             priority="high",
