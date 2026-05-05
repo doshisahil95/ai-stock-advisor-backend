@@ -20,6 +20,7 @@ from app.services.price_service import (
     annotate_with_current_price,
     bulk_get_latest_prices,
     get_latest_price,
+    get_price_history,
 )
 from app.services.yfinance_lookup import fetch_metadata
 
@@ -73,6 +74,27 @@ class HoldingMetadataPatch(BaseModel):
 
 
 # ── Response helpers ─────────────────────────────────────────────────────────
+
+
+def _serialize_for_response(value):
+    """Recursive JSON-serializer for Mongo docs: Decimal128 → str, ObjectId → str, datetime → ISO."""
+    from datetime import datetime
+    from decimal import Decimal
+    from bson import Decimal128, ObjectId
+
+    if isinstance(value, Decimal128):
+        return str(value.to_decimal())
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _serialize_for_response(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_serialize_for_response(v) for v in value]
+    return value
 
 
 def _doc_to_response(doc: dict) -> dict:
@@ -129,6 +151,46 @@ def get_holding(isin: str) -> dict:
     latest = get_latest_price(isin)
     annotated = annotate_with_current_price(doc, latest)
     return _doc_to_response(annotated)
+
+
+@router.get(
+    "/{isin}/history",
+    summary="Get price history (OHLCV) for a holding",
+)
+def get_holding_history(isin: str, days: int = 90) -> list[dict]:
+    """Return the last N trading days of OHLCV for this ISIN.
+
+    Args:
+        isin: instrument ISIN
+        days: number of trading days to return (default 90, max 2000)
+
+    Returns:
+        List of {date, open, high, low, close, volume} sorted oldest → newest.
+        Empty list if no price data available.
+    """
+    days = max(1, min(days, 2000))
+    rows = get_price_history(isin, days=days)
+    # get_price_history returns newest-first; reverse for chart consumption
+    rows.reverse()
+    return _serialize_for_response(rows)
+
+
+@router.get(
+    "/{isin}/transactions",
+    summary="Get all transactions for a holding (chronological)",
+)
+def get_holding_transactions(isin: str) -> list[dict]:
+    """Return all BUY/SELL/SPLIT/BONUS transactions for this ISIN, oldest → newest.
+
+    Includes corporate actions (splits, bonuses) so the UI can show the full
+    audit trail. Excludes only soft-deleted transactions.
+    """
+    docs = list(
+        Collections.transactions()
+        .find({"isin": isin, "deleted_at": None})
+        .sort("trade_date", 1)
+    )
+    return _serialize_for_response(docs)
 
 
 @router.post("", summary="Record a BUY (creates or adds to a holding)", status_code=201)
