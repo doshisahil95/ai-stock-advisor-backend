@@ -314,6 +314,27 @@ def bulk_get_previous_closes(
     return result
 
 
+def get_previous_close(isin: str, before_date: datetime) -> Decimal | None:
+    """Get the close from the most recent trading day BEFORE `before_date`.
+
+    Single-ISIN version of bulk_get_previous_closes. Use this for endpoints
+    that work on one holding at a time.
+    """
+    doc = Collections.prices_daily().find_one(
+        {"isin": isin, "date": {"$lt": before_date}},
+        sort=[("date", -1)],
+        projection={"close": 1, "_id": 0},
+    )
+    if not doc:
+        return None
+    v = doc["close"]
+    if isinstance(v, Decimal128):
+        return v.to_decimal()
+    if isinstance(v, Decimal):
+        return v
+    return Decimal(str(v))
+
+
 def annotate_with_current_price(
     holding_doc: dict,
     latest_price_doc: dict | None,
@@ -335,7 +356,6 @@ def annotate_with_current_price(
     Day gain fields are only populated if `previous_close` is provided.
     """
     from datetime import datetime, timezone, timedelta
-    from bson import Decimal128
 
     def _to_dec(v):
         if isinstance(v, Decimal128):

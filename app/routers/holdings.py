@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from pydoc import doc
 from typing import Annotated, Any
 
 from bson import ObjectId
@@ -21,6 +22,7 @@ from app.services.price_service import (
     bulk_get_latest_prices,
     bulk_get_previous_closes,
     get_latest_price,
+    get_previous_close,
     get_price_history,
 )
 from app.services.yfinance_lookup import fetch_metadata
@@ -163,7 +165,8 @@ def get_holding(isin: str) -> dict:
             status.HTTP_404_NOT_FOUND, f"No active holding for ISIN {isin}"
         )
     latest = get_latest_price(isin)
-    annotated = annotate_with_current_price(doc, latest)
+    prev_close = get_previous_close(isin, latest["date"]) if latest else None
+    annotated = annotate_with_current_price(doc, latest, prev_close)
     return _doc_to_response(annotated)
 
 
@@ -255,7 +258,8 @@ def add_buy(req: AddBuyRequest) -> dict:
 
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
     latest = get_latest_price(isin)
-    annotated = annotate_with_current_price(doc, latest)
+    prev_close = get_previous_close(isin, latest["date"]) if latest else None
+    annotated = annotate_with_current_price(doc, latest, prev_close)
     return _doc_to_response(annotated)
 
 
@@ -297,7 +301,8 @@ def sell(isin: str, req: SellRequest) -> dict:
 
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
     latest = get_latest_price(isin)
-    annotated = annotate_with_current_price(doc, latest)
+    prev_close = get_previous_close(isin, latest["date"]) if latest else None
+    annotated = annotate_with_current_price(doc, latest, prev_close)
     return _doc_to_response(annotated)
 
 
