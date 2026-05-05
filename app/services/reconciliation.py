@@ -28,7 +28,11 @@ from app.models._common import _convert_decimals_to_decimal128
 log = logging.getLogger(__name__)
 
 # Drift over this absolute amount triggers an alert
-DRIFT_ALERT_THRESHOLD = Decimal("1000.00")
+# Invested is stable through the day — small threshold catches real drift
+DRIFT_ALERT_THRESHOLD_INVESTED = Decimal("1000.00")
+# Current value depends on live prices — only flag truly large deltas
+# (e.g. missed corporate action causing wrong quantity)
+DRIFT_ALERT_THRESHOLD_CURRENT_VALUE = Decimal("15000.00")
 
 
 def _to_dec(v: Any) -> Decimal:
@@ -98,10 +102,11 @@ def take_auto_snapshot() -> dict:
         delta_invested_change = _to_dec(our["our_invested"]) - _to_dec(
             last_manual.get("our_invested")
         )
-        # Heuristic: if our_invested changed by more than ₹100 since last manual
-        # snapshot, but the user hasn't entered a new manual snapshot in 14+ days,
-        # nudge them to reconcile.
-        days_since = (datetime.now(timezone.utc) - last_manual["taken_at"]).days
+        # Mongo strips tzinfo; restore it for safe subtraction.
+        last_taken_at = last_manual["taken_at"]
+        if last_taken_at.tzinfo is None:
+            last_taken_at = last_taken_at.replace(tzinfo=timezone.utc)
+        days_since = (datetime.now(timezone.utc) - last_taken_at).days
         if abs(delta_invested_change) > Decimal("100") and days_since >= 14:
             snapshot["notes"] = (
                 f"Auto snapshot: our_invested changed by ₹{delta_invested_change} "
@@ -141,18 +146,22 @@ def take_manual_snapshot(
     )
 
     # Compute drift (actual delta vs expected)
+    # Drift detection — different rules per field:
+    # - invested: stable through the day, baseline meaningful, low threshold
+    # - current_value: live prices make baseline noisy; only alert on huge deltas
+    #   (which would indicate a wrong quantity, e.g. missed corporate action)
+    # - day_gain: intra-day timing noise dominates; never alert
     drift_invested = abs(delta_invested - expected.get("invested", Decimal("0")))
-    drift_current = abs(delta_current - expected.get("current_value", Decimal("0")))
+    drift_current = abs(delta_current)  # NO baseline subtraction — just absolute delta
     drift_day_gain = (
         abs(delta_day_gain - expected.get("day_gain", Decimal("0")))
         if delta_day_gain is not None
         else None
     )
 
-    # Day-gain drift is excluded — it's noise from intra-day timing, not real drift.
-    # Invested + current value are stable enough through the day to be meaningful.
     has_drift = (
-        drift_invested > DRIFT_ALERT_THRESHOLD or drift_current > DRIFT_ALERT_THRESHOLD
+        drift_invested > DRIFT_ALERT_THRESHOLD_INVESTED
+        or drift_current > DRIFT_ALERT_THRESHOLD_CURRENT_VALUE
     )
 
     snapshot = {
@@ -184,10 +193,6 @@ def take_manual_snapshot(
                 "$set": {
                     "reconciliation_baseline": {
                         "expected_delta_invested": float(delta_invested),
-                        "expected_delta_current_value": float(delta_current),
-                        "expected_delta_day_gain": float(delta_day_gain)
-                        if delta_day_gain
-                        else 0.0,
                         "explanation": notes or "Baseline accepted by user",
                         "set_at": datetime.now(timezone.utc),
                     }
@@ -217,21 +222,16 @@ def _send_drift_alerts(snapshot: dict) -> list[str]:
     sent = []
 
     drift_lines = []
-    if snapshot.get("drift_invested", 0) > DRIFT_ALERT_THRESHOLD:
+    if snapshot.get("drift_invested", 0) > DRIFT_ALERT_THRESHOLD_INVESTED:
         drift_lines.append(
             f"Invested drift: ₹{snapshot['drift_invested']:,.2f} "
-            f"(actual delta ₹{snapshot['delta_invested']:,.2f})"
+            f"(actual delta {snapshot['delta_invested']:+,.2f} vs expected baseline)"
         )
-    if snapshot.get("drift_current_value", 0) > DRIFT_ALERT_THRESHOLD:
+    if snapshot.get("drift_current_value", 0) > DRIFT_ALERT_THRESHOLD_CURRENT_VALUE:
         drift_lines.append(
-            f"Current value drift: ₹{snapshot['drift_current_value']:,.2f} "
-            f"(actual delta ₹{snapshot['delta_current_value']:,.2f})"
+            f"Current value off by ₹{snapshot['drift_current_value']:,.2f} "
+            f"(may indicate wrong quantity from a missed corporate action)"
         )
-    if (
-        snapshot.get("drift_day_gain")
-        and snapshot["drift_day_gain"] > DRIFT_ALERT_THRESHOLD
-    ):
-        drift_lines.append(f"Day gain drift: ₹{snapshot['drift_day_gain']:,.2f}")
 
     if not drift_lines:
         return sent
