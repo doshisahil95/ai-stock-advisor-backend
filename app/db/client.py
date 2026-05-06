@@ -104,6 +104,10 @@ class Collections:
     def reconciliation_snapshots():
         return get_db()["reconciliation_snapshots"]
 
+    @staticmethod
+    def prices_intraday():
+        return get_db()["prices_intraday"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

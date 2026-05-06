@@ -193,4 +193,14 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         )
     )
 
+    results["prices_intraday"] = Collections.prices_intraday().create_indexes(
+        [
+            IndexModel(
+                [("isin", ASCENDING), ("captured_at", DESCENDING)],
+                name="isin_captured_at_desc",
+            ),
+            IndexModel([("captured_at", DESCENDING)], name="captured_at_desc"),
+        ]
+    )
+
     return results

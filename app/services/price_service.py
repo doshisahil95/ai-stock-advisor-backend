@@ -240,11 +240,22 @@ def get_latest_price(isin: str) -> dict | None:
 
 
 def bulk_get_latest_prices(isins: list[str]) -> dict[str, dict]:
-    """Get the most recent price row for each ISIN. Returns {isin: doc}."""
+    """Get the most recent price row for each ISIN. Returns {isin: doc}.
+
+    Preference order:
+      1. Today's most recent intraday quote (from prices_intraday) — if available
+      2. Most recent EOD bar (from prices_daily)
+
+    Intraday docs are normalized into the same shape as EOD docs:
+      - 'close' field is set to the intraday 'price' so callers don't care which source
+      - 'date' is set to captured_at (so price_as_of stays meaningful)
+    """
     if not isins:
         return {}
 
-    # Aggregation: group by isin, take the doc with max date per group
+    intraday = bulk_get_latest_intraday(isins)
+
+    # Always fetch EOD too — used as fallback and for ISINs with no intraday
     pipeline = [
         {"$match": {"isin": {"$in": isins}}},
         {"$sort": {"isin": 1, "date": -1}},
@@ -255,10 +266,25 @@ def bulk_get_latest_prices(isins: list[str]) -> dict[str, dict]:
             }
         },
     ]
-    return {
+    eod = {
         doc["_id"]: doc["latest"]
         for doc in Collections.prices_daily().aggregate(pipeline)
     }
+
+    merged: dict[str, dict] = {}
+    for isin in isins:
+        if isin in intraday:
+            i = intraday[isin]
+            # Normalize to the shape annotate_with_current_price expects
+            merged[isin] = {
+                **i,
+                "close": i["price"],
+                "date": i["captured_at"],
+            }
+        elif isin in eod:
+            merged[isin] = eod[isin]
+
+    return merged
 
 
 def get_price_history(isin: str, days: int = 30) -> list[dict]:
@@ -410,3 +436,158 @@ def annotate_with_current_price(
     holding_doc["price_stale"] = is_stale
 
     return holding_doc
+
+
+# ── Intraday fetch & storage ─────────────────────────────────────────────────
+
+
+def fetch_intraday_quotes(holdings_meta: list[dict]) -> list[dict]:
+    """Fetch the latest intraday quote per holding via yfinance 5-min bars.
+
+    Args:
+        holdings_meta: list of dicts each with keys 'isin', 'symbol', 'exchange'
+
+    Returns:
+        list of intraday-quote dicts ready for insert into prices_intraday.
+        Empty list if market closed / yfinance returns nothing.
+    """
+    if not holdings_meta:
+        return []
+
+    BATCH_SIZE = 50
+    all_rows: list[dict] = []
+    now_utc = datetime.now(timezone.utc)
+
+    ticker_meta: dict[str, dict] = {}
+    for h in holdings_meta:
+        yt = to_yahoo_ticker(h["symbol"], h.get("exchange", "NSE"))
+        ticker_meta[yt] = h
+
+    tickers_list = list(ticker_meta.keys())
+    log.info("Intraday fetch: %d tickers (5m bars, period=1d)", len(tickers_list))
+
+    for i in range(0, len(tickers_list), BATCH_SIZE):
+        batch = tickers_list[i : i + BATCH_SIZE]
+        try:
+            df = yf.download(
+                tickers=" ".join(batch),
+                period="1d",
+                interval="5m",
+                auto_adjust=False,
+                group_by="ticker",
+                progress=False,
+                threads=True,
+            )
+        except Exception as exc:
+            log.error("Intraday batch fetch failed: %s", exc)
+            continue
+
+        if df is None or df.empty:
+            log.warning("Intraday batch returned empty df — market closed?")
+            continue
+
+        # Same column normalization as fetch_eod_prices
+        if hasattr(df.columns, "levels") and len(df.columns.levels) == 2:
+            outer_values = set(df.columns.get_level_values(0))
+            if outer_values & {"Open", "Close", "High", "Low", "Volume", "Adj Close"}:
+                df = df.swaplevel(axis=1)
+                df = df.sort_index(axis=1)
+
+        # Per-ticker extraction
+        if len(batch) == 1 and not hasattr(df.columns, "levels"):
+            yt = batch[0]
+            row = _intraday_row_from_df(df, yt, ticker_meta[yt], now_utc)
+            if row:
+                all_rows.append(row)
+        else:
+            available_tickers = (
+                set(df.columns.get_level_values(0))
+                if hasattr(df.columns, "levels")
+                else {batch[0]}
+            )
+            for yt in batch:
+                if yt not in available_tickers:
+                    continue
+                ticker_df = df[yt].dropna(how="all")
+                if ticker_df.empty:
+                    continue
+                row = _intraday_row_from_df(ticker_df, yt, ticker_meta[yt], now_utc)
+                if row:
+                    all_rows.append(row)
+
+        if i + BATCH_SIZE < len(tickers_list):
+            time.sleep(0.3)
+
+    log.info("Intraday fetch: got %d quotes", len(all_rows))
+    return all_rows
+
+
+def _intraday_row_from_df(
+    ticker_df, yahoo_ticker: str, meta: dict, captured_at: datetime
+) -> dict | None:
+    """Reduce an intraday OHLCV DF into a single 'latest quote' row."""
+    try:
+        clean = ticker_df.dropna(subset=["Close"])
+        if clean.empty:
+            return None
+        last = clean.iloc[-1]
+        return {
+            "isin": meta["isin"],
+            "symbol": meta["symbol"],
+            "exchange": meta.get("exchange", "NSE"),
+            "captured_at": captured_at,
+            "price": Decimal(str(round(float(last["Close"]), 4))),
+            "open_today": Decimal(str(round(float(clean.iloc[0]["Open"]), 4))),
+            "day_high": Decimal(str(round(float(clean["High"].max()), 4))),
+            "day_low": Decimal(str(round(float(clean["Low"].min()), 4))),
+            "volume_today": int(clean["Volume"].sum() or 0),
+            "source": "yfinance_intraday",
+            "_schema_version": 1,
+        }
+    except Exception as exc:
+        log.warning("Skipping intraday row for %s: %s", yahoo_ticker, exc)
+        return None
+
+
+def insert_intraday_quotes(rows: list[dict]) -> int:
+    """Insert (not upsert) intraday quotes — each cron run is its own snapshot.
+
+    Returns count inserted.
+    """
+    if not rows:
+        return 0
+    docs = [_convert_decimals_to_decimal128(r) for r in rows]
+    Collections.prices_intraday().insert_many(docs, ordered=False)
+    return len(docs)
+
+
+def bulk_get_latest_intraday(isins: list[str]) -> dict[str, dict]:
+    """For each ISIN, return the most recent intraday quote captured TODAY (UTC).
+
+    Returns {} for ISINs without an intraday quote today (e.g. weekends, off hours).
+    """
+    if not isins:
+        return {}
+
+    now_utc = datetime.now(timezone.utc)
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    pipeline = [
+        {
+            "$match": {
+                "isin": {"$in": isins},
+                "captured_at": {"$gte": today_start},
+            }
+        },
+        {"$sort": {"isin": 1, "captured_at": -1}},
+        {
+            "$group": {
+                "_id": "$isin",
+                "doc": {"$first": "$$ROOT"},
+            }
+        },
+    ]
+
+    return {
+        r["_id"]: r["doc"] for r in Collections.prices_intraday().aggregate(pipeline)
+    }
