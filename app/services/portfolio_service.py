@@ -226,6 +226,37 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         "fully_exited_lifetime": fully_exited_count,
     }
 
+    # ── Broker view (vs tax-correct) ─────────────────────────────────────────
+    # ICICI/Zerodha display "invested" using nominal cost (no IT Act adjustments).
+    # Our cost basis applies adjustments per Section 49(2C) etc.
+    # If adjustments exist, expose what the broker would show alongside.
+    from app.services.cost_basis_service import total_adjustment_amount
+
+    adjustment_total = total_adjustment_amount()
+    if adjustment_total != Decimal("0"):
+        # adjustment_total is signed: (our_invested - broker_invested)
+        # so broker_invested = our_invested - adjustment_total
+        broker_invested = total_invested - adjustment_total
+        broker_unrealized_pnl = (total_current - broker_invested).quantize(
+            Decimal("0.01")
+        )
+        broker_unrealized_pnl_pct = (
+            float((broker_unrealized_pnl / broker_invested) * 100)
+            if broker_invested > 0
+            else None
+        )
+        totals["broker_invested"] = broker_invested.quantize(Decimal("0.01"))
+        totals["broker_unrealized_pnl"] = broker_unrealized_pnl
+        totals["broker_unrealized_pnl_pct"] = (
+            round(broker_unrealized_pnl_pct, 2)
+            if broker_unrealized_pnl_pct is not None
+            else None
+        )
+    else:
+        totals["broker_invested"] = None
+        totals["broker_unrealized_pnl"] = None
+        totals["broker_unrealized_pnl_pct"] = None
+
     # ── Movers ──────────────────────────────────────────────────────────────
     with_pnl = [h for h in annotated if h["unrealized_pnl"] is not None]
 

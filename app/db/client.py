@@ -108,6 +108,10 @@ class Collections:
     def prices_intraday():
         return get_db()["prices_intraday"]
 
+    @staticmethod
+    def cost_basis_adjustments() -> Collection:
+        return get_db()["cost_basis_adjustments"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

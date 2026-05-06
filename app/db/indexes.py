@@ -203,4 +203,20 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ── cost_basis_adjustments ───────────────────────────────────────────────
+    # Each row documents one IT-Act-driven divergence between our tax-basis
+    # cost and the broker's nominal cost. Used both to compute "broker view"
+    # P&L and to render the CA-facing audit trail.
+    results["cost_basis_adjustments"] = (
+        Collections.cost_basis_adjustments().create_indexes(
+            [
+                IndexModel(
+                    [("effective_date", DESCENDING)], name="effective_date_desc"
+                ),
+                IndexModel([("isin", ASCENDING)], name="isin"),
+                IndexModel([("active", ASCENDING)], name="active"),
+            ]
+        )
+    )
+
     return results
