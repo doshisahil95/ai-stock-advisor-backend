@@ -16,8 +16,6 @@ from app.models._common import Money, _convert_decimals_to_decimal128, utcnow
 from app.models.holding import Holding
 from app.models.transaction import Transaction
 from app.services.holdings_service import (
-    record_buy,
-    record_sell,
     recompute_holding,
     preview_sell,
 )
