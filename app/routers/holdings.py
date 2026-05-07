@@ -15,7 +15,12 @@ from app.db.client import Collections
 from app.models._common import Money, _convert_decimals_to_decimal128, utcnow
 from app.models.holding import Holding
 from app.models.transaction import Transaction
-from app.services.holdings_service import recompute_holding
+from app.services.holdings_service import (
+    record_buy,
+    record_sell,
+    recompute_holding,
+    preview_sell,
+)
 from app.services.instrument_service import lookup_isin
 from app.services.price_service import (
     annotate_with_current_price,
@@ -261,6 +266,24 @@ def add_buy(req: AddBuyRequest) -> dict:
     prev_close = get_previous_close(isin, latest["date"]) if latest else None
     annotated = annotate_with_current_price(doc, latest, prev_close)
     return _doc_to_response(annotated)
+
+
+@router.post(
+    "/{isin}/preview-sell",
+    summary="Preview a SELL (no DB writes) — shows realized P&L",
+)
+def preview_sell_endpoint(isin: str, payload: SellRequest) -> dict:
+    """Read-only simulation of a SELL — used by the UI to show preview values
+    before the user confirms.
+
+    Same payload shape as the real /sell endpoint, but doesn't write anything.
+    """
+    result = preview_sell(
+        isin=isin,
+        sell_quantity=payload.quantity,
+        sell_price=payload.price,
+    )
+    return _serialize_for_response(result)
 
 
 @router.post("/{isin}/sell", summary="Record a SELL (FIFO depletion)")

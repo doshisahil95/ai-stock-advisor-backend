@@ -39,6 +39,20 @@ class _Lot:
     trade_date: datetime
 
 
+def _to_decimal(value) -> Decimal:
+    """Convert a Mongo-stored numeric value to Python Decimal.
+
+    Handles Decimal128 (Mongo's native), Decimal, and string/int/float fallbacks.
+    """
+    from bson import Decimal128
+
+    if isinstance(value, Decimal128):
+        return value.to_decimal()
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
 def _fifo_replay(transactions: Iterable[dict]) -> dict:
     """Replay transactions chronologically with FIFO depletion.
 
@@ -246,24 +260,28 @@ def recompute_holding(isin: str) -> Holding | None:
         # Filter on isin only (no deleted_at constraint) so this works whether
         # we're soft-deleting an active row, refreshing an already-deleted row,
         # or creating a fresh soft-deleted record (e.g., post --wipe-live).
-        update_doc = _convert_decimals_to_decimal128({
-            **computed,
-            **meta,
-            "last_recomputed_at": utcnow(),
-            "updated_at": utcnow(),
-            "deleted_at": utcnow(),
-        })
-        set_on_insert = _convert_decimals_to_decimal128({
-            "isin": isin,
-            "_schema_version": 1,
-            "created_at": utcnow(),
-            "user_notes": "",
-            "thesis": "",
-            "tags": [],
-            "stop_loss": None,
-            "target_price": None,
-            "alert_on": ["stop_loss", "target", "earnings", "news", "52w_high"],
-        })
+        update_doc = _convert_decimals_to_decimal128(
+            {
+                **computed,
+                **meta,
+                "last_recomputed_at": utcnow(),
+                "updated_at": utcnow(),
+                "deleted_at": utcnow(),
+            }
+        )
+        set_on_insert = _convert_decimals_to_decimal128(
+            {
+                "isin": isin,
+                "_schema_version": 1,
+                "created_at": utcnow(),
+                "user_notes": "",
+                "thesis": "",
+                "tags": [],
+                "stop_loss": None,
+                "target_price": None,
+                "alert_on": ["stop_loss", "target", "earnings", "news", "52w_high"],
+            }
+        )
         holdings_coll.update_one(
             {"isin": isin},
             {"$set": update_doc, "$setOnInsert": set_on_insert},
@@ -303,3 +321,148 @@ def recompute_holding(isin: str) -> Holding | None:
 
     doc = holdings_coll.find_one({"isin": isin, "deleted_at": None})
     return Holding(**doc) if doc else None
+
+
+def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict:
+    """Simulate a SELL transaction (no DB writes) and return what would happen.
+
+    Used by the UI's Sell sheet to show "if you sell X at ₹Y, you'll realize ₹Z"
+    before the user confirms.
+
+    Replays all transactions to derive current open lots (FIFO), then walks
+    those lots to compute what this hypothetical SELL would consume. No DB writes.
+
+    Returns:
+      {
+        "valid": True,
+        "realized_pnl": Decimal,
+        "remaining_qty": Decimal,
+        "remaining_invested": Decimal,
+        "remaining_avg_cost": Decimal,
+        "fully_exits": bool,
+        "lots_consumed": list[dict],
+      }
+    Or:
+      {"valid": False, "error": "..."}
+    """
+    if sell_quantity <= 0:
+        return {"valid": False, "error": "Quantity must be positive"}
+    if sell_price <= 0:
+        return {"valid": False, "error": "Price must be positive"}
+
+    transactions = list(
+        Collections.transactions()
+        .find({"isin": isin, "deleted_at": None})
+        .sort("trade_date", ASCENDING)
+    )
+    if not transactions:
+        return {"valid": False, "error": f"No transactions found for {isin}"}
+
+    # Reconstruct current open lots by replaying transactions FIFO
+    open_lots: list[dict] = []  # [{trade_date, qty, price}, ...] — chronological
+
+    for tx in transactions:
+        tx_type = tx.get("type")
+        qty = _to_decimal(tx.get("quantity"))
+        price = _to_decimal(tx.get("price"))
+        trade_date = tx.get("trade_date")
+
+        if tx_type == "BUY":
+            open_lots.append(
+                {
+                    "trade_date": trade_date,
+                    "qty": qty,
+                    "price": price,
+                }
+            )
+        elif tx_type == "SELL":
+            # Consume from oldest lots first
+            qty_to_consume = qty
+            for lot in open_lots:
+                if qty_to_consume <= 0:
+                    break
+                consumed = min(qty_to_consume, lot["qty"])
+                lot["qty"] -= consumed
+                qty_to_consume -= consumed
+            # Drop fully-consumed lots
+            open_lots = [lot for lot in open_lots if lot["qty"] > 0]
+        # SPLIT/BONUS/etc. are corporate actions — outside this preview's scope.
+        # The actual record_sell handles them via _fifo_replay; we mirror that
+        # by ignoring non-BUY/SELL types here and assuming the existing lots
+        # already reflect any prior corporate actions in their adjusted prices.
+
+    available_qty = sum((lot["qty"] for lot in open_lots), start=Decimal("0"))
+
+    if available_qty <= 0:
+        return {"valid": False, "error": "Holding is already fully exited"}
+
+    if sell_quantity > available_qty:
+        return {
+            "valid": False,
+            "error": f"Not enough quantity. Available: {available_qty}, requested: {sell_quantity}",
+        }
+
+    # Now simulate the new SELL: walk open lots FIFO
+    qty_to_sell = sell_quantity
+    realized_pnl = Decimal("0")
+    lots_consumed: list[dict] = []
+
+    # Use a working copy so we can compute remaining invested afterwards
+    working = [
+        {"trade_date": lot["trade_date"], "qty": lot["qty"], "price": lot["price"]}
+        for lot in open_lots
+    ]
+
+    for lot in working:
+        if qty_to_sell <= 0:
+            break
+        if lot["qty"] <= 0:
+            continue
+        consumed = min(qty_to_sell, lot["qty"])
+        lot_realized = ((sell_price - lot["price"]) * consumed).quantize(
+            Decimal("0.01")
+        )
+        realized_pnl += lot_realized
+        lots_consumed.append(
+            {
+                "trade_date": (
+                    lot["trade_date"].isoformat()
+                    if hasattr(lot["trade_date"], "isoformat")
+                    else str(lot["trade_date"])
+                ),
+                "qty_consumed": consumed,
+                "cost_per_share": lot["price"],
+                "realized_pnl": lot_realized,
+            }
+        )
+        lot["qty"] -= consumed
+        qty_to_sell -= consumed
+
+    realized_pnl = realized_pnl.quantize(Decimal("0.01"))
+    remaining_qty = (available_qty - sell_quantity).quantize(Decimal("0.0001"))
+    fully_exits = remaining_qty == 0
+
+    remaining_invested = sum(
+        (
+            (lot["qty"] * lot["price"]).quantize(Decimal("0.01"))
+            for lot in working
+            if lot["qty"] > 0
+        ),
+        start=Decimal("0"),
+    )
+
+    remaining_avg_cost = (
+        (remaining_invested / remaining_qty).quantize(Decimal("0.0001"))
+        if remaining_qty > 0
+        else Decimal("0")
+    )
+
+    return {
+        "valid": True,
+        "realized_pnl": realized_pnl,
+        "remaining_qty": remaining_qty,
+        "remaining_invested": remaining_invested,
+        "remaining_avg_cost": remaining_avg_cost,
+        "fully_exits": fully_exits,
+        "lots_consumed": lots_consumed,
+    }
