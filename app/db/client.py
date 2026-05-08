@@ -112,6 +112,10 @@ class Collections:
     def cost_basis_adjustments() -> Collection:
         return get_db()["cost_basis_adjustments"]
 
+    @staticmethod
+    def transactions_audit() -> Collection:
+        return get_db()["transactions_audit"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

@@ -1,0 +1,246 @@
+"""Portfolio-wide transactions: search, edit, delete.
+
+Per-stock transactions live on the holdings router (/portfolio/holdings/{isin}/transactions).
+This router is for cross-portfolio queries and for editing/deleting individual transactions
+with full audit-log support.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any, Literal
+
+from bson import Decimal128, ObjectId
+from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.db.client import Collections
+from app.models._common import _convert_decimals_to_decimal128
+from app.services.holdings_service import recompute_holding
+from app.services.transactions_audit_service import log_change
+
+router = APIRouter(prefix="/transactions", tags=["transactions"])
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+Money = Decimal
+
+
+def _serialize(value: Any) -> Any:
+    if isinstance(value, Decimal128):
+        return str(value.to_decimal())
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _serialize(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_serialize(v) for v in value]
+    return value
+
+
+# ── Request models ───────────────────────────────────────────────────────────
+
+
+class EditTransactionRequest(BaseModel):
+    """Editable fields on a transaction. All optional; missing fields are unchanged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    quantity: Money | None = None
+    price: Money | None = None
+    trade_date: datetime | None = None
+    total_fees: Money | None = None
+    notes: str | None = None
+    reason: str | None = Field(
+        default=None, description="Why this is being edited (audit)"
+    )
+
+
+class DeleteTransactionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(
+        default=None, description="Why this is being deleted (audit)"
+    )
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+@router.get("/search", summary="Search/list transactions across the portfolio")
+def search_transactions(
+    symbol: str | None = Query(
+        None, description="Exact symbol match (case-insensitive)"
+    ),
+    type: Literal["BUY", "SELL", "SPLIT", "BONUS", "DIVIDEND"] | None = Query(None),
+    from_date: str | None = Query(
+        None, description="Inclusive lower bound, YYYY-MM-DD"
+    ),
+    to_date: str | None = Query(None, description="Inclusive upper bound, YYYY-MM-DD"),
+    include_deleted: bool = Query(False),
+    limit: int = Query(100, ge=1, le=1000),
+    skip: int = Query(0, ge=0),
+) -> dict:
+    """Filterable list of transactions, sorted newest first."""
+    query: dict = {}
+
+    if symbol:
+        query["symbol"] = symbol.upper()
+    if type:
+        query["type"] = type
+
+    date_filter: dict = {}
+    if from_date:
+        try:
+            date_filter["$gte"] = datetime.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"Invalid from_date: {from_date}"
+            )
+    if to_date:
+        try:
+            # End-of-day for inclusive upper bound
+            d = datetime.fromisoformat(to_date)
+            date_filter["$lte"] = d.replace(hour=23, minute=59, second=59)
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"Invalid to_date: {to_date}"
+            )
+    if date_filter:
+        query["trade_date"] = date_filter
+
+    if not include_deleted:
+        query["deleted_at"] = None
+
+    coll = Collections.transactions()
+    total = coll.count_documents(query)
+    cursor = coll.find(query).sort("trade_date", -1).skip(skip).limit(limit)
+
+    return {
+        "transactions": _serialize(list(cursor)),
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+    }
+
+
+@router.get("/{tx_id}", summary="Get one transaction by id")
+def get_transaction(tx_id: str) -> dict:
+    try:
+        oid = ObjectId(tx_id)
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Invalid transaction id: {tx_id}"
+        )
+
+    tx = Collections.transactions().find_one({"_id": oid})
+    if not tx:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"Transaction not found: {tx_id}"
+        )
+    return _serialize(tx)
+
+
+@router.patch("/{tx_id}", summary="Edit a transaction (with audit log + recompute)")
+def edit_transaction(tx_id: str, payload: EditTransactionRequest) -> dict:
+    """Update a transaction's editable fields, log to audit, recompute the holding.
+
+    Editing quantity/price/date materially changes realized P&L history.
+    The `reason` field is captured in the audit log.
+    """
+    try:
+        oid = ObjectId(tx_id)
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Invalid transaction id: {tx_id}"
+        )
+
+    before = Collections.transactions().find_one({"_id": oid})
+    if not before:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"Transaction not found: {tx_id}"
+        )
+    if before.get("deleted_at"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Cannot edit a deleted transaction"
+        )
+
+    update_fields: dict = {}
+    for field in ("quantity", "price", "trade_date", "total_fees", "notes"):
+        value = getattr(payload, field, None)
+        if value is not None:
+            update_fields[field] = value
+
+    if not update_fields:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
+
+    update_fields["updated_at"] = datetime.now(timezone.utc)
+
+    Collections.transactions().update_one(
+        {"_id": oid},
+        {"$set": _convert_decimals_to_decimal128(update_fields)},
+    )
+
+    after = Collections.transactions().find_one({"_id": oid})
+
+    # Audit log BEFORE recompute, so it captures the change cleanly
+    log_change(
+        transaction_id=str(oid),
+        isin=before["isin"],
+        action="edit",
+        before=_serialize(before),
+        after=_serialize(after),
+        reason=payload.reason,
+    )
+
+    recompute_holding(before["isin"])
+
+    return _serialize(after)
+
+
+@router.delete(
+    "/{tx_id}", summary="Soft-delete a transaction (with audit log + recompute)"
+)
+def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
+    try:
+        oid = ObjectId(tx_id)
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Invalid transaction id: {tx_id}"
+        )
+
+    before = Collections.transactions().find_one({"_id": oid})
+    if not before:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"Transaction not found: {tx_id}"
+        )
+    if before.get("deleted_at"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Already deleted")
+
+    now = datetime.now(timezone.utc)
+    Collections.transactions().update_one(
+        {"_id": oid},
+        {"$set": {"deleted_at": now, "updated_at": now}},
+    )
+
+    log_change(
+        transaction_id=str(oid),
+        isin=before["isin"],
+        action="delete",
+        before=_serialize(before),
+        after=None,
+        reason=payload.reason,
+    )
+
+    recompute_holding(before["isin"])
+
+    return {
+        "message": f"Transaction {tx_id} soft-deleted",
+        "isin": before["isin"],
+        "symbol": before.get("symbol"),
+    }

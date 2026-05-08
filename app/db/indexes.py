@@ -219,4 +219,18 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         )
     )
 
+    # ── transactions_audit ───────────────────────────────────────────────────
+    # Append-only log of every edit/delete on a transaction. Used for the CA-
+    # facing audit trail and for explaining retroactive realized-P&L changes.
+    results["transactions_audit"] = Collections.transactions_audit().create_indexes(
+        [
+            IndexModel([("changed_at", DESCENDING)], name="changed_at_desc"),
+            IndexModel(
+                [("transaction_id", ASCENDING), ("changed_at", DESCENDING)],
+                name="transaction_id_changed_at_desc",
+            ),
+            IndexModel([("isin", ASCENDING)], name="audit_isin"),
+        ]
+    )
+
     return results
