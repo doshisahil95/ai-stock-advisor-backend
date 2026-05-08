@@ -480,13 +480,19 @@ def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
     from datetime import datetime as _dt
 
     open_lots: list[dict] = []
+
     # Sort chronologically; ties broken by created_at if available
+    def _naive(d):
+        """Strip tzinfo so all comparisons are naive (Mongo stores naive dates)."""
+        if d is None:
+            return _dt.min
+        if hasattr(d, "tzinfo") and d.tzinfo is not None:
+            return d.replace(tzinfo=None)
+        return d
+
     sorted_txs = sorted(
         transactions,
-        key=lambda t: (
-            t.get("trade_date") or _dt.min,
-            t.get("created_at") or _dt.min,
-        ),
+        key=lambda t: (_naive(t.get("trade_date")), _naive(t.get("created_at"))),
     )
 
     for tx in sorted_txs:
