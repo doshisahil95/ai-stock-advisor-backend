@@ -1,259 +1,191 @@
 
-# AI Stock Advisor
+# AI Stock Advisor — Backend
 
-Personal AI advisory tool for NSE equities. Single-user, no automated execution.
-The tool generates daily pre-market briefings, intraday alerts, and post-market reviews
-based on portfolio holdings, news, and macro signals.
+Personal portfolio advisory tool for NSE equities. Strictly **advisory** — the system never executes trades. The user trades manually in their broker (ICICI Direct), then records transactions via this API.
 
-> ⚠️ **Single-user only.** Sharing recommendations with others would trigger SEBI
-> Registered Investment Advisor (RIA) registration requirements. Don't.
+This repo is the FastAPI + MongoDB backend. The frontend lives at [`ai-stock-advisor-frontend`](https://github.com/doshisahil95/ai-stock-advisor-frontend).
 
----
+## What it does today
+
+A complete portfolio dashboard with full audit trail and tax-correct cost basis:
+
+- **Portfolio computation** — FIFO-based cost basis with full handling of corporate actions (splits, bonuses, demergers including Section 49(2C) cost apportionment)
+- **Live prices** — yfinance EOD bars + 15-min intraday refresh during market hours
+- **Reconciliation tracking** — daily auto-snapshots + manual checks against the broker, drift alerts via push notification + email
+- **Cost-basis audit trail** — every IT-Act-driven divergence between our cost and the broker's is documented with calculation, rationale, and source documents (CA-facing)
+- **Transaction edit/delete** — every change is captured in an append-only audit log; FIFO replay validates that edits don't create impossible holding states
+- **Buy/sell with FIFO preview** — show realized P&L before confirming a sell
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Compute | AWS EC2 t3.small in `ap-south-1` (Mumbai), Ubuntu 24.04 LTS |
-| Network | Tailscale (private SSH/dashboard) + Tailscale Funnel (public ntfy reachability) |
-| Backend | Python 3.12 + FastAPI |
-| Frontend | Next.js (Phase 1) |
-| Database | MongoDB Atlas M0 (Mumbai) |
-| LLM | Anthropic Claude Sonnet 4.5 (reasoning) + Haiku 4.5 (bulk) |
-| Search | Tavily |
-| Notifications | Hybrid: self-hosted ntfy.sh (private) + public ntfy.sh (instant) + Resend (email) |
-| Scheduler | APScheduler (Phase 2+) |
-| Agent framework | LangGraph (Phase 2+) |
-| Package manager | `uv` |
-| Embeddings (Phase 4) | Voyage AI |
-| Backtesting (Phase 4) | backtrader |
-
-**Monthly cost:** ~$30 (Anthropic + Tavily). Infra is $0 via AWS credits.
-
----
+- **Python 3.12**, [`uv`](https://github.com/astral-sh/uv) for packaging
+- **FastAPI** + Pydantic v2
+- **MongoDB Atlas M10** (`ap-south-1`)
+- **yfinance** for OHLCV (EOD + intraday)
+- **Anthropic Claude** + **Tavily** (provisioned for Phase 2)
+- **Resend** (transactional email) + **ntfy** (push notifications)
+- Hosted on AWS EC2 t3.micro (`ap-south-1`), accessed only via Tailscale
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                      EC2 t3.small (Mumbai)                       │
-│                                                                   │
-│  ┌────────────┐   ┌──────────────┐   ┌──────────────────────┐  │
-│  │  Next.js   │   │  FastAPI     │   │  Scheduler           │  │
-│  │  Dashboard │◄──┤  Backend     │◄──┤  (APScheduler)       │  │
-│  │  :3000     │   │  :8000       │   │  Pre/post-market     │  │
-│  └────────────┘   └──────┬───────┘   │  intraday checks     │  │
-│                          ▼           └──────────────────────┘  │
-│                  ┌───────────────┐                              │
-│                  │  Agent Layer  │                              │
-│                  │  (LangGraph)  │                              │
-│                  └───────┬───────┘                              │
-│                          │                                       │
-│                  ┌───────┴────────┐                              │
-│                  ▼                ▼                              │
-│           ┌──────────┐     ┌──────────────┐                     │
-│           │ ntfy     │     │ Resend       │                     │
-│           │ :8080    │     │ (email)      │                     │
-│           │(localhost)│    └──────────────┘                     │
-│           └────┬─────┘                                          │
-│                │                                                │
-│           ┌────┴──────┐                                         │
-│           │ Tailscale │                                         │
-│           │ Funnel    │                                         │
-│           │ :443      │                                         │
-│           └────┬──────┘                                         │
-└────────────────┼───────────────────────────────────────────────┘
-                 │
-   *.ts.net HTTPS → APNs → iPhone (private notifications)
-   ntfy.sh → APNs → iPhone (public, full-content notifications)
+```
++----------+     yfinance     +-----------+     +---------+     +----------+
+| ICICI    |    (EOD + 15m)   | EC2:8000  |<--->| Mongo   |<-->| Frontend |
+| (manual) | ---------------> | FastAPI   |     | Atlas   |    | Next.js  |
++----------+                  +-----------+     | M10     |    | EC2:3000 |
+     |                              ^           +---------+    +----------+
+     | (corp actions, broker        |                              ^
+     |  reconciliation)             | (cron)                       | (browser
+     v                              v                              | over Tailscale)
+  Manual ingestion via       scripts/refresh_*                     |
+  scripts/ + UI              scripts/take_*                        |
+                                                                   |
+                              +----------+                         |
+                              | Resend   |<-- alerts ------+       |
+                              | + ntfy   |                 |       |
+                              +----------+                 |       |
+                                                  drift detection  |
 ```
 
-**Two notification paths:**
-- **Private** (`push_private`) — sensitive content (digests, errors). Routed through your self-hosted ntfy via Tailscale Funnel. iOS shows "ntfy: new message" placeholder until the app polls your server for content.
-- **Public** (`push_public`) — time-critical alerts (price, news). Routed through public `ntfy.sh` with random unguessable topic names. iOS shows full content instantly.
+For the full data-flow reference (collections, invariants, gotchas), see [`docs/data_flow.md`](docs/data_flow.md).
 
----
+## API Surface
 
-## Repository Layout
+### Portfolio
+- `GET /portfolio/summary` — totals, sector breakdown, top movers, broker-view P&L
+- `GET /portfolio/holdings` — annotated list with live prices, P&L, day gain
+- `GET /portfolio/holdings/{isin}` — single holding with all metadata
+- `GET /portfolio/holdings/{isin}/history` — OHLCV chart data
+- `GET /portfolio/holdings/{isin}/transactions` — all txns for one stock
+- `POST /portfolio/holdings` — record a BUY (auto-resolves ISIN via NSE master)
+- `POST /portfolio/holdings/{isin}/sell` — record a SELL (FIFO depletion)
+- `POST /portfolio/holdings/{isin}/preview-sell` — simulate a SELL without writing
+- `PATCH /portfolio/holdings/{isin}` — update thesis, notes, stop_loss, target_price, tags
 
-```text
-ai-stock-advisor/
-├── app/
-│   ├── config/        # Settings loader (pydantic-settings)
-│   ├── db/            # MongoDB clients (Phase 1)
-│   ├── models/        # Pydantic models for collections (Phase 1)
-│   ├── routers/       # FastAPI routes (Phase 1)
-│   ├── services/      # External-service wrappers (notify.py done)
-│   ├── agents/        # LangGraph agents (Phase 2+)
-│   └── scheduler/     # APScheduler jobs (Phase 2+)
-├── scripts/
-│   └── smoke_test.py  # End-to-end check of all 5 services
-├── tests/
-├── pyproject.toml
-└── README.md
-```
+### Transactions
+- `GET /transactions/search` — filter by symbol (prefix), type, date range, paginated
+- `GET /transactions/{id}` — fetch one
+- `PATCH /transactions/{id}` — edit (validated against impossible state, audit-logged, recomputes holding)
+- `DELETE /transactions/{id}` — soft-delete (validated, audit-logged, recomputes holding)
+- `GET /transactions/audit/recent` — append-only edit/delete log
+- `GET /transactions/{id}/audit` — audit history for one transaction
 
----
+### Reconciliation
+- `GET /reconciliation/latest` — most recent snapshot (filterable by type)
+- `GET /reconciliation/history` — last N snapshots
+- `POST /reconciliation/snapshot` — manual snapshot (your ICICI numbers + ours, with optional baseline accept)
+- `POST /reconciliation/auto-snapshot` — system-side only (cron entry point)
 
-## Local Development (macOS)
+### Cost basis
+- `GET /cost-basis/adjustments` — full audit list of IT-Act-driven divergences (Section 49(2C), 47(vid), etc.)
 
-### Prerequisites
-- Python 3.12+ (`uv` manages this automatically)
-- `uv` package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Tailscale running and connected to your tailnet
-- Mac's public IP allowlisted in MongoDB Atlas Network Access
+### Instruments
+- `GET /instruments/search` — symbol/ISIN lookup against NSE master
 
-### Setup
+## Collections
 
-```bash
-git clone git@github.com:YOUR-USERNAME/ai-stock-advisor.git
-cd ai-stock-advisor
-uv sync
-```
-
-Create `.env` in the project root (chmod 600, gitignored). Use the same values as EC2's `/etc/portfolio-advisor/secrets.env`:
-
-```text
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-api03-...
-
-# Tavily
-TAVILY_API_KEY=tvly-...
-
-# MongoDB Atlas
-MONGODB_URI=mongodb+srv://...
-
-# Self-hosted ntfy (Tailscale Funnel)
-NTFY_URL=https://portfolio-advisor.tailXXXXXX.ts.net
-NTFY_USER=sahil
-NTFY_PASS=...
-
-# Public ntfy.sh (random unguessable topics)
-NTFY_PUBLIC_TOPIC_PRICE=prtflo-price-...
-NTFY_PUBLIC_TOPIC_NEWS=prtflo-news-...
-
-# Resend
-RESEND_API_KEY=re_...
-RESEND_FROM=onboarding@resend.dev
-RESEND_TO=your-personal-gmail@gmail.com
-```
-
-### Run smoke test
-
-```bash
-PYTHONPATH=. uv run python scripts/smoke_test.py
-```
-
-Expected: ✓ Anthropic, ✓ MongoDB, ✓ ntfy private, ✓ ntfy public, ✓ Email — plus notifications on phone and email in Gmail.
-
----
-
-## Deployment to EC2
-
-### First-time setup (already done)
-- EC2 t3.small launched in `ap-south-1`, encrypted EBS, Elastic IP attached
-- AWS Security Group: zero inbound rules
-- Tailscale installed and joined to tailnet (`tag:server`)
-- Tailscale Funnel exposing ntfy on `https://portfolio-advisor.tailXXXXXX.ts.net`
-- OS hardened (UFW, SSH config, fail2ban, unattended-upgrades, locked root)
-- Secrets at `/etc/portfolio-advisor/secrets.env` (chmod 600)
-- ntfy installed with `sahil` admin user, topics: `digests`, `errors`
-- GitHub deploy SSH key configured (`~/.ssh/github_ed25519`)
-
-### Day-to-day deploy
-
-```bash
-# Author code locally on Mac in VSCode → push to GitHub
-git push origin main
-
-# SSH to EC2 (via Tailscale, no .pem keys needed)
-ssh ubuntu@portfolio-advisor      # or ssh ubuntu@100.112.20.41
-
-# Pull and install
-cd ~/ai-stock-advisor
-git pull
-uv sync
-
-# (Phase 1+) Restart services
-# sudo systemctl restart portfolio-advisor
-```
-
----
-
-## Security Model
-
-| Layer | Defense |
+| Collection | Holds |
 |---|---|
-| Network | EC2 has zero AWS inbound rules; Tailscale (WireGuard) is the only path |
-| Identity | Tailscale auth via Google + 2FA; Tailnet Lock prevents rogue device joins |
-| OS | UFW (allow only `tailscale0`), key-only SSH, locked root, fail2ban, auto-updates |
-| App | FastAPI/Next.js bind to Tailscale IP only (Phase 1+) |
-| Secrets | `/etc/portfolio-advisor/secrets.env` (chmod 600), never in repo |
-| Database | MongoDB Atlas IP allowlist limited to EC2 + Mac |
-| Notifications | Private ntfy auth-protected; public ntfy.sh uses 24-char random topic names |
-| Storage | EBS encrypted at rest |
+| `transactions` | Every BUY/SELL/SPLIT/BONUS/DIVIDEND |
+| `transactions_staging` | CSV imports awaiting promotion |
+| `transactions_audit` | Append-only edit/delete log |
+| `holdings` | Computed current state per ISIN; soft-deleted on full exit |
+| `instruments` | NSE master (~2,365 symbols, ISIN, sector) |
+| `prices_daily` | EOD OHLCV bars |
+| `prices_intraday` | 15-min snapshots during market hours |
+| `reconciliation_snapshots` | ICICI-vs-our comparison snapshots |
+| `cost_basis_adjustments` | IT-Act-driven divergences |
+| `user_profile` | Preferences, reconciliation baseline |
 
----
+## Critical invariants
 
-## Notification Topics
+These MUST hold or computed P&L is wrong:
 
-### Self-hosted (`portfolio-advisor.tailXXXXXX.ts.net`)
-- **`digests`** — pre-market briefing (8:45 IST), post-market review (16:00 IST)
-- **`errors`** — pipeline failures, API quota issues, ingestion errors
+1. **Transactions are immutable except via audited edit/delete.** PATCH and DELETE write to `transactions_audit` BEFORE applying. `validate_replay()` rejects any change that would create a negative-quantity moment in the timeline.
+2. **`recompute_holding(isin)` is the only authoritative way to update a holding.** Replays all non-deleted transactions FIFO from scratch. Idempotent.
+3. **`holdings.deleted_at = None` filter is universal.** Soft-deleted (fully-exited) holdings are excluded from all aggregations.
+4. **Cost basis = IT-Act-correct, not broker-nominal.** Our `invested_amount` reflects post-49(2C) cost. The broker's "invested" is recoverable by adding `cost_basis_adjustments` back — exposed as `totals.broker_invested`.
+5. **`prices_intraday` writes are append-only within a day.** Each cron run inserts a new doc; we never overwrite. `bulk_get_latest_prices` prefers today's intraday, falls back to EOD.
 
-### Public (`ntfy.sh`)
-- **`prtflo-price-<random>`** — stop-loss/target hits, volume spikes, 52-week extremes
-- **`prtflo-news-<random>`** — breaking news affecting a holding, with 1-paragraph LLM analysis
+## Cron jobs (on EC2)
 
-iOS app must subscribe to all 4. Pre-market and post-market full reports also arrive via email.
+| Schedule (IST) | Script | Purpose |
+|---|---|---|
+| 03:00 daily | `refresh_instruments.py` | NSE master refresh |
+| 19:00 weekdays | `refresh_prices.py` | EOD prices after market close |
+| Every 15 min, 09:00–15:45 weekdays | `refresh_prices_intraday.py` | Intraday snapshots |
+| 19:30 weekdays | `take_reconciliation_snapshot.py` | Auto reconciliation |
+| 00:00 Sunday | log truncation | Bound cron logs |
 
----
+## Local development
 
-## Roadmap
+Requires `uv`:
 
-### Phase 0 — Foundation ✅
-EC2, Tailscale, OS hardening, MongoDB, ntfy, Resend, Anthropic, project skeleton, smoke test.
+```bash
+git clone https://github.com/doshisahil95/ai-stock-advisor-backend.git
+cd ai-stock-advisor-backend
 
-### Phase 1 — Portfolio + Dashboard (next)
-- MongoDB schemas: `holdings`, `transactions`, `watchlist`, `alerts_log`
-- FastAPI CRUD endpoints
-- CSV import for ICICI portfolio statement
-- `yfinance` integration for live NSE prices
-- Next.js dashboard (Tailscale-only)
-- systemd services for FastAPI + Next.js
+# Install deps via uv
+uv sync
 
-### Phase 2 — News + Daily Digest
-- RSS pullers (Moneycontrol, LiveMint, ET Markets, Reuters India)
-- Tavily search for overnight global moves
-- Macro fetchers (USD/INR, Brent, FII/DII flows, India VIX)
-- Claude Haiku 4.5 summarization → MongoDB
-- Pre-market digest agent (Claude Sonnet 4.5) → email + ntfy `digests`
+# Configure secrets (ask the maintainer for .env)
+cp .env.example .env
 
-### Phase 3 — Alerts + Intraday
-- Price-rules engine (stop-loss, target, 52w high/low, volume spike, gap)
-- News-driven alerts → ntfy public `prtflo-news`
-- Earnings calendar reminders
-- Post-market review at 16:00 IST
+# Run locally
+PYTHONPATH=. uv run uvicorn app.main:app --reload --port 8000
 
-### Phase 4 — Edge Features
-- Voyage AI embeddings + MongoDB Atlas Vector Search (RAG over historical news)
-- Cross-asset signal detection (Brent, DXY, US 10Y, China PMI)
-- Sentiment scoring with sector aggregation
-- Backtesting with `backtrader`
-- Concentration & risk reports
-- Earnings-call transcript analysis from BSE/NSE filings
+# Run tests
+PYTHONPATH=. uv run pytest tests/
+```
 
----
+## Deployment
 
-## Operational Notes
+EC2 t3.micro runs the API as a systemd service. Pull-and-restart via `~/deploy.sh`:
 
-- **MongoDB Atlas IP allowlist** changes when you switch networks (home/cafe/etc). Re-add your Mac's IP at `cloud.mongodb.com` → Network Access if local dev fails.
-- **Anthropic spending cap** set at $75/mo on the dashboard. Hard stop, not advisory.
-- **Tailscale Funnel** must be enabled per node in Tailscale admin → Settings → Funnel.
-- **iOS notification quirk:** Self-hosted ntfy on iOS shows placeholder banners ("ntfy: new message") until the app polls for content. This is APNs-by-design and the reason for the hybrid public/private split.
+```bash
+# On the EC2 host
+~/deploy.sh
+sudo systemctl status portfolio-advisor.service
+```
 
----
+Logs:
+```bash
+sudo journalctl -u portfolio-advisor.service -f
+```
+
+## Repository layout
+
+```
+app/
+├── config/         # settings (env vars, secrets)
+├── db/             # Mongo client, collections, indexes
+├── models/         # Pydantic schemas
+├── routers/        # FastAPI endpoints (portfolio, transactions, reconciliation, etc.)
+├── services/       # Business logic (FIFO, recompute, reconciliation, cost basis)
+└── main.py
+docs/
+└── data_flow.md    # Future-self reference for collections + invariants
+scripts/
+├── refresh_*.py    # Cron entry points for data refresh
+├── seed_*.py       # Idempotent seed scripts (cost basis adjustments, etc.)
+├── take_*.py       # Reconciliation snapshot cron entry
+├── add_manual_transactions.py  # For corp action repair
+└── ...
+tests/
+└── ...
+pyproject.toml
+```
+
+## What's next (Phase 2)
+
+The advisory dashboard is complete. Phase 2 adds the AI agent layer:
+
+- **2.1** Daily news digest (Tavily + Claude classification, email via Resend)
+- **2.2** `/news` page — timeline of stories with summaries
+- **2.3** Conversational agent (`/agent`) — natural-language questions about the portfolio with tool access
+- **2.4** Alerts — stop-loss/target hits, significant news, via ntfy
+- Tavily-driven proactive corp action detection (weekly cron)
 
 ## License
 
-Personal project. Not for redistribution.
+Personal project. No license; all rights reserved.
