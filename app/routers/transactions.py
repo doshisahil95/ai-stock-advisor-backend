@@ -127,8 +127,10 @@ def search_transactions(
             status.HTTP_400_BAD_REQUEST,
             f"from_date ({from_date}) cannot be after to_date ({to_date})",
         )
-    today_eod = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)
-    if parsed_to and parsed_to > today_eod:
+    today_eod_naive = datetime.now(timezone.utc).replace(
+        hour=23, minute=59, second=59, tzinfo=None
+    )
+    if parsed_to and parsed_to.replace(tzinfo=None) > today_eod_naive:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"to_date ({to_date}) cannot be in the future",
