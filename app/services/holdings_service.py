@@ -466,3 +466,62 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
         "fully_exits": fully_exits,
         "lots_consumed": lots_consumed,
     }
+
+
+def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
+    """Run a FIFO simulation over the proposed transaction set and verify no
+    impossible state arises (i.e. SELL > available qty at any chronological point).
+
+    Returns (True, None) if valid; (False, "human-readable reason") if not.
+
+    Used by the edit/delete endpoints to reject changes that would create a
+    mathematically/legally invalid holding history (selling shares you don't own).
+    """
+    from datetime import datetime as _dt
+
+    open_lots: list[dict] = []
+    # Sort chronologically; ties broken by created_at if available
+    sorted_txs = sorted(
+        transactions,
+        key=lambda t: (
+            t.get("trade_date") or _dt.min,
+            t.get("created_at") or _dt.min,
+        ),
+    )
+
+    for tx in sorted_txs:
+        if tx.get("deleted_at"):
+            continue
+        tx_type = tx.get("type")
+        qty = _to_decimal(tx.get("quantity"))
+        price = _to_decimal(tx.get("price"))
+        trade_date = tx.get("trade_date")
+
+        if tx_type == "BUY":
+            open_lots.append({"qty": qty, "price": price})
+        elif tx_type == "SELL":
+            available = sum((lot["qty"] for lot in open_lots), Decimal("0"))
+            if qty > available:
+                date_str = (
+                    trade_date.strftime("%d-%b-%Y")
+                    if hasattr(trade_date, "strftime")
+                    else str(trade_date)
+                )
+                return (
+                    False,
+                    f"SELL on {date_str} would sell {qty} shares but only {available} "
+                    f"are available at that point in the timeline. "
+                    f"Edit blocked to prevent an impossible holding state.",
+                )
+            qty_to_consume = qty
+            for lot in open_lots:
+                if qty_to_consume <= 0:
+                    break
+                consumed = min(qty_to_consume, lot["qty"])
+                lot["qty"] -= consumed
+                qty_to_consume -= consumed
+            open_lots = [lot for lot in open_lots if lot["qty"] > 0]
+        # SPLIT/BONUS/DIVIDEND: corporate actions; existing recompute_holding handles them.
+        # We don't validate them here — the user can't edit them via this endpoint anyway.
+
+    return (True, None)

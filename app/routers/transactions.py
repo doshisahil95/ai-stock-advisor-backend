@@ -14,11 +14,14 @@ from typing import Any, Literal
 from bson import Decimal128, ObjectId
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+import re
 
 from app.db.client import Collections
 from app.models._common import _convert_decimals_to_decimal128
 from app.services.holdings_service import recompute_holding
 from app.services.transactions_audit_service import log_change
+from app.services.holdings_service import recompute_holding, validate_replay
+
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -90,27 +93,47 @@ def search_transactions(
     query: dict = {}
 
     if symbol:
-        query["symbol"] = symbol.upper()
+        # Prefix match (case-insensitive) — supports partial typing like "TR" → TRENT
+        escaped = re.escape(symbol.upper())
+        query["symbol"] = {"$regex": f"^{escaped}", "$options": "i"}
     if type:
         query["type"] = type
 
     date_filter: dict = {}
+    parsed_from: datetime | None = None
+    parsed_to: datetime | None = None
+
     if from_date:
         try:
-            date_filter["$gte"] = datetime.fromisoformat(from_date)
+            parsed_from = datetime.fromisoformat(from_date)
         except ValueError:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, f"Invalid from_date: {from_date}"
             )
+        date_filter["$gte"] = parsed_from
     if to_date:
         try:
-            # End-of-day for inclusive upper bound
             d = datetime.fromisoformat(to_date)
-            date_filter["$lte"] = d.replace(hour=23, minute=59, second=59)
         except ValueError:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, f"Invalid to_date: {to_date}"
             )
+        parsed_to = d.replace(hour=23, minute=59, second=59)
+        date_filter["$lte"] = parsed_to
+
+    # Cross-field validation
+    if parsed_from and parsed_to and parsed_from > parsed_to:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"from_date ({from_date}) cannot be after to_date ({to_date})",
+        )
+    today_eod = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)
+    if parsed_to and parsed_to > today_eod:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"to_date ({to_date}) cannot be in the future",
+        )
+
     if date_filter:
         query["trade_date"] = date_filter
 
@@ -179,8 +202,25 @@ def edit_transaction(tx_id: str, payload: EditTransactionRequest) -> dict:
     if not update_fields:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
 
-    update_fields["updated_at"] = datetime.now(timezone.utc)
+    # ── Validation: simulate the new state to catch impossible edits ────────
+    # Build the would-be transaction list with this edit applied
+    all_txs = list(
+        Collections.transactions().find({"isin": before["isin"], "deleted_at": None})
+    )
+    simulated_txs = []
+    for tx in all_txs:
+        if tx["_id"] == oid:
+            sim = {**tx, **update_fields}
+            simulated_txs.append(sim)
+        else:
+            simulated_txs.append(tx)
 
+    is_valid, error_msg = validate_replay(simulated_txs)
+    if not is_valid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, error_msg)
+
+    # ── Apply the edit ──────────────────────────────────────────────────────
+    update_fields["updated_at"] = datetime.now(timezone.utc)
     Collections.transactions().update_one(
         {"_id": oid},
         {"$set": _convert_decimals_to_decimal128(update_fields)},
@@ -222,6 +262,20 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
     if before.get("deleted_at"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Already deleted")
 
+    # ── Validation: simulate without this transaction ───────────────────────
+    all_txs = list(
+        Collections.transactions().find({"isin": before["isin"], "deleted_at": None})
+    )
+    simulated_txs = [tx for tx in all_txs if tx["_id"] != oid]
+
+    is_valid, error_msg = validate_replay(simulated_txs)
+    if not is_valid:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Deleting this transaction would create an impossible state: {error_msg}",
+        )
+
+    # ── Apply the soft-delete ───────────────────────────────────────────────
     now = datetime.now(timezone.utc)
     Collections.transactions().update_one(
         {"_id": oid},
@@ -244,3 +298,28 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
         "isin": before["isin"],
         "symbol": before.get("symbol"),
     }
+
+
+@router.get("/audit/recent", summary="Recent edits/deletes across all transactions")
+def get_recent_audit(limit: int = Query(50, ge=1, le=500)) -> list[dict]:
+    """Read-only audit log — append-only, immutable from the API.
+
+    Used to explain retroactive changes to realized P&L (e.g. for tax review).
+    """
+    from app.services.transactions_audit_service import get_recent_audit as _get_recent
+
+    return _serialize(_get_recent(limit=limit))
+
+
+@router.get("/{tx_id}/audit", summary="Audit history for one transaction")
+def get_transaction_audit(tx_id: str) -> list[dict]:
+    """All audit entries for a specific transaction, newest first."""
+    from app.services.transactions_audit_service import get_audit_for_transaction
+
+    try:
+        ObjectId(tx_id)
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Invalid transaction id: {tx_id}"
+        )
+    return _serialize(get_audit_for_transaction(tx_id))
