@@ -116,6 +116,23 @@ class Collections:
     def transactions_audit() -> Collection:
         return get_db()["transactions_audit"]
 
+    # ── Phase 2: Suggestions Engine ──────────────────────────────────────────
+
+    @staticmethod
+    def instruments_fundamentals() -> Collection:
+        """Per-ISIN fundamentals snapshots (yfinance, weekly refresh)."""
+        return get_db()["instruments_fundamentals"]
+
+    @staticmethod
+    def suggestion_runs() -> Collection:
+        """One doc per weekly suggestions cron run (append-only)."""
+        return get_db()["suggestion_runs"]
+
+    @staticmethod
+    def suggestion_outcomes() -> Collection:
+        """Tracking record per suggestion across its 180-day lifecycle."""
+        return get_db()["suggestion_outcomes"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

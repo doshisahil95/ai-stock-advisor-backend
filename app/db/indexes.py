@@ -233,4 +233,53 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    results["instruments_fundamentals"] = (
+        Collections.instruments_fundamentals().create_indexes(
+            [
+                IndexModel(
+                    [("isin", ASCENDING), ("fetched_at", DESCENDING)],
+                    name="isin_fetched_desc",
+                ),
+                IndexModel(
+                    [("isin", ASCENDING)],
+                    name="isin_latest_unique",
+                    unique=True,
+                    # Only the latest snapshot per ISIN is unique. We upsert on isin,
+                    # so we keep one current doc per stock. Historical snapshots, if
+                    # we ever want them, would go to a separate `instruments_fundamentals_history`
+                    # collection — not needed for v1.
+                ),
+                IndexModel([("fetched_at", DESCENDING)], name="fetched_at_desc"),
+            ]
+        )
+    )
+
+    # ── suggestion_runs ──────────────────────────────────────────────────────
+    results["suggestion_runs"] = Collections.suggestion_runs().create_indexes(
+        [
+            IndexModel([("run_date", DESCENDING)], name="run_date_desc"),
+            IndexModel(
+                [("run_date_ist", DESCENDING), ("run_type", ASCENDING)],
+                name="run_date_ist_type",
+            ),
+            IndexModel([("status", ASCENDING)], name="status"),
+        ]
+    )
+
+    # ── suggestion_outcomes ──────────────────────────────────────────────────
+    results["suggestion_outcomes"] = Collections.suggestion_outcomes().create_indexes(
+        [
+            IndexModel(
+                [("isin", ASCENDING), ("suggested_at", DESCENDING)],
+                name="isin_suggested_desc",
+            ),
+            IndexModel([("suggested_at", DESCENDING)], name="suggested_at_desc"),
+            IndexModel([("tracking_status", ASCENDING)], name="tracking_status"),
+            IndexModel(
+                [("suggestion_run_id", ASCENDING)],
+                name="suggestion_run_id",
+            ),
+        ]
+    )
+
     return results
