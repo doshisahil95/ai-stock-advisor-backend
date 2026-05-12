@@ -42,6 +42,11 @@ def main() -> int:
         choices=["scheduled", "manual"],
         help="Mark this run's origin (default 'manual')",
     )
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Send email + ntfy digest after run (use for cron, NOT for testing)",
+    )
     args = parser.parse_args()
 
     try:
@@ -50,6 +55,7 @@ def main() -> int:
             limit=args.limit,
             dry_run=args.dry_run,
             top_k_override=args.top_k,
+            notify=args.notify,
         )
     except Exception as exc:
         print(f"❌ Run failed: {exc}", file=sys.stderr)

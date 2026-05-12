@@ -1,14 +1,6 @@
-"""Suggestion engine — orchestrates one full weekly run (Unit 2).
+"""Suggestion engine — orchestrates one full weekly run (Unit 3).
 
-Pipeline:
-  1. Build candidate universe (NIFTY 100 minus held minus rejected)
-  2. Bulk-load fundamentals + price history
-  3. Compute news signals from already-classified articles in news_articles
-     (News fetching itself happens in scripts/fetch_news_for_universe.py.)
-  4. Drop stale-data candidates
-  5. Score candidates (Q + V + M + N)
-  6. Generate dossiers for top-K via Claude Sonnet
-  7. Persist SuggestionRun
+Adds outcome creation + delivery hooks vs Unit 2.
 """
 
 from __future__ import annotations
@@ -20,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from app.db.client import Collections
 from app.models._common import utcnow
 from app.models.suggestion import SuggestionRun
+from app.services.digest_delivery import send_weekly_digest
 from app.services.dossier_service import generate_dossiers_for_top_k
 from app.services.fundamentals_service import (
     DEFAULT_FRESHNESS_DAYS,
@@ -27,6 +20,7 @@ from app.services.fundamentals_service import (
     is_fresh as is_fundamentals_fresh,
 )
 from app.services.news_signals import compute_news_signals_bulk
+from app.services.outcome_tracker import create_outcomes_for_run
 from app.services.price_service import get_price_history
 from app.services.scoring_service import (
     DEFAULT_CONFIG,
@@ -34,7 +28,6 @@ from app.services.scoring_service import (
 )
 
 log = logging.getLogger(__name__)
-
 
 PRICE_HISTORY_DAYS = 252
 
@@ -158,18 +151,26 @@ def run_suggestions(
     dry_run: bool = False,
     top_k_override: int | None = None,
     skip_dossiers: bool = False,
+    notify: bool = False,
 ) -> SuggestionRun:
-    """Execute one full suggestions run end-to-end."""
+    """Execute one full suggestions run end-to-end.
+
+    Args:
+        notify: if True (production runs), send email + ntfy AND create
+                outcome-tracking records. Default False so manual/testing
+                runs do not spam delivery.
+    """
     cfg = config or DEFAULT_CONFIG
     if top_k_override is not None:
         cfg = {**cfg, "top_k": top_k_override}
 
     started_at = utcnow()
     log.info(
-        "=== Suggestions run starting (run_type=%s, dry_run=%s, skip_dossiers=%s) ===",
+        "=== Suggestions run starting (run_type=%s, dry_run=%s, skip_dossiers=%s, notify=%s) ===",
         run_type,
         dry_run,
         skip_dossiers,
+        notify,
     )
 
     run = SuggestionRun(
@@ -268,7 +269,23 @@ def run_suggestions(
         run.finished_at = utcnow()
 
         if not dry_run:
-            _persist_run(run)
+            inserted_id = _persist_run(run)
+
+            if notify and run.top_candidates:
+                # 1. Create outcome-tracking records
+                try:
+                    create_outcomes_for_run(
+                        inserted_id, run.run_date, run.top_candidates
+                    )
+                except Exception as exc:
+                    log.error("create_outcomes_for_run failed: %s", exc)
+
+                # 2. Send email + ntfy digest
+                try:
+                    delivery = send_weekly_digest(run)
+                    log.info("Digest delivery result: %s", delivery)
+                except Exception as exc:
+                    log.error("send_weekly_digest failed: %s", exc)
 
         log.info("=== Top candidates ===")
         for c in run.top_candidates[:5]:
@@ -298,14 +315,15 @@ def run_suggestions(
 
 
 def _serialize_dossiers(dossiers: list[dict]) -> str:
-    """Pack dossiers into a JSON string for storage in SuggestionRun.notes."""
     return json.dumps({"dossiers": dossiers}, default=str)
 
 
-def _persist_run(run: SuggestionRun) -> None:
+def _persist_run(run: SuggestionRun):
+    """Insert the SuggestionRun. Returns the inserted _id (ObjectId)."""
     doc = run.to_mongo()
-    Collections.suggestion_runs().insert_one(doc)
-    log.info("Persisted SuggestionRun id=%s status=%s", doc.get("_id"), run.status)
+    result = Collections.suggestion_runs().insert_one(doc)
+    log.info("Persisted SuggestionRun id=%s status=%s", result.inserted_id, run.status)
+    return result.inserted_id
 
 
 def get_latest_run() -> dict | None:

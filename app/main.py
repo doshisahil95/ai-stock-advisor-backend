@@ -17,6 +17,7 @@ from app.routers import (
     reconciliation,
     cost_basis,
     transactions,
+    suggestions
 )
 
 logging.basicConfig(
@@ -68,6 +69,7 @@ app.include_router(portfolio.router)
 app.include_router(reconciliation.router)
 app.include_router(cost_basis.router)
 app.include_router(transactions.router)
+app.include_router(suggestions.router)
 
 
 @app.get("/health", tags=["meta"])
