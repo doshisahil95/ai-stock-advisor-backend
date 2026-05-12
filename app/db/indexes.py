@@ -282,4 +282,15 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ── tavily_quota ─────────────────────────────────────────────────────────
+    results["tavily_quota"] = Collections.tavily_quota().create_indexes(
+        [
+            IndexModel(
+                [("date_utc", ASCENDING)],
+                name="date_unique",
+                unique=True,
+            ),
+        ]
+    )
+
     return results

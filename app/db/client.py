@@ -133,6 +133,11 @@ class Collections:
         """Tracking record per suggestion across its 180-day lifecycle."""
         return get_db()["suggestion_outcomes"]
 
+    @staticmethod
+    def tavily_quota() -> Collection:
+        """Daily Tavily quota tracking (one doc per UTC date)."""
+        return get_db()["tavily_quota"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

@@ -6,10 +6,12 @@ Looks for secrets in this order:
 """
 
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 EC2_SECRETS = Path("/etc/portfolio-advisor/secrets.env")
 LOCAL_SECRETS = Path(__file__).resolve().parents[2] / ".env"
+
 SECRETS_FILE = EC2_SECRETS if EC2_SECRETS.exists() else LOCAL_SECRETS
 
 
@@ -28,6 +30,10 @@ class Settings(BaseSettings):
 
     # Tavily
     TAVILY_API_KEY: str
+    # Per-fetch limits (defensive — Tavily PAYG has spending cap, but we cap calls too)
+    TAVILY_MAX_RESULTS_PER_QUERY: int = 5
+    TAVILY_SEARCH_DEPTH: str = "basic"  # "basic" = 1 credit; "advanced" = 2 credits
+    TAVILY_DAILY_CALL_LIMIT: int = 200  # Hard ceiling per UTC day across all use cases
 
     # MongoDB
     MONGODB_URI: str
