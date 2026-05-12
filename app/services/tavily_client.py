@@ -4,18 +4,7 @@ We use Tavily PAYG. Cost is metered per credit:
   - basic search    = 1 credit
   - advanced search = 2 credits
 
-This module is the ONLY place that should call Tavily directly. All callers
-(news fetcher, future agent search tool, future corp action poller) go
-through `search()`. That gives us:
-  - One quota counter (persisted to Mongo so it survives restarts)
-  - One retry policy
-  - One place to apply the daily call ceiling
-  - One place to log all calls for cost auditing
-
-Quota tracking is per UTC day. Each call increments the day's counter
-BEFORE the request fires, so a crash doesn't lose the count. If the
-counter exceeds settings.TAVILY_DAILY_CALL_LIMIT, we raise TavilyQuotaExceeded
-and the caller decides what to do.
+This module is the ONLY place that should call Tavily directly.
 """
 
 from __future__ import annotations
@@ -32,8 +21,6 @@ from app.db.client import Collections
 
 log = logging.getLogger(__name__)
 
-# Lazy-import the Tavily SDK so test environments without it can still
-# import this module (they'll fail at call time, not import time).
 _tavily_client = None
 
 
@@ -59,18 +46,11 @@ class TavilyError(Exception):
 
 
 def _today_utc_str() -> str:
-    """Today's date in UTC as YYYY-MM-DD."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def _increment_quota(use_case: str, credits: int) -> int:
-    """Atomically bump today's call counter. Returns the NEW total calls today.
-
-    We track:
-      - calls_today: total request count
-      - credits_today: estimated credits used (basic=1, advanced=2)
-      - per_use_case: breakdown by caller for diagnostics
-    """
+    """Atomically bump today's call counter. Returns the NEW total calls today."""
     today = _today_utc_str()
     result = Collections.tavily_quota().find_one_and_update(
         {"date_utc": today},
@@ -96,7 +76,6 @@ def _increment_quota(use_case: str, credits: int) -> int:
 
 
 def get_today_quota() -> dict:
-    """Read today's quota state. Returns a doc-shaped dict (or zero state if no calls yet)."""
     today = _today_utc_str()
     doc = Collections.tavily_quota().find_one({"date_utc": today})
     if not doc:
@@ -110,7 +89,6 @@ def get_today_quota() -> dict:
 
 
 def get_quota_history(days: int = 7) -> list[dict]:
-    """Last N days of quota usage. Newest first."""
     return list(
         Collections.tavily_quota().find({}, {"_id": 0}).sort("date_utc", -1).limit(days)
     )
@@ -125,6 +103,7 @@ def search(
     max_results: int | None = None,
     search_depth: str | None = None,
     days: int | None = None,
+    topic: str | None = None,
     include_domains: list[str] | None = None,
     exclude_domains: list[str] | None = None,
     max_retries: int = 2,
@@ -134,22 +113,14 @@ def search(
 
     Args:
         query: search string
-        use_case: short identifier for quota breakdown ("news_fetch", "agent", etc.)
-        max_results: how many results to return (defaults to settings)
+        use_case: short identifier for quota breakdown
+        max_results: how many results to return
         search_depth: "basic" (1 credit) or "advanced" (2 credits)
-        days: restrict results to last N days (Tavily-specific param)
-        include_domains: list of domains to restrict to
-        exclude_domains: list of domains to exclude
+        days: restrict results to last N days (only meaningful when topic="news")
+        topic: "general" (default) or "news" — when "news", Tavily restricts to news sources
+        include_domains, exclude_domains: domain filters
         max_retries: how many times to retry on transient errors
         retry_backoff_sec: backoff multiplier between retries
-
-    Returns:
-        Tavily's response dict, normalized. Has keys: query, answer (optional),
-        results (list of {title, url, content, score, published_date?}).
-
-    Raises:
-        TavilyQuotaExceeded: if daily ceiling hit
-        TavilyError: on persistent API failure
     """
     depth = search_depth or settings.TAVILY_SEARCH_DEPTH
     n_results = (
@@ -159,7 +130,6 @@ def search(
     )
     credits = 2 if depth == "advanced" else 1
 
-    # Pre-flight quota check (read-only, fast)
     pre_check = get_today_quota()
     if pre_check["calls_today"] >= settings.TAVILY_DAILY_CALL_LIMIT:
         raise TavilyQuotaExceeded(
@@ -167,12 +137,12 @@ def search(
             f"{settings.TAVILY_DAILY_CALL_LIMIT}. Resets at 00:00 UTC."
         )
 
-    # Increment counter BEFORE the call (so a crash doesn't undercount)
     new_total = _increment_quota(use_case, credits)
     log.info(
-        "Tavily search [%s, %s, %d credits] (%d/%d today): %s",
+        "Tavily search [%s, %s, topic=%s, %d credits] (%d/%d today): %s",
         use_case,
         depth,
+        topic or "general",
         credits,
         new_total,
         settings.TAVILY_DAILY_CALL_LIMIT,
@@ -189,6 +159,8 @@ def search(
                 "max_results": n_results,
                 "search_depth": depth,
             }
+            if topic is not None:
+                kwargs["topic"] = topic
             if days is not None:
                 kwargs["days"] = days
             if include_domains:
@@ -202,7 +174,6 @@ def search(
         except Exception as exc:
             last_exc = exc
             err_str = str(exc).lower()
-            # Quota / rate limit on Tavily side — surface as quota exceeded
             if "quota" in err_str or "rate" in err_str or "429" in err_str:
                 log.warning("Tavily quota/rate error: %s", exc)
                 raise TavilyQuotaExceeded(f"Tavily API quota error: {exc}") from exc

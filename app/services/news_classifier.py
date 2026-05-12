@@ -1,11 +1,9 @@
 """Claude Haiku classifier for news articles.
 
-Batched: one Anthropic call classifies up to N articles in a single turn,
-which is dramatically cheaper than per-article calls.
-
-Output schema enforced by JSON parsing + validation. If Claude returns
-malformed JSON, we retry once with a more constrained prompt; on second
-failure, articles are marked classified=False with a logged error.
+Two-phase classification:
+  1. Main pass: large batches (BATCH_SIZE=25)
+  2. Retry pass: anything still unclassified gets re-tried in tiny batches
+     (RETRY_PASS_BATCH_SIZE=3), so a single bad article cannot block others.
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 from bson import ObjectId
 
@@ -24,10 +21,8 @@ from app.models._common import utcnow
 log = logging.getLogger(__name__)
 
 
-# How many articles to classify per Anthropic call.
-# Haiku handles ~30 well within token budget; we stay conservative.
 BATCH_SIZE = 25
-
+RETRY_PASS_BATCH_SIZE = 3
 
 _VALID_SENTIMENTS = {"positive", "negative", "neutral"}
 _VALID_SEVERITIES = {"high", "medium", "low"}
@@ -64,7 +59,6 @@ Be ruthless about the noise theme. If the article does not move a thoughtful buy
 
 
 def _build_user_prompt(articles: list[dict]) -> str:
-    """Build the user-message block for the batch."""
     lines = [
         "Classify these articles. Return one JSON object per article in a single array.\n"
     ]
@@ -80,7 +74,6 @@ def _build_user_prompt(articles: list[dict]) -> str:
 
 
 def _parse_response(raw_text: str) -> list[dict] | None:
-    """Extract the JSON array from Claude's response. Tolerant of fenced markdown."""
     text = raw_text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -108,7 +101,6 @@ def _parse_response(raw_text: str) -> list[dict] | None:
 
 
 def _validate_classification(c: dict, expected_id: str) -> dict | None:
-    """Validate one classification dict. Returns cleaned dict or None on invalid."""
     if str(c.get("id", "")) != expected_id:
         return None
 
@@ -147,10 +139,7 @@ def _validate_classification(c: dict, expected_id: str) -> dict | None:
 
 
 def _classify_batch(articles: list[dict]) -> dict[str, dict]:
-    """Send one batch to Anthropic. Returns dict of article_id_str to classification_dict.
-
-    Returns empty dict on persistent failure.
-    """
+    """Send one batch to Anthropic. Returns dict of article_id_str -> classification."""
     if not articles:
         return {}
 
@@ -217,21 +206,45 @@ def _classify_batch(articles: list[dict]) -> dict[str, dict]:
     return results
 
 
+def _apply_classifications(
+    articles: list[dict],
+    results: dict[str, dict],
+    coll,
+    now: datetime,
+) -> int:
+    """Write classification results back to Mongo. Returns count applied."""
+    applied = 0
+    for article in articles:
+        article_id = str(article["_id"])
+        cls = results.get(article_id)
+        if not cls:
+            continue
+        coll.update_one(
+            {"_id": ObjectId(article_id)},
+            {
+                "$set": {
+                    "classified": True,
+                    "classified_at": now,
+                    "classification_model": settings.ANTHROPIC_MODEL_FAST,
+                    "sentiment": cls["sentiment"],
+                    "sentiment_confidence": cls["sentiment_confidence"],
+                    "themes": cls["themes"],
+                    "severity": cls["severity"],
+                    "classifier_summary": cls["classifier_summary"],
+                    "updated_at": now,
+                }
+            },
+        )
+        applied += 1
+    return applied
+
+
 def classify_unclassified(
     limit: int | None = None,
     isin_filter: list[str] | None = None,
     only_recent_days: int | None = 35,
 ) -> dict:
-    """Classify all news articles where classified=False.
-
-    Args:
-        limit: max number of articles to classify in this run (None = all)
-        isin_filter: only classify articles whose entities_isins overlaps this list
-        only_recent_days: skip articles fetched more than N days ago (cost control)
-
-    Returns:
-        Stats dict.
-    """
+    """Classify all news articles where classified=False."""
     coll = Collections.news_articles()
     query: dict = {"classified": False}
     if isin_filter:
@@ -255,6 +268,9 @@ def classify_unclassified(
         "classified": 0,
         "batches": 0,
         "failed_batches": 0,
+        "retry_pass_classified": 0,
+        "retry_pass_batches": 0,
+        "still_unclassified": 0,
         "model": settings.ANTHROPIC_MODEL_FAST,
     }
 
@@ -263,8 +279,9 @@ def classify_unclassified(
         return stats
 
     log.info("Classifying %d articles in batches of %d", len(pending), BATCH_SIZE)
-
     now = utcnow()
+
+    # Phase 1: Main pass
     for i in range(0, len(pending), BATCH_SIZE):
         batch = pending[i : i + BATCH_SIZE]
         stats["batches"] += 1
@@ -281,34 +298,51 @@ def classify_unclassified(
             log.warning("  Batch %d returned zero classifications", stats["batches"])
             continue
 
-        for article in batch:
-            article_id = str(article["_id"])
-            cls = results.get(article_id)
-            if not cls:
-                continue
-            coll.update_one(
-                {"_id": ObjectId(article_id)},
-                {
-                    "$set": {
-                        "classified": True,
-                        "classified_at": now,
-                        "classification_model": settings.ANTHROPIC_MODEL_FAST,
-                        "sentiment": cls["sentiment"],
-                        "sentiment_confidence": cls["sentiment_confidence"],
-                        "themes": cls["themes"],
-                        "severity": cls["severity"],
-                        "classifier_summary": cls["classifier_summary"],
-                        "updated_at": now,
-                    }
-                },
-            )
-            stats["classified"] += 1
+        applied = _apply_classifications(batch, results, coll, now)
+        stats["classified"] += applied
 
+    # Phase 2: Retry pass for stragglers
+    pending_ids = [a["_id"] for a in pending]
+    still_unclassified = list(
+        coll.find(
+            {"_id": {"$in": pending_ids}, "classified": False},
+            {"_id": 1, "title": 1, "summary": 1, "entities_symbols": 1, "url": 1},
+        )
+    )
+
+    if still_unclassified:
+        log.info(
+            "Retry pass: %d articles still unclassified, processing in batches of %d",
+            len(still_unclassified),
+            RETRY_PASS_BATCH_SIZE,
+        )
+        for i in range(0, len(still_unclassified), RETRY_PASS_BATCH_SIZE):
+            mini_batch = still_unclassified[i : i + RETRY_PASS_BATCH_SIZE]
+            stats["retry_pass_batches"] += 1
+            results = _classify_batch(mini_batch)
+            if not results:
+                continue
+            applied = _apply_classifications(mini_batch, results, coll, now)
+            stats["retry_pass_classified"] += applied
+
+        final_unclassified = coll.count_documents(
+            {"_id": {"$in": pending_ids}, "classified": False}
+        )
+        stats["still_unclassified"] = final_unclassified
+        if final_unclassified > 0:
+            log.warning(
+                "After retry pass, %d articles remain unclassified -- will be picked up next run",
+                final_unclassified,
+            )
+
+    total_classified = stats["classified"] + stats["retry_pass_classified"]
     log.info(
-        "Classification complete: %d/%d articles classified across %d batches (%d failed)",
-        stats["classified"],
+        "Classification complete: %d/%d (%d main + %d retry), %d failed batches, %d still unclassified",
+        total_classified,
         len(pending),
-        stats["batches"],
+        stats["classified"],
+        stats["retry_pass_classified"],
         stats["failed_batches"],
+        stats["still_unclassified"],
     )
     return stats
