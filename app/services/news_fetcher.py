@@ -46,6 +46,9 @@ _EXCLUDED_DOMAINS = [
     "5paisa.com",
     "indiainfoline.com",
     "trendlyne.com",
+    "ad-hoc-news.de",
+    "simplywall.st",
+    "marketscreener.com",
 ]
 
 # URL-pattern exclusions for sites that have BOTH news AND noise pages.
