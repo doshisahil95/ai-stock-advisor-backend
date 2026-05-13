@@ -148,14 +148,18 @@ def submit_feedback(
 ) -> dict:
     """Record user feedback on a suggested candidate.
 
-    Updates monitored_stocks (creates if absent). The "rejected" action drives
-    the 90-day rejection window in suggestion_engine.get_rejected_isins().
+    Updates monitored_stocks (creates if absent) using last-write-wins.
 
-    All three actions also flip the user-action label on any open outcomes for
-    this ISIN. The label does NOT gate data collection -- the daily snapshot job
-    continues to fill 30/60/90/180-day price points for every non-expired
-    outcome regardless of label, so per-bucket performance ('acted vs passed vs
-    rejected') is measurable.
+    Also re-labels the MOST RECENT non-expired outcome for this ISIN. We do
+    not update older outcomes -- those represent decisions the user made on
+    past suggestions, and re-clicking on a current suggestion shouldn't
+    rewrite history. We do not gate on the outcome's existing status, so a
+    user changing their mind (e.g. acted -> rejected) is reflected on the
+    current outcome.
+
+    The outcome label is metadata only; the daily snapshot job continues
+    collecting 30/60/90/180d price points for every non-expired outcome
+    regardless of label (see outcome_tracker.snapshot_open_outcomes).
     """
     now = utcnow()
     set_doc: dict[str, Any] = {
@@ -184,27 +188,41 @@ def submit_feedback(
         upsert=True,
     )
 
-    # Label any currently-open outcomes for this ISIN with the user's action.
-    # This is just bucketing metadata; outcome data collection is gated only on
-    # tracking_status != "expired" (see outcome_tracker.snapshot_open_outcomes).
-    Collections.suggestion_outcomes().update_many(
-        {"isin": isin, "tracking_status": "open"},
-        {
-            "$set": {
-                "tracking_status": payload.action,
-                "user_action_at": now,
-                "user_action_note": payload.note,
-                "updated_at": now,
-            }
-        },
+    # Re-label the most recent non-expired outcome for this ISIN.
+    # Sort by suggested_at desc, take the first one. This is the suggestion
+    # the user is actually looking at on the page.
+    latest_outcome = Collections.suggestion_outcomes().find_one(
+        {"isin": isin, "tracking_status": {"$ne": "expired"}},
+        sort=[("suggested_at", -1)],
+        projection={"_id": 1, "tracking_status": 1},
     )
-
-    log.info(
-        "Feedback for %s: action=%s, upserted=%s",
-        isin,
-        payload.action,
-        result.upserted_id is not None,
-    )
+    if latest_outcome:
+        Collections.suggestion_outcomes().update_one(
+            {"_id": latest_outcome["_id"]},
+            {
+                "$set": {
+                    "tracking_status": payload.action,
+                    "user_action_at": now,
+                    "user_action_note": payload.note,
+                    "updated_at": now,
+                }
+            },
+        )
+        log.info(
+            "Feedback for %s: action=%s (relabeled outcome %s from %s); upserted_monitored=%s",
+            isin,
+            payload.action,
+            latest_outcome["_id"],
+            latest_outcome.get("tracking_status"),
+            result.upserted_id is not None,
+        )
+    else:
+        log.info(
+            "Feedback for %s: action=%s (no active outcome to relabel); upserted_monitored=%s",
+            isin,
+            payload.action,
+            result.upserted_id is not None,
+        )
 
     return {
         "isin": isin,
