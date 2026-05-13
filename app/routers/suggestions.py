@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.client import Collections
 from app.models._common import utcnow
+from app.services.explainability import enrich_run
 from app.services.outcome_tracker import compute_system_performance
 
 log = logging.getLogger(__name__)
@@ -42,7 +43,12 @@ def _decimal_to_jsonable(v: Any) -> Any:
 
 
 def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
-    """Serialize a SuggestionRun doc for the API response."""
+    """Serialize a SuggestionRun doc for the API response.
+
+    Calls `enrich_run` at the end so each top candidate carries plain-English
+    metadata (signal_meta, group_meta, gate_meta, confidence_meta) and the run
+    carries feedback_meta + page_intro.
+    """
     out = _decimal_to_jsonable(dict(run))
     out["_id"] = str(run["_id"])
 
@@ -57,12 +63,13 @@ def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
     out.pop("notes", None)
     out.pop("all_candidates", None)  # keep response light
 
-    return out
+    # Additive enrichment -- never mutates underlying doc, only the response.
+    return enrich_run(out)
 
 
 @router.get("/latest")
 def get_latest_suggestion_run() -> dict:
-    """Most recent successful suggestion run with full dossiers."""
+    """Most recent successful suggestion run with full dossiers + explainability."""
     run = Collections.suggestion_runs().find_one(
         {"status": {"$in": ["success", "partial"]}},
         sort=[("run_date", -1)],
@@ -100,11 +107,9 @@ def list_suggestion_runs(
         .skip(skip)
         .limit(limit)
     )
-
     runs = [_decimal_to_jsonable(r) for r in cursor]
     for r in runs:
         r["_id"] = str(r["_id"])
-
     total = Collections.suggestion_runs().count_documents(
         {"status": {"$in": ["success", "partial"]}}
     )
@@ -113,12 +118,11 @@ def list_suggestion_runs(
 
 @router.get("/runs/{run_id}")
 def get_suggestion_run(run_id: str = Path(...)) -> dict:
-    """Get one specific suggestion run with full dossiers."""
+    """Get one specific suggestion run with full dossiers + explainability."""
     try:
         oid = ObjectId(run_id)
     except InvalidId:
         raise HTTPException(status_code=400, detail=f"Invalid run id: {run_id}")
-
     run = Collections.suggestion_runs().find_one({"_id": oid})
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
@@ -133,7 +137,6 @@ def get_performance() -> dict:
 
 class SuggestionFeedback(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     action: Literal["acted", "passed", "rejected"]
     note: str = Field(default="", max_length=500)
 
@@ -149,7 +152,6 @@ def submit_feedback(
     the 90-day rejection window in suggestion_engine.get_rejected_isins().
     """
     now = utcnow()
-
     set_doc: dict[str, Any] = {
         "isin": isin,
         "last_feedback_at": now,
@@ -157,7 +159,6 @@ def submit_feedback(
         "last_feedback_note": payload.note,
         "updated_at": now,
     }
-
     if payload.action == "acted":
         set_doc["status"] = "tracking"
         set_doc["acted_at"] = now
@@ -196,6 +197,7 @@ def submit_feedback(
         payload.action,
         result.upserted_id is not None,
     )
+
     return {
         "isin": isin,
         "action": payload.action,

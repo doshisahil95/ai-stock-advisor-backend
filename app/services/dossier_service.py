@@ -1,9 +1,10 @@
-"""Dossier generator — Claude Sonnet produces a structured per-candidate brief.
+"""Dossier generator -- Claude Sonnet produces a structured per-candidate brief.
 
-Claude generates NARRATIVE only. Numbers come from our data. The prompt is
-explicit about not inventing facts. We then validate the output JSON schema;
-on validation failure we retry once. On second failure we mark
-narrative_unavailable and keep the structured signals.
+Claude generates NARRATIVE only.
+Numbers come from our data.
+The prompt is explicit about not inventing facts.
+We then validate the output JSON schema; on validation failure we retry once.
+On second failure we mark narrative_unavailable and keep the structured signals.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from app.models.suggestion import CandidateScore
 
 log = logging.getLogger(__name__)
 
-
 _SYSTEM_PROMPT = """You are a financial analyst producing a one-page research dossier on a candidate stock for an Indian retail investor.
 
 CRITICAL CONSTRAINTS:
@@ -27,8 +27,9 @@ CRITICAL CONSTRAINTS:
 3. Tone is honest and slightly contrarian. If the data is ambiguous, say so. If the bull case is weak, say so. Do not pad.
 4. Output ONLY valid JSON matching the requested schema. No prose outside the JSON.
 
-OUTPUT SCHEMA — return a single JSON object with these fields:
-- one_line_thesis: a string, max 150 characters
+OUTPUT SCHEMA -- return a single JSON object with these fields:
+- plain_english_summary: a string, 2 to 3 sentences, max 500 characters, written in plain language for a NON-ANALYST. Tell the reader why the system surfaced this stock this week, what the main upside is, and what the main risk is. Do not use jargon. Do not say buy or sell. If signals are weak or missing, say so honestly.
+- one_line_thesis: a string, max 150 characters, the analyst-tone one-line version of the same idea.
 - bull_case: an array of EXACTLY 3 strings, each max 200 characters, each grounded in the input data
 - bear_case: an array of EXACTLY 3 strings, each max 200 characters
 - key_risks: an array of EXACTLY 3 strings, each max 150 characters
@@ -174,6 +175,7 @@ def _parse_dossier(raw_text: str) -> dict | None:
         return None
 
     required = [
+        "plain_english_summary",
         "one_line_thesis",
         "bull_case",
         "bear_case",
@@ -193,16 +195,17 @@ def _parse_dossier(raw_text: str) -> dict | None:
         parsed[key] = parsed[key][:3]
         parsed[key] = [str(x)[:300] for x in parsed[key]]
 
+    parsed["plain_english_summary"] = str(parsed["plain_english_summary"])[:500]
     parsed["one_line_thesis"] = str(parsed["one_line_thesis"])[:200]
     parsed["valuation_verdict"] = str(parsed["valuation_verdict"])[:300]
     parsed["portfolio_fit"] = str(parsed["portfolio_fit"])[:300]
-
     return parsed
 
 
 def _empty_dossier(reason: str) -> dict:
     """Fallback dossier for when narrative generation fails."""
     return {
+        "plain_english_summary": "(narrative unavailable -- see signal scores and gates below for the data the engine used)",
         "one_line_thesis": "(narrative unavailable -- see signals)",
         "bull_case": [
             "(narrative unavailable)",
@@ -321,7 +324,6 @@ def generate_dossiers_for_top_k(
             .limit(8)
         )
         news = list(news_cursor)
-
         log.info("Generating dossier for #%d %s", c.rank, c.symbol)
         dossier = _generate_one(
             c,
@@ -332,5 +334,4 @@ def generate_dossiers_for_top_k(
         dossier["isin"] = c.isin
         dossier["symbol"] = c.symbol
         dossiers.append(dossier)
-
     return dossiers
