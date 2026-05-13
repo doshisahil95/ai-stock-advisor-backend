@@ -1,11 +1,22 @@
 """Outcome tracking for past suggestions.
 
-Daily cron snapshots prices for all open suggestions and computes excess
+Daily cron snapshots prices for all non-expired outcomes and computes excess
 return vs an equal-weighted NIFTY 100 benchmark at 30/60/90/180-day windows.
 
 Note: the SuggestionOutcome.nifty_at_* fields hold the EW NIFTY 100 RETURN
 (percent) for the matching window, not a price. We treat the synthetic
 benchmark as a single number per window per outcome.
+
+Important design choice (changed in Commit A.5):
+    Snapshot eligibility is gated on tracking_status != "expired", NOT on
+    tracking_status == "open". This means once a user clicks "Acted",
+    "Passed", or "Rejected" on a suggestion, the system continues to fill
+    30/60/90/180-day price data for that outcome until expiry. Per-bucket
+    performance comparisons (acted vs passed vs rejected vs no-action) thus
+    remain measurable.
+
+    tracking_status records WHAT THE USER DID with the suggestion. It is not
+    a gate on data collection.
 """
 
 from __future__ import annotations
@@ -49,17 +60,13 @@ def create_outcomes_for_run(
     run_id: ObjectId, run_date: datetime, top_candidates: list
 ) -> int:
     """Create SuggestionOutcome records for each top-K candidate at run time.
-
-    Idempotent: skips if an outcome already exists for this (isin, run_id).
-    """
+    Idempotent: skips if an outcome already exists for this (isin, run_id)."""
     coll = Collections.suggestion_outcomes()
     now = utcnow()
     created = 0
-
     for c in top_candidates:
         if coll.find_one({"isin": c.isin, "suggestion_run_id": run_id}):
             continue
-
         suggested_price = (
             c.current_price if c.current_price is not None else Decimal("0")
         )
@@ -79,7 +86,6 @@ def create_outcomes_for_run(
         doc["suggestion_run_id"] = run_id  # ensure it's not coerced to None
         coll.insert_one(doc)
         created += 1
-
     log.info("Created %d new outcome records for run", created)
     return created
 
@@ -110,29 +116,29 @@ def _compute_nifty100_ew_return(
             .sort("date", -1)
             .limit(1)
         )
-
         if not history_from or not history_to:
             continue
-
         p_from = _flt(history_from[0]["close"])
         p_to = _flt(history_to[0]["close"])
         if p_from is None or p_to is None or p_from <= 0:
             continue
-
         returns.append((p_to / p_from - 1) * 100)
-
     if not returns:
         return None
     return sum(returns) / len(returns)
 
 
 def snapshot_open_outcomes() -> dict:
-    """Daily cron: for each open outcome, snapshot prices at the relevant windows."""
+    """Daily cron: for each non-expired outcome, snapshot prices at the relevant windows.
+
+    Name kept for backward compatibility with cron entries / docs, but the
+    selection now includes outcomes labeled 'open', 'acted', 'passed', and
+    'rejected'. Only 'expired' outcomes are skipped. See module docstring.
+    """
     now = datetime.now(timezone.utc)
     coll = Collections.suggestion_outcomes()
 
-    open_outcomes = list(coll.find({"tracking_status": "open"}))
-
+    active_outcomes = list(coll.find({"tracking_status": {"$ne": "expired"}}))
     nifty100_isins = [
         d["isin"]
         for d in Collections.instruments().find(
@@ -140,9 +146,8 @@ def snapshot_open_outcomes() -> dict:
             {"_id": 0, "isin": 1},
         )
     ]
-
     stats = {
-        "open_outcomes": len(open_outcomes),
+        "active_outcomes": len(active_outcomes),
         "snapshots_30d": 0,
         "snapshots_60d": 0,
         "snapshots_90d": 0,
@@ -150,11 +155,10 @@ def snapshot_open_outcomes() -> dict:
         "expired": 0,
     }
 
-    for outcome in open_outcomes:
+    for outcome in active_outcomes:
         suggested_at = outcome["suggested_at"]
         if suggested_at.tzinfo is None:
             suggested_at = suggested_at.replace(tzinfo=timezone.utc)
-
         days_since = (now - suggested_at).days
         updates: dict[str, Any] = {"updated_at": utcnow()}
 
@@ -201,6 +205,10 @@ def snapshot_open_outcomes() -> dict:
 
             stats[f"snapshots_{window_days}d"] += 1
 
+        # Expire only after the longest window has had a chance to land.
+        # We never auto-flip user-labeled outcomes (acted/passed/rejected)
+        # back to "expired" -- the user's label is the final state. Only
+        # outcomes still labeled "open" expire.
         if days_since >= EXPIRY_DAYS and outcome["tracking_status"] == "open":
             updates["tracking_status"] = "expired"
             stats["expired"] += 1
@@ -209,8 +217,8 @@ def snapshot_open_outcomes() -> dict:
             coll.update_one({"_id": outcome["_id"]}, {"$set": updates})
 
     log.info(
-        "Outcome snapshot complete: %d open, snapshots 30d=%d 60d=%d 90d=%d 180d=%d, expired=%d",
-        stats["open_outcomes"],
+        "Outcome snapshot complete: %d active, snapshots 30d=%d 60d=%d 90d=%d 180d=%d, expired=%d",
+        stats["active_outcomes"],
         stats["snapshots_30d"],
         stats["snapshots_60d"],
         stats["snapshots_90d"],
@@ -221,17 +229,24 @@ def snapshot_open_outcomes() -> dict:
 
 
 def compute_system_performance() -> dict:
-    """Aggregate performance metrics across all tracked outcomes."""
-    coll = Collections.suggestion_outcomes()
+    """Aggregate performance metrics across all tracked outcomes.
 
+    Now also breaks out per-window aggregates by tracking_status bucket so
+    you can see whether your 'acted' picks beat your 'passed' picks beat
+    your 'rejected' picks.
+    """
+    coll = Collections.suggestion_outcomes()
     result: dict[str, Any] = {
         "windows": {},
         "total_outcomes_tracked": coll.count_documents({}),
         "open": coll.count_documents({"tracking_status": "open"}),
         "acted": coll.count_documents({"tracking_status": "acted"}),
         "passed": coll.count_documents({"tracking_status": "passed"}),
+        "rejected": coll.count_documents({"tracking_status": "rejected"}),
         "expired": coll.count_documents({"tracking_status": "expired"}),
     }
+
+    bucket_keys = ("open", "acted", "passed", "rejected", "expired")
 
     for window_days in WINDOWS_DAYS:
         excess_field = f"excess_return_{window_days}d"
@@ -245,17 +260,23 @@ def compute_system_performance() -> dict:
                 price_field: 1,
                 nifty_field: 1,
                 excess_field: 1,
+                "tracking_status": 1,
                 "symbol": 1,
             },
         )
+
         excess_returns: list[float] = []
         stock_returns: list[float] = []
         nifty_returns: list[float] = []
+        per_bucket: dict[str, list[float]] = {k: [] for k in bucket_keys}
 
         for o in cursor:
             ex = _flt(o.get(excess_field))
             if ex is not None:
                 excess_returns.append(ex)
+                bucket = o.get("tracking_status", "open")
+                if bucket in per_bucket:
+                    per_bucket[bucket].append(ex)
             sp = _flt(o.get("suggested_at_price"))
             pp = _flt(o.get(price_field))
             if sp and pp and sp > 0:
@@ -277,6 +298,15 @@ def compute_system_performance() -> dict:
             "win_rate_pct": round(sum(1 for r in excess_returns if r > 0) / n * 100, 1)
             if n
             else None,
+            "by_bucket": {
+                k: {
+                    "samples": len(v),
+                    "avg_excess_return_pct": round(sum(v) / len(v), 2) if v else None,
+                    "win_rate_pct": round(sum(1 for r in v if r > 0) / len(v) * 100, 1)
+                    if v
+                    else None,
+                }
+                for k, v in per_bucket.items()
+            },
         }
-
     return result

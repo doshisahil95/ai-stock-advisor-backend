@@ -150,6 +150,12 @@ def submit_feedback(
 
     Updates monitored_stocks (creates if absent). The "rejected" action drives
     the 90-day rejection window in suggestion_engine.get_rejected_isins().
+
+    All three actions also flip the user-action label on any open outcomes for
+    this ISIN. The label does NOT gate data collection -- the daily snapshot job
+    continues to fill 30/60/90/180-day price points for every non-expired
+    outcome regardless of label, so per-bucket performance ('acted vs passed vs
+    rejected') is measurable.
     """
     now = utcnow()
     set_doc: dict[str, Any] = {
@@ -178,18 +184,20 @@ def submit_feedback(
         upsert=True,
     )
 
-    if payload.action in ("acted", "passed"):
-        Collections.suggestion_outcomes().update_many(
-            {"isin": isin, "tracking_status": "open"},
-            {
-                "$set": {
-                    "tracking_status": payload.action,
-                    "user_action_at": now,
-                    "user_action_note": payload.note,
-                    "updated_at": now,
-                }
-            },
-        )
+    # Label any currently-open outcomes for this ISIN with the user's action.
+    # This is just bucketing metadata; outcome data collection is gated only on
+    # tracking_status != "expired" (see outcome_tracker.snapshot_open_outcomes).
+    Collections.suggestion_outcomes().update_many(
+        {"isin": isin, "tracking_status": "open"},
+        {
+            "$set": {
+                "tracking_status": payload.action,
+                "user_action_at": now,
+                "user_action_note": payload.note,
+                "updated_at": now,
+            }
+        },
+    )
 
     log.info(
         "Feedback for %s: action=%s, upserted=%s",
