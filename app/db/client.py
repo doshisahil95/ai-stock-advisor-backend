@@ -138,6 +138,11 @@ class Collections:
         """Daily Tavily quota tracking (one doc per UTC date)."""
         return get_db()["tavily_quota"]
 
+    @staticmethod
+    def digest_deliveries() -> Collection:
+        """Per-run digest delivery log (one doc per Sunday cron, success or failure)."""
+        return get_db()["digest_deliveries"]
+
 
 def ping() -> bool:
     """Quick connectivity check. Returns True if Atlas responds."""

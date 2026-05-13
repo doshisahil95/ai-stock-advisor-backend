@@ -293,4 +293,11 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    results["digest_deliveries"] = Collections.digest_deliveries().create_indexes(
+        [
+            IndexModel([("sent_at", DESCENDING)], name="sent_at_desc"),
+            IndexModel([("run_id", ASCENDING)], name="run_id"),
+        ]
+    )
+
     return results
