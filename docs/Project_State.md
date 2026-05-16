@@ -50,7 +50,7 @@ Personal AI Stock Advisor. Single-user portfolio + research tool for Indian NSE 
 
 Strict design constraint that overrides everything else: the system never executes trades. Sahil trades manually in ICICI Direct. The system records, analyzes, and advises only. Any feature that would auto-place an order is out of scope, permanently.
 
-The system is also not regulatory advice. Dossiers and suggestions must use phrasing like "the system flagged this because..." and never "buy" or "sell" as imperatives. The user decides; the user trades.
+The system is also not regulatory advice. Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because..." . The user decides; the user trades. The goal of the system is to maximise the investments. 
 
 Goal of the tool: grow money. Every feature is judged on whether it helps with one of:
 1. Buy better (find opportunities you'd otherwise miss)
