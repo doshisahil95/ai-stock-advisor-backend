@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from app.services.cron_heartbeat_service import cron_run
 from app.services.outcome_tracker import snapshot_open_outcomes
 
 logging.basicConfig(
@@ -18,17 +19,29 @@ def main() -> int:
     print(" Suggestion outcome tracking")
     print("=" * 70)
 
-    stats = snapshot_open_outcomes()
+    with cron_run("track_suggestion_outcomes") as hb:
+        stats = snapshot_open_outcomes()
 
-    print()
-    print(f"  Open outcomes:     {stats['open_outcomes']}")
-    print(f"  Snapshots 30d:     {stats['snapshots_30d']}")
-    print(f"  Snapshots 60d:     {stats['snapshots_60d']}")
-    print(f"  Snapshots 90d:     {stats['snapshots_90d']}")
-    print(f"  Snapshots 180d:    {stats['snapshots_180d']}")
-    print(f"  Expired (>180d):   {stats['expired']}")
-    print()
-    return 0
+        hb.metadata.update(
+            {
+                "open_outcomes": stats["open_outcomes"],
+                "snapshots_30d": stats["snapshots_30d"],
+                "snapshots_60d": stats["snapshots_60d"],
+                "snapshots_90d": stats["snapshots_90d"],
+                "snapshots_180d": stats["snapshots_180d"],
+                "expired": stats["expired"],
+            }
+        )
+
+        print()
+        print(f"  Open outcomes:     {stats['open_outcomes']}")
+        print(f"  Snapshots 30d:     {stats['snapshots_30d']}")
+        print(f"  Snapshots 60d:     {stats['snapshots_60d']}")
+        print(f"  Snapshots 90d:     {stats['snapshots_90d']}")
+        print(f"  Snapshots 180d:    {stats['snapshots_180d']}")
+        print(f"  Expired (>180d):   {stats['expired']}")
+        print()
+        return 0
 
 
 if __name__ == "__main__":

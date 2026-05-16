@@ -4,17 +4,17 @@ Designed to run weekly via cron. yfinance throttles aggressive callers, so
 we sleep ~0.3s between calls. Total runtime for NIFTY 100 ≈ 60-90s.
 
 Usage:
-  # Refresh entire NIFTY 100 universe (cron entry point)
-  PYTHONPATH=. uv run python scripts/refresh_fundamentals.py
+    # Refresh entire NIFTY 100 universe (cron entry point)
+    PYTHONPATH=. uv run python scripts/refresh_fundamentals.py
 
-  # Refresh specific symbols only
-  PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --symbols INFY,TCS
+    # Refresh specific symbols only
+    PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --symbols INFY,TCS
 
-  # Refresh held stocks only (smaller, faster)
-  PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --holdings-only
+    # Refresh held stocks only (smaller, faster)
+    PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --holdings-only
 
-  # Diagnostic: refresh just first N from universe
-  PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --limit 5
+    # Diagnostic: refresh just first N from universe
+    PYTHONPATH=. uv run python scripts/refresh_fundamentals.py --limit 5
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import logging
 import sys
 
 from app.db.client import Collections
+from app.services.cron_heartbeat_service import cron_run
 from app.services.fundamentals_service import refresh_universe
 
 logging.basicConfig(
@@ -87,39 +88,57 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.symbols:
-        symbol_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
-        targets = get_specific(symbol_list)
-        if not targets:
-            print(f"❌ None of the symbols found in instruments: {symbol_list}")
+    with cron_run("refresh_fundamentals") as hb:
+        hb.metadata["holdings_only"] = args.holdings_only
+        hb.metadata["explicit_symbols"] = args.symbols
+        hb.metadata["limit"] = args.limit
+
+        if args.symbols:
+            symbol_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
+            targets = get_specific(symbol_list)
+            if not targets:
+                print(f"⚠ None of the symbols found in instruments: {symbol_list}")
+                hb.status = "failure"
+                hb.error = f"No matching instruments for {symbol_list}"
+                return 1
+            mode = f"specific symbols ({len(targets)})"
+        elif args.holdings_only:
+            targets = get_active_holdings()
+            mode = f"active holdings ({len(targets)})"
+        else:
+            targets = get_nifty100()
+            mode = f"NIFTY 100 universe ({len(targets)})"
+
+        if args.limit:
+            targets = targets[: args.limit]
+            mode += f" — LIMITED to {len(targets)}"
+
+        hb.metadata["mode"] = mode
+        hb.metadata["targets"] = len(targets)
+
+        print(f"Fundamentals refresh — target: {mode}")
+        print()
+
+        stats = refresh_universe(targets, throttle_sec=args.throttle)
+
+        hb.metadata["attempted"] = stats["attempted"]
+        hb.metadata["succeeded"] = stats["succeeded"]
+        hb.metadata["failed"] = stats["failed"]
+
+        print()
+        print("=" * 60)
+        print(f"  Attempted: {stats['attempted']}")
+        print(f"  Succeeded: {stats['succeeded']}")
+        print(f"  Failed:    {stats['failed']}")
+        if stats["failed_isins"]:
+            print(f"  Failed ISINs (first 10): {stats['failed_isins'][:10]}")
+        print("=" * 60)
+
+        if stats["failed"] >= stats["attempted"]:
+            hb.status = "failure"
+            hb.error = f"All {stats['attempted']} fundamentals refreshes failed"
             return 1
-        mode = f"specific symbols ({len(targets)})"
-    elif args.holdings_only:
-        targets = get_active_holdings()
-        mode = f"active holdings ({len(targets)})"
-    else:
-        targets = get_nifty100()
-        mode = f"NIFTY 100 universe ({len(targets)})"
-
-    if args.limit:
-        targets = targets[: args.limit]
-        mode += f" — LIMITED to {len(targets)}"
-
-    print(f"Fundamentals refresh — target: {mode}")
-    print()
-
-    stats = refresh_universe(targets, throttle_sec=args.throttle)
-
-    print()
-    print("=" * 60)
-    print(f"  Attempted: {stats['attempted']}")
-    print(f"  Succeeded: {stats['succeeded']}")
-    print(f"  Failed:    {stats['failed']}")
-    if stats["failed_isins"]:
-        print(f"  Failed ISINs (first 10): {stats['failed_isins'][:10]}")
-    print("=" * 60)
-
-    return 0 if stats["failed"] < stats["attempted"] else 1
+        return 0
 
 
 if __name__ == "__main__":

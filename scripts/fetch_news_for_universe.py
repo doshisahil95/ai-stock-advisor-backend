@@ -29,6 +29,7 @@ import logging
 import sys
 
 from app.db.client import Collections
+from app.services.cron_heartbeat_service import cron_run
 from app.services.news_classifier import classify_unclassified
 from app.services.news_fetcher import fetch_for_universe
 from app.services.tavily_client import get_today_quota
@@ -79,71 +80,95 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print("=" * 70)
-    print(" News fetch + classification")
-    print("=" * 70)
+    with cron_run("fetch_news_for_universe") as hb:
+        hb.metadata["limit"] = args.limit
+        hb.metadata["days"] = args.days
+        hb.metadata["skip_fetch"] = args.skip_fetch
+        hb.metadata["skip_classify"] = args.skip_classify
+        hb.metadata["include_held"] = args.include_held
 
-    if not args.skip_fetch:
-        if args.include_held:
-            cursor = Collections.instruments().find(
-                {"in_nifty100": True},
-                {"_id": 0, "isin": 1, "symbol": 1, "name": 1, "exchange": 1},
-            )
-            universe = list(cursor)
-        else:
-            universe = get_universe_for_news()
+        print("=" * 70)
+        print(" News fetch + classification")
+        print("=" * 70)
 
-        if args.limit:
-            universe = universe[: args.limit]
+        if not args.skip_fetch:
+            if args.include_held:
+                cursor = Collections.instruments().find(
+                    {"in_nifty100": True},
+                    {"_id": 0, "isin": 1, "symbol": 1, "name": 1, "exchange": 1},
+                )
+                universe = list(cursor)
+            else:
+                universe = get_universe_for_news()
 
-        print(
-            f"\nPhase 1: Fetching news for {len(universe)} stocks (last {args.days}d)"
-        )
-        print(
-            f"  Tavily quota before: {get_today_quota().get('calls_today', 0)} calls today\n"
-        )
+            if args.limit:
+                universe = universe[: args.limit]
 
-        fetch_stats = fetch_for_universe(universe, days=args.days)
-
-        print()
-        print(f"  Attempted:   {fetch_stats['attempted']}")
-        print(f"  Succeeded:   {fetch_stats['succeeded']}")
-        print(f"  Failed:      {fetch_stats['failed']}")
-        print(
-            f"  Articles:    {fetch_stats['total_fetched']} fetched, "
-            f"{fetch_stats['total_new_inserted']} new, {fetch_stats['total_merged']} merged"
-        )
-        if fetch_stats.get("quota_exceeded"):
             print(
-                f"  WARN  Tavily quota exceeded -- stopped at stock {fetch_stats['stopped_early_at']}"
+                f"\nPhase 1: Fetching news for {len(universe)} stocks (last {args.days}d)"
+            )
+            print(
+                f"  Tavily quota before: {get_today_quota().get('calls_today', 0)} calls today\n"
             )
 
-        quota = get_today_quota()
-        print(
-            f"  Tavily quota after:  {quota.get('calls_today', 0)} calls, "
-            f"~{quota.get('credits_today', 0)} credits today"
-        )
-    else:
-        print("\nPhase 1: SKIPPED (--skip-fetch)")
+            fetch_stats = fetch_for_universe(universe, days=args.days)
 
-    if not args.skip_classify:
-        print(f"\nPhase 2: Classifying unclassified articles")
-        cls_stats = classify_unclassified(only_recent_days=35)
+            hb.metadata["fetch_attempted"] = fetch_stats["attempted"]
+            hb.metadata["fetch_succeeded"] = fetch_stats["succeeded"]
+            hb.metadata["fetch_failed"] = fetch_stats["failed"]
+            hb.metadata["articles_new"] = fetch_stats["total_new_inserted"]
+            hb.metadata["articles_merged"] = fetch_stats["total_merged"]
+            if fetch_stats.get("quota_exceeded"):
+                hb.metadata["quota_exceeded"] = True
+                hb.metadata["stopped_early_at"] = fetch_stats["stopped_early_at"]
+
+            print()
+            print(f"  Attempted:   {fetch_stats['attempted']}")
+            print(f"  Succeeded:   {fetch_stats['succeeded']}")
+            print(f"  Failed:      {fetch_stats['failed']}")
+            print(
+                f"  Articles:    {fetch_stats['total_fetched']} fetched, "
+                f"{fetch_stats['total_new_inserted']} new, {fetch_stats['total_merged']} merged"
+            )
+            if fetch_stats.get("quota_exceeded"):
+                print(
+                    f"  WARN — Tavily quota exceeded -- stopped at stock {fetch_stats['stopped_early_at']}"
+                )
+
+            quota = get_today_quota()
+            hb.metadata["tavily_calls_today"] = quota.get("calls_today", 0)
+            hb.metadata["tavily_credits_today"] = quota.get("credits_today", 0)
+            print(
+                f"  Tavily quota after:  {quota.get('calls_today', 0)} calls, "
+                f"~{quota.get('credits_today', 0)} credits today"
+            )
+        else:
+            print("\nPhase 1: SKIPPED (--skip-fetch)")
+
+        if not args.skip_classify:
+            print(f"\nPhase 2: Classifying unclassified articles")
+            cls_stats = classify_unclassified(only_recent_days=35)
+
+            hb.metadata["classify_found"] = cls_stats["found_unclassified"]
+            hb.metadata["classify_done"] = cls_stats["classified"]
+            hb.metadata["classify_batches"] = cls_stats["batches"]
+            hb.metadata["classify_failed_batches"] = cls_stats["failed_batches"]
+
+            print()
+            print(f"  Found unclassified: {cls_stats['found_unclassified']}")
+            print(f"  Classified:         {cls_stats['classified']}")
+            print(
+                f"  Batches:            {cls_stats['batches']} ({cls_stats['failed_batches']} failed)"
+            )
+            print(f"  Model:              {cls_stats['model']}")
+        else:
+            print("\nPhase 2: SKIPPED (--skip-classify)")
+
         print()
-        print(f"  Found unclassified: {cls_stats['found_unclassified']}")
-        print(f"  Classified:         {cls_stats['classified']}")
-        print(
-            f"  Batches:            {cls_stats['batches']} ({cls_stats['failed_batches']} failed)"
-        )
-        print(f"  Model:              {cls_stats['model']}")
-    else:
-        print("\nPhase 2: SKIPPED (--skip-classify)")
-
-    print()
-    print("=" * 70)
-    print(" Done")
-    print("=" * 70)
-    return 0
+        print("=" * 70)
+        print(" Done")
+        print("=" * 70)
+        return 0
 
 
 if __name__ == "__main__":

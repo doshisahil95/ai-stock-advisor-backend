@@ -19,7 +19,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
     """Create every index our app expects. Returns {collection: [index_names]}."""
     results: dict[str, list[str]] = {}
 
-    # ── transactions ─────────────────────────────────────────────────────────
+    # ─── transactions ────────────────────────────────────────────────
     results["transactions"] = Collections.transactions().create_indexes(
         [
             IndexModel(
@@ -35,7 +35,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── holdings ─────────────────────────────────────────────────────────────
+    # ─── holdings ────────────────────────────────────────────────────
     # Unique on isin among non-deleted (partial index)
     results["holdings"] = Collections.holdings().create_indexes(
         [
@@ -51,7 +51,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── monitored_stocks ─────────────────────────────────────────────────────
+    # ─── monitored_stocks ────────────────────────────────────────────
     results["monitored_stocks"] = Collections.monitored_stocks().create_indexes(
         [
             IndexModel(
@@ -68,7 +68,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── news_articles ────────────────────────────────────────────────────────
+    # ─── news_articles ───────────────────────────────────────────────
     results["news_articles"] = Collections.news_articles().create_indexes(
         [
             IndexModel([("url", ASCENDING)], name="url_unique", unique=True),
@@ -89,7 +89,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── alerts_log ───────────────────────────────────────────────────────────
+    # ─── alerts_log ──────────────────────────────────────────────────
     results["alerts_log"] = Collections.alerts_log().create_indexes(
         [
             IndexModel([("sent_at", DESCENDING)], name="sent_at_desc"),
@@ -102,7 +102,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── digests ──────────────────────────────────────────────────────────────
+    # ─── digests ─────────────────────────────────────────────────────
     results["digests"] = Collections.digests().create_indexes(
         [
             IndexModel(
@@ -113,7 +113,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── prices_daily ─────────────────────────────────────────────────────────
+    # ─── prices_daily ────────────────────────────────────────────────
     results["prices_daily"] = Collections.prices_daily().create_indexes(
         [
             IndexModel(
@@ -128,14 +128,14 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── macro_signals ────────────────────────────────────────────────────────
+    # ─── macro_signals ───────────────────────────────────────────────
     results["macro_signals"] = Collections.macro_signals().create_indexes(
         [
             IndexModel([("date", DESCENDING)], name="date_unique", unique=True),
         ]
     )
 
-    # ── conversations ────────────────────────────────────────────────────────
+    # ─── conversations ───────────────────────────────────────────────
     results["conversations"] = Collections.conversations().create_indexes(
         [
             IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
@@ -151,7 +151,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── instruments ──────────────────────────────────────────────────────────
+    # ─── instruments ─────────────────────────────────────────────────
     results["instruments"] = Collections.instruments().create_indexes(
         [
             IndexModel(
@@ -165,7 +165,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── symbol_overrides ─────────────────────────────────────────────────────
+    # ─── symbol_overrides ────────────────────────────────────────────
     results["symbol_overrides"] = Collections.symbol_overrides().create_indexes(
         [
             IndexModel(
@@ -176,7 +176,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── reconciliation_snapshots ─────────────────────────────────────────────
+    # ─── reconciliation_snapshots ────────────────────────────────────
     results["reconciliation_snapshots"] = (
         Collections.reconciliation_snapshots().create_indexes(
             [
@@ -203,7 +203,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── cost_basis_adjustments ───────────────────────────────────────────────
+    # ─── cost_basis_adjustments ──────────────────────────────────────
     # Each row documents one IT-Act-driven divergence between our tax-basis
     # cost and the broker's nominal cost. Used both to compute "broker view"
     # P&L and to render the CA-facing audit trail.
@@ -219,7 +219,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         )
     )
 
-    # ── transactions_audit ───────────────────────────────────────────────────
+    # ─── transactions_audit ──────────────────────────────────────────
     # Append-only log of every edit/delete on a transaction. Used for the CA-
     # facing audit trail and for explaining retroactive realized-P&L changes.
     results["transactions_audit"] = Collections.transactions_audit().create_indexes(
@@ -254,7 +254,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         )
     )
 
-    # ── suggestion_runs ──────────────────────────────────────────────────────
+    # ─── suggestion_runs ─────────────────────────────────────────────
     results["suggestion_runs"] = Collections.suggestion_runs().create_indexes(
         [
             IndexModel([("run_date", DESCENDING)], name="run_date_desc"),
@@ -266,7 +266,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── suggestion_outcomes ──────────────────────────────────────────────────
+    # ─── suggestion_outcomes ─────────────────────────────────────────
     results["suggestion_outcomes"] = Collections.suggestion_outcomes().create_indexes(
         [
             IndexModel(
@@ -282,7 +282,7 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
-    # ── tavily_quota ─────────────────────────────────────────────────────────
+    # ─── tavily_quota ────────────────────────────────────────────────
     results["tavily_quota"] = Collections.tavily_quota().create_indexes(
         [
             IndexModel(
@@ -297,6 +297,24 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         [
             IndexModel([("sent_at", DESCENDING)], name="sent_at_desc"),
             IndexModel([("run_id", ASCENDING)], name="run_id"),
+        ]
+    )
+
+    # ─── cron_heartbeats (F4) ────────────────────────────────────────
+    # One doc per cron run; TTL'd at 60 days so the collection stays bounded.
+    # Read by /cron/heartbeats endpoint and by scripts/cron_health_check.py.
+    results["cron_heartbeats"] = Collections.cron_heartbeats().create_indexes(
+        [
+            IndexModel(
+                [("cron_name", ASCENDING), ("started_at", DESCENDING)],
+                name="cron_started_desc",
+            ),
+            IndexModel([("started_at", DESCENDING)], name="started_at_desc"),
+            IndexModel(
+                [("started_at", ASCENDING)],
+                name="started_at_ttl",
+                expireAfterSeconds=60 * 86400,  # 60 days
+            ),
         ]
     )
 

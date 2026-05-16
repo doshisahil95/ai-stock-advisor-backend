@@ -1,10 +1,11 @@
 """Wrappers for ntfy push notifications and Resend email.
 
 Two notification paths:
-- push_private(): self-hosted ntfy via Tailscale Funnel.
-  For sensitive content (digests, errors). Slower iOS delivery.
+- push_private(): self-hosted ntfy via Tailscale Funnel. For sensitive content
+  (digests, errors). Slower iOS delivery.
 - push_public(): public ntfy.sh service with random unguessable topics.
-  For time-critical alerts (price, news). Instant full-content iOS push.
+  For time-critical alerts (price, news, F4 cron-health errors). Instant
+  full-content iOS push.
 """
 
 from typing import Literal
@@ -16,7 +17,7 @@ from base64 import b64encode
 from app.config.settings import settings
 
 PrivateTopic = Literal["digests", "errors"]
-PublicChannel = Literal["price", "news"]
+PublicChannel = Literal["price", "news", "errors"]
 
 _NTFY_AUTH = b64encode(f"{settings.NTFY_USER}:{settings.NTFY_PASS}".encode()).decode()
 _PRIORITY_MAP = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
@@ -59,8 +60,8 @@ def push_private(
 ) -> dict:
     """Send via self-hosted ntfy (Tailscale Funnel).
 
-    Use for sensitive content. iOS delivery is slower (poll-based)
-    but content never touches public infrastructure.
+    Use for sensitive content. iOS delivery is slower (poll-based) but content
+    never touches public infrastructure.
 
     Topics: 'digests', 'errors'
     """
@@ -87,11 +88,12 @@ def push_public(
     Use for time-critical alerts. iOS delivery is instant with full content
     in the notification banner. Trade-off: ntfy.sh + APNs see the content.
 
-    channel: 'price' | 'news'
+    channel: 'price' | 'news' | 'errors' (F4 cron health)
     """
     topic_map = {
         "price": settings.NTFY_PUBLIC_TOPIC_PRICE,
         "news": settings.NTFY_PUBLIC_TOPIC_NEWS,
+        "errors": settings.NTFY_PUBLIC_TOPIC_ERRORS,
     }
     topic = topic_map[channel]  # Literal type guarantees this is a valid key
 

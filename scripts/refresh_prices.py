@@ -26,6 +26,7 @@ import logging
 import sys
 
 from app.db.client import Collections
+from app.services.cron_heartbeat_service import cron_run
 from app.services.price_service import fetch_eod_prices, upsert_prices
 
 logging.basicConfig(
@@ -96,55 +97,67 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Determine target stocks
-    if args.symbols:
-        symbols_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
-        targets = get_specific_symbols(symbols_list)
-        if not targets:
-            print(f"❌ None of the symbols found in instruments: {symbols_list}")
+    with cron_run("refresh_prices") as hb:
+        hb.metadata["backfill_years"] = args.backfill_years
+        hb.metadata["holdings_only"] = args.holdings_only
+        hb.metadata["explicit_symbols"] = args.symbols
+
+        # Determine target stocks
+        if args.symbols:
+            symbols_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
+            targets = get_specific_symbols(symbols_list)
+            if not targets:
+                print(f"⚠ None of the symbols found in instruments: {symbols_list}")
+                hb.status = "failure"
+                hb.error = f"No matching instruments for {symbols_list}"
+                return 1
+        else:
+            targets = get_active_holdings()
+            if not args.holdings_only:
+                seen = {h["isin"] for h in targets}
+                for m in get_monitored():
+                    if m["isin"] not in seen:
+                        targets.append(m)
+                        seen.add(m["isin"])
+                for n in get_nifty100():
+                    if n["isin"] not in seen:
+                        targets.append(n)
+                        seen.add(n["isin"])
+
+        hb.metadata["targets"] = len(targets)
+        print(f"Fetching prices for {len(targets)} stocks")
+
+        # Determine days to fetch
+        if args.backfill_years:
+            days_back = args.backfill_years * 365
+            print(
+                f"BACKFILL mode: {args.backfill_years} years (~{days_back} calendar days)"
+            )
+        else:
+            days_back = 7  # Daily refresh — small overlap to handle weekends/holidays
+            print(f"INCREMENTAL mode: last {days_back} days")
+
+        # Fetch
+        rows = fetch_eod_prices(targets, days_back=days_back)
+
+        if not rows:
+            print("⚠  No price rows fetched. Yahoo may be having issues.")
+            hb.status = "failure"
+            hb.error = "No price rows fetched from yfinance"
             return 1
-    else:
-        targets = get_active_holdings()
-        if not args.holdings_only:
-            # Add monitored (dedupe by ISIN)
-            seen = {h["isin"] for h in targets}
-            for m in get_monitored():
-                if m["isin"] not in seen:
-                    targets.append(m)
-                    seen.add(m["isin"])
-            # Add NIFTY 100 (dedupe by ISIN)
-            for n in get_nifty100():
-                if n["isin"] not in seen:
-                    targets.append(n)
-                    seen.add(n["isin"])
 
-    print(f"Fetching prices for {len(targets)} stocks")
-
-    # Determine days to fetch
-    if args.backfill_years:
-        days_back = args.backfill_years * 365
-        print(
-            f"BACKFILL mode: {args.backfill_years} years (~{days_back} calendar days)"
-        )
-    else:
-        days_back = 7  # Daily refresh — small overlap to handle weekends/holidays
-        print(f"INCREMENTAL mode: last {days_back} days")
-
-    # Fetch
-    rows = fetch_eod_prices(targets, days_back=days_back)
-
-    if not rows:
-        print("⚠️  No price rows fetched. Yahoo may be having issues.")
-        return 1
-
-    print(f"\nFetched {len(rows)} OHLCV rows. Upserting...")
-    result = upsert_prices(rows)
-    print(f"  ✓ Upserted: {result['upserted']}")
-    print(f"  ✓ Modified: {result['modified']}")
-    print(f"  ✓ Total in prices_daily: {result['total']}")
-    print()
-    print("✅ Price refresh complete")
-    return 0
+        print(f"\nFetched {len(rows)} OHLCV rows. Upserting...")
+        result = upsert_prices(rows)
+        hb.metadata["rows_fetched"] = len(rows)
+        hb.metadata["upserted"] = result["upserted"]
+        hb.metadata["modified"] = result["modified"]
+        hb.metadata["total"] = result["total"]
+        print(f"   Upserted: {result['upserted']}")
+        print(f"   Modified: {result['modified']}")
+        print(f"   Total in prices_daily: {result['total']}")
+        print()
+        print("✓ Price refresh complete")
+        return 0
 
 
 if __name__ == "__main__":

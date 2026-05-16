@@ -11,13 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.client import ping
 from app.db.indexes import ensure_all_indexes
 from app.routers import (
+    cost_basis,
+    cron,
     holdings,
     instruments,
     portfolio,
     reconciliation,
-    cost_basis,
+    suggestions,
     transactions,
-    suggestions
 )
 
 logging.basicConfig(
@@ -70,6 +71,7 @@ app.include_router(reconciliation.router)
 app.include_router(cost_basis.router)
 app.include_router(transactions.router)
 app.include_router(suggestions.router)
+app.include_router(cron.router)
 
 
 @app.get("/health", tags=["meta"])

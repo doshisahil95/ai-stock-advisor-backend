@@ -39,7 +39,7 @@ def get_db() -> Database:
     return get_client()[settings.MONGODB_DB_NAME]
 
 
-# ── Typed collection accessors ───────────────────────────────────────────────
+# ─── Typed collection accessors ─────────────────────────────────────
 # Use these everywhere instead of get_db().some_collection — gives autocomplete
 # and a single place to rename if we ever need to.
 
@@ -116,7 +116,7 @@ class Collections:
     def transactions_audit() -> Collection:
         return get_db()["transactions_audit"]
 
-    # ── Phase 2: Suggestions Engine ──────────────────────────────────────────
+    # ─── Phase 2: Suggestions Engine ────────────────────────────────
 
     @staticmethod
     def instruments_fundamentals() -> Collection:
@@ -142,6 +142,17 @@ class Collections:
     def digest_deliveries() -> Collection:
         """Per-run digest delivery log (one doc per Sunday cron, success or failure)."""
         return get_db()["digest_deliveries"]
+
+    # ─── F4: Cron health monitoring ─────────────────────────────────
+
+    @staticmethod
+    def cron_heartbeats() -> Collection:
+        """One doc per cron run with start/finish/status/error/metadata.
+
+        TTL'd at 60 days via indexes.py. Read by /cron/heartbeats endpoint and
+        by scripts/cron_health_check.py.
+        """
+        return get_db()["cron_heartbeats"]
 
 
 def ping() -> bool:
