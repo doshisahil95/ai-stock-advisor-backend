@@ -48,31 +48,102 @@ def get_held_isins() -> set[str]:
     return {d["isin"] for d in cursor}
 
 
-def get_rejected_isins(rejection_window_days: int = 90) -> set[str]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=rejection_window_days)
+# F5b: acted-but-not-held soft-exclude window. Closes the loop where the
+# user clicks "Acted" but the position doesn't end up in holdings (sold
+# quickly, broker reconcile lag, didn't actually place the trade). After
+# 30 days the held filter takes over if the trade landed; otherwise the
+# candidate resurfaces — which is the right behavior either way.
+ACTED_EXCLUDE_WINDOW_DAYS = 30
+REJECTED_EXCLUDE_WINDOW_DAYS = 90
+
+
+def _to_aware_utc(dt):
+    """Normalize a Mongo-fetched datetime to tz-aware UTC for comparison."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def get_excluded_isins(
+    now: datetime | None = None,
+    rejection_window_days: int = REJECTED_EXCLUDE_WINDOW_DAYS,
+    acted_window_days: int = ACTED_EXCLUDE_WINDOW_DAYS,
+) -> dict[str, set[str]]:
+    """Return ISINs to exclude from build_universe, split by bucket.
+
+    Renamed and broadened from get_rejected_isins (Chat 3 / F6 / F5b).
+
+    Buckets:
+      - "rejected": status=="rejected" AND rejected_at >= now - 90d
+      - "acted":    status=="tracking" AND acted_at    >= now - 30d  (F5b)
+
+    "passed" is NOT included. Per PROJECT_STATE §13 F6 / §20.7, a "passed"
+    action is a per-run UI hint (the API enrichment path stamps user_action
+    so the card collapses on the current view); the next scheduled run gets
+    a fresh look because market conditions change. See enrich_run for the
+    user_action gating logic.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    rejected_cutoff = now - timedelta(days=rejection_window_days)
+    acted_cutoff = now - timedelta(days=acted_window_days)
+
+    # Single scan; route into per-bucket sets in Python. Universe of
+    # ever-feedback'd ISINs is tiny (single-user, low frequency).
     cursor = Collections.monitored_stocks().find(
-        {
-            "status": "rejected",
-            "rejected_at": {"$gte": cutoff},
-        },
-        {"_id": 0, "isin": 1},
+        {"status": {"$in": ["rejected", "tracking"]}},
+        {"_id": 0, "isin": 1, "status": 1, "rejected_at": 1, "acted_at": 1},
     )
-    return {d["isin"] for d in cursor}
+
+    rejected: set[str] = set()
+    acted: set[str] = set()
+    for doc in cursor:
+        isin = doc.get("isin")
+        if not isin:
+            continue
+        status_val = doc.get("status")
+        if status_val == "rejected":
+            rejected_at = _to_aware_utc(doc.get("rejected_at"))
+            if rejected_at and rejected_at >= rejected_cutoff:
+                rejected.add(isin)
+        elif status_val == "tracking":
+            acted_at = _to_aware_utc(doc.get("acted_at"))
+            if acted_at and acted_at >= acted_cutoff:
+                acted.add(isin)
+
+    return {"rejected": rejected, "acted": acted}
 
 
 def filter_universe(
     universe: list[dict],
     held: set[str],
-    rejected: set[str],
+    excluded: dict[str, set[str]],
 ) -> tuple[list[dict], dict[str, int]]:
+    """Filter universe by held + per-bucket excluded sets.
+
+    Signature evolved from (held, rejected) to (held, excluded) in Chat 3
+    so F5b's acted bucket plumbs through without inventing a parallel path.
+    Returns the filtered list and a counter dict with keys: held, rejected, acted.
+    """
     filtered: list[dict] = []
-    counts = {"held": 0, "rejected": 0}
+    counts = {"held": 0, "rejected": 0, "acted": 0}
+    rejected = excluded.get("rejected", set())
+    acted = excluded.get("acted", set())
     for inst in universe:
-        if inst["isin"] in held:
+        isin = inst["isin"]
+        if isin in held:
             counts["held"] += 1
             continue
-        if inst["isin"] in rejected:
+        if isin in rejected:
             counts["rejected"] += 1
+            continue
+        if isin in acted:
+            counts["acted"] += 1
             continue
         filtered.append(inst)
     return filtered, counts
@@ -192,17 +263,19 @@ def run_suggestions(
             universe = universe[:limit]
             log.info("  --limit applied: %d stocks", len(universe))
 
-        held = get_held_isins()
-        rejected = get_rejected_isins()
-        filtered, exclusions = filter_universe(universe, held, rejected)
-        run.excluded_held = exclusions["held"]
-        run.excluded_rejected = exclusions["rejected"]
-        log.info(
-            "Excluded: %d held, %d rejected -> %d candidates pre-data-check",
-            exclusions["held"],
-            exclusions["rejected"],
-            len(filtered),
-        )
+            held = get_held_isins()
+            excluded = get_excluded_isins(now=started_at)
+            filtered, exclusions = filter_universe(universe, held, excluded)
+            run.excluded_held = exclusions["held"]
+            run.excluded_rejected = exclusions["rejected"]
+            run.excluded_acted = exclusions["acted"]
+            log.info(
+                "Excluded: %d held, %d rejected (90d), %d acted (30d / F5b) -> %d candidates pre-data-check",
+                exclusions["held"],
+                exclusions["rejected"],
+                exclusions["acted"],
+                len(filtered),
+            )
 
         isins = [c["isin"] for c in filtered]
         log.info("Loading fundamentals for %d candidates", len(isins))

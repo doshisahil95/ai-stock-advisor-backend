@@ -116,6 +116,16 @@ class Collections:
     def transactions_audit() -> Collection:
         return get_db()["transactions_audit"]
 
+    @staticmethod
+    def monitored_stocks_audit() -> Collection:
+        """Append-only audit trail for monitored_stocks feedback writes (F10).
+
+        One doc per /suggestions/{isin}/feedback call. Written BEFORE the
+        monitored_stocks update is applied so the intent is preserved even
+        if the apply step crashes. Mirrors transactions_audit pattern.
+        """
+        return get_db()["monitored_stocks_audit"]
+
     # ─── Phase 2: Suggestions Engine ────────────────────────────────
 
     @staticmethod

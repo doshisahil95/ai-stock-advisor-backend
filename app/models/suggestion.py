@@ -118,7 +118,8 @@ class SuggestionRun(BaseDoc):
     # Universe + filtering
     universe_size: int = 0  # NIFTY 100 count
     excluded_held: int = 0  # Stocks dropped because already held
-    excluded_rejected: int = 0  # Stocks dropped because user-rejected
+    excluded_rejected: int = 0  # Stocks dropped because user-rejected (90d)
+    excluded_acted: int = 0  # F5b: acted-but-not-held soft-exclude (30d)
     excluded_stale_data: int = 0  # Dropped because fundamentals/prices stale
     candidates_considered: int = 0  # Universe - all exclusions
     candidates_post_gates: int = 0  # Survivors after quality gates

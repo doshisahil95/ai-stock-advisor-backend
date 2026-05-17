@@ -233,6 +233,25 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ─── monitored_stocks_audit (F10) ────────────────────────────────
+    # Append-only log of every /suggestions/{isin}/feedback write.
+    # Mirrors transactions_audit. Used to reconstruct feedback history
+    # beyond journald log rotation and to power the audit-read endpoints.
+    results["monitored_stocks_audit"] = (
+        Collections.monitored_stocks_audit().create_indexes(
+            [
+                IndexModel(
+                    [("performed_at", DESCENDING)],
+                    name="performed_at_desc",
+                ),
+                IndexModel(
+                    [("isin", ASCENDING), ("performed_at", DESCENDING)],
+                    name="isin_performed_at_desc",
+                ),
+            ]
+        )
+    )
+
     results["instruments_fundamentals"] = (
         Collections.instruments_fundamentals().create_indexes(
             [

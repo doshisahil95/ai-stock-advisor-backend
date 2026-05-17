@@ -24,11 +24,13 @@ Design:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from bson import Decimal128
 
+from app.db.client import Collections
 from app.services.fundamentals_service import get_latest_bulk as get_fundamentals_bulk
 
 log = logging.getLogger(__name__)
@@ -259,20 +261,25 @@ CONFIDENCE_META: dict[str, str] = {
 FEEDBACK_META: dict[str, dict[str, str]] = {
     "acted": {
         "display_name": "Acted on this",
-        "what_it_does": "Mark that you actually opened a position in this stock based on the suggestion.",
+        "what_it_does": "Mark that you placed (or will place) a buy or sell order in your broker based on this suggestion.",
         "side_effects": (
-            "The suggestion outcome is moved from 'open' to 'acted'. The system will "
-            "still track its 30/60/90/180-day return vs NIFTY 100 so you can see whether "
-            "the engine is helping you. The stock is added to monitored_stocks."
+            "Soft-excludes this stock from new runs for 30 days so the broker trade has "
+            "time to settle and this isn't repeatedly re-suggested. The suggestion "
+            "outcome is moved from 'open' to 'acted'; the daily snapshot job continues "
+            "tracking its 30/60/90/180-day return vs NIFTY 100 so you can measure "
+            "whether the engine helped. After 30 days the stock can resurface naturally "
+            "(e.g. for a 'buy more' or 'sell more' signal if the thesis strengthens) — "
+            "if it ended up in your holdings, the held filter keeps it out instead. "
+            "Recording the actual buy/sell transaction is on you."
         ),
     },
     "passed": {
         "display_name": "Passed",
-        "what_it_does": "Mark that you saw the suggestion but chose not to act on it.",
+        "what_it_does": "Mark that you saw the suggestion but chose not to act this week.",
         "side_effects": (
-            "The suggestion outcome is moved to 'passed'. The stock will not be excluded "
-            "from future runs. Useful for tracking how often the engine surfaces ideas you "
-            "consider but skip."
+            "The card collapses on this run so you remember you saw it, but the stock "
+            "is NOT excluded from future runs — market conditions change and the same "
+            "idea can resurface fresh next Sunday."
         ),
     },
     "rejected": {
@@ -570,23 +577,126 @@ def enrich_run(run_dict: dict) -> dict:
 
     Fetches fundamentals once for the top-K ISINs. Mutates the dict in place
     (and returns it) so the router can do `return enrich_run(serialized)`.
+
+    F6: also stamps each candidate with a `user_action` block derived from
+    the current monitored_stocks state, IF the feedback was performed at or
+    after this run started. Stale feedback from earlier runs is intentionally
+    ignored so a card surfaced fresh in run N is not collapsed by feedback
+    given on the same ISIN during run N-1 (PROJECT_STATE §13 F6 / §20.7).
+
+    The monitored_stocks lookup is a single bulk find (mirrors the
+    fundamentals bulk pattern); the comparison cost is negligible vs the
+    rest of the serialization path.
     """
     top = run_dict.get("top_candidates", []) or []
     isins = [c.get("isin") for c in top if c.get("isin")]
 
     fundamentals_by_isin: dict[str, dict] = {}
+    monitored_by_isin: dict[str, dict] = {}
     if isins:
         try:
             fundamentals_by_isin = get_fundamentals_bulk(isins)
         except Exception as exc:
             log.warning("enrich_run: failed to load fundamentals: %s", exc)
             fundamentals_by_isin = {}
+        try:
+            monitored_by_isin = _load_monitored_bulk(isins)
+        except Exception as exc:
+            log.warning("enrich_run: failed to load monitored_stocks: %s", exc)
+            monitored_by_isin = {}
+
+    run_started_at = _parse_run_started_at(run_dict.get("run_date"))
 
     for c in top:
         isin = c.get("isin")
         f = fundamentals_by_isin.get(isin) if isin else None
         enrich_candidate(c, f)
+        # F6: stamp user_action separately so enrich_candidate's signature
+        # stays stable. CandidateScore is extra="forbid"; user_action lives
+        # on the enrichment path only (Phase 2 Invariant #5).
+        c["user_action"] = _build_user_action(
+            monitored_by_isin.get(isin) if isin else None,
+            run_started_at,
+        )
 
     run_dict["feedback_meta"] = FEEDBACK_META
     run_dict["page_intro"] = PAGE_INTRO
     return run_dict
+
+
+# ─── F6 helpers ──────────────────────────────────────────────────────────────
+
+
+def _load_monitored_bulk(isins: list[str]) -> dict[str, dict]:
+    """Single bulk lookup against monitored_stocks for the top-K ISINs.
+
+    Mirrors how fundamentals are batched. Projection is minimal so we don't
+    haul the full agent-thesis blob over the wire when all we need is the
+    last_feedback_* fields.
+    """
+    cursor = Collections.monitored_stocks().find(
+        {"isin": {"$in": isins}},
+        {
+            "_id": 0,
+            "isin": 1,
+            "status": 1,
+            "last_feedback_action": 1,
+            "last_feedback_at": 1,
+            "last_feedback_note": 1,
+            "acted_at": 1,
+            "passed_at": 1,
+            "rejected_at": 1,
+        },
+    )
+    return {d["isin"]: d for d in cursor if d.get("isin")}
+
+
+def _parse_run_started_at(run_date_value: Any) -> datetime | None:
+    """Parse serialized run.run_date (ISO string post-_decimal_to_jsonable) back to aware UTC."""
+    if run_date_value is None:
+        return None
+    if isinstance(run_date_value, datetime):
+        return _to_aware_utc_dt(run_date_value)
+    if isinstance(run_date_value, str):
+        try:
+            return _to_aware_utc_dt(
+                datetime.fromisoformat(run_date_value.replace("Z", "+00:00"))
+            )
+        except ValueError:
+            return None
+    return None
+
+
+def _to_aware_utc_dt(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _build_user_action(
+    ms_doc: dict | None,
+    run_started_at: datetime | None,
+) -> dict | None:
+    """Return {action, at, note} if the user gave feedback on this candidate
+    AT OR AFTER the current run started; otherwise None (so the UI renders
+    the card fresh, not collapsed).
+
+    Rationale: a "passed" or "acted" from a previous run is stale state.
+    Resurfacing the same ISIN means the new run scored it again — that
+    deserves a fresh look. See PROJECT_STATE §13 F6 and §20.7 trade-off.
+    """
+    if not ms_doc:
+        return None
+    action = ms_doc.get("last_feedback_action")
+    last_at = _to_aware_utc_dt(ms_doc.get("last_feedback_at"))
+    if not action or last_at is None:
+        return None
+    if run_started_at is not None and last_at < run_started_at:
+        return None
+    return {
+        "action": action,
+        "at": last_at.isoformat(),
+        "note": ms_doc.get("last_feedback_note") or "",
+    }
