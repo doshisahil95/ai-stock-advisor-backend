@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
 
@@ -312,3 +312,241 @@ def is_fresh(
         fetched_at = fetched_at.replace(tzinfo=timezone.utc)
     age = datetime.now(timezone.utc) - fetched_at
     return age <= timedelta(days=max_age_days)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# F14: Earnings calendar
+# ─────────────────────────────────────────────────────────────────────
+#
+# yfinance Ticker.calendar returns a dict with an 'Earnings Date' key
+# whose value is one date or a list of dates (sometimes a 1-2 element
+# range when the date is unconfirmed). We persist each date as a
+# separate doc keyed by (isin, earnings_date).
+#
+# Refresh semantics: future events (>= today) are REPLACED on each
+# refresh — we delete then re-insert. Past events are immutable history.
+
+
+def _coerce_naive_datetime(d: Any) -> datetime | None:
+    """Coerce yfinance date-ish value to a tz-naive datetime.
+
+    Handles pandas Timestamp, datetime (tz-aware or naive), date.
+    Returns None if it can't be parsed.
+    """
+    if d is None:
+        return None
+    if hasattr(d, "to_pydatetime"):
+        try:
+            d = d.to_pydatetime()
+        except Exception:
+            return None
+    if isinstance(d, datetime):
+        if d.tzinfo is not None:
+            d = d.replace(tzinfo=None)
+        return d
+    if isinstance(d, date):
+        return datetime(d.year, d.month, d.day)
+    return None
+
+
+def fetch_earnings_calendar_yfinance(
+    symbol: str, exchange: str = "NSE"
+) -> tuple[list[datetime], dict | None]:
+    """Fetch upcoming earnings dates from yfinance Ticker.calendar.
+
+    Returns (sorted_dates, raw_calendar_dict). Empty list + None on
+    failure or no events (logged, not raised).
+    """
+    yt = to_yahoo_ticker(symbol, exchange)
+    try:
+        ticker = yf.Ticker(yt)
+        cal = ticker.calendar
+        if not cal or not isinstance(cal, dict):
+            return [], None
+
+        raw_dates = cal.get("Earnings Date", [])
+        if raw_dates is None:
+            return [], cal
+        if not isinstance(raw_dates, (list, tuple)):
+            raw_dates = [raw_dates]
+
+        out: list[datetime] = []
+        for raw in raw_dates:
+            parsed = _coerce_naive_datetime(raw)
+            if parsed is not None:
+                out.append(parsed)
+
+        return sorted(set(out)), cal
+    except Exception as exc:
+        log.warning("yfinance earnings calendar fetch failed for %s: %s", yt, exc)
+        return [], None
+
+
+def refresh_earnings_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
+    """Refresh earnings calendar for one ISIN.
+
+    Returns stats dict: {events_fetched, events_inserted, future_deleted, source_raw}.
+    """
+    dates, raw_cal = fetch_earnings_calendar_yfinance(symbol, exchange)
+    now_naive = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Replace-future semantics: drop all future events for this ISIN
+    # then insert the freshly-fetched list. Past events untouched.
+    delete_result = Collections.earnings_calendar().delete_many(
+        {"isin": isin, "earnings_date": {"$gte": now_naive}}
+    )
+
+    inserted = 0
+    if dates:
+        docs = [
+            {
+                "isin": isin,
+                "symbol": symbol.upper(),
+                "exchange": exchange.upper(),
+                "earnings_date": d,
+                "source": "yfinance",
+                "source_raw": raw_cal,
+                "fetched_at": utcnow(),
+                "created_at": utcnow(),
+            }
+            for d in dates
+        ]
+        # use upsert by unique key to be defensive against a race
+        ops = [
+            UpdateOne(
+                {"isin": doc["isin"], "earnings_date": doc["earnings_date"]},
+                {"$set": doc},
+                upsert=True,
+            )
+            for doc in docs
+        ]
+        result = Collections.earnings_calendar().bulk_write(ops, ordered=False)
+        inserted = (result.upserted_count or 0) + (result.modified_count or 0)
+
+    return {
+        "events_fetched": len(dates),
+        "events_inserted": inserted,
+        "future_deleted": delete_result.deleted_count,
+    }
+
+
+def refresh_earnings_universe(
+    instruments: list[dict], throttle_sec: float = 0.3
+) -> dict:
+    """Refresh earnings calendar for a list of instruments.
+
+    Args:
+        instruments: list of dicts with at least {isin, symbol, exchange}.
+        throttle_sec: sleep between fetches.
+
+    Returns stats dict.
+    """
+    stats = {
+        "attempted": len(instruments),
+        "succeeded_with_events": 0,
+        "succeeded_no_events": 0,
+        "failed": 0,
+        "failed_isins": [],
+        "total_events_inserted": 0,
+    }
+
+    log.info("Refreshing earnings calendar for %d instruments", len(instruments))
+    for i, inst in enumerate(instruments):
+        isin = inst["isin"]
+        symbol = inst["symbol"]
+        exchange = inst.get("exchange", "NSE")
+
+        try:
+            r = refresh_earnings_for(isin, symbol, exchange)
+            if r["events_fetched"] > 0:
+                stats["succeeded_with_events"] += 1
+                stats["total_events_inserted"] += r["events_inserted"]
+                log.info(
+                    "  [%d/%d] OK   %s (%s)  %d events",
+                    i + 1,
+                    len(instruments),
+                    symbol,
+                    isin,
+                    r["events_fetched"],
+                )
+            else:
+                stats["succeeded_no_events"] += 1
+                log.info(
+                    "  [%d/%d] OK   %s (%s)  no upcoming events",
+                    i + 1,
+                    len(instruments),
+                    symbol,
+                    isin,
+                )
+        except Exception as exc:
+            stats["failed"] += 1
+            stats["failed_isins"].append(isin)
+            log.warning(
+                "  [%d/%d] FAIL %s (%s): %s",
+                i + 1,
+                len(instruments),
+                symbol,
+                isin,
+                exc,
+            )
+
+        if throttle_sec > 0 and i < len(instruments) - 1:
+            time.sleep(throttle_sec)
+
+    log.info(
+        "Earnings refresh complete: %d with events, %d without, %d failed",
+        stats["succeeded_with_events"],
+        stats["succeeded_no_events"],
+        stats["failed"],
+    )
+    return stats
+
+
+def get_next_earnings_for_isin(
+    isin: str, as_of: datetime | None = None
+) -> datetime | None:
+    """Return the next earnings_date >= as_of for one ISIN, or None.
+
+    Consumer helper for the suggestion engine gates/signals.
+    """
+    if as_of is None:
+        as_of = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    elif as_of.tzinfo is not None:
+        as_of = as_of.replace(tzinfo=None)
+
+    doc = Collections.earnings_calendar().find_one(
+        {"isin": isin, "earnings_date": {"$gte": as_of}},
+        sort=[("earnings_date", 1)],
+        projection={"earnings_date": 1, "_id": 0},
+    )
+    if doc is None:
+        return None
+    return doc["earnings_date"]
+
+
+def get_next_earnings_bulk(
+    isins: list[str], as_of: datetime | None = None
+) -> dict[str, datetime]:
+    """Bulk variant of get_next_earnings_for_isin.
+
+    Returns {isin: next_earnings_date}; ISINs with no upcoming event omitted.
+    """
+    if not isins:
+        return {}
+    if as_of is None:
+        as_of = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    elif as_of.tzinfo is not None:
+        as_of = as_of.replace(tzinfo=None)
+
+    cursor = Collections.earnings_calendar().find(
+        {"isin": {"$in": isins}, "earnings_date": {"$gte": as_of}},
+        projection={"isin": 1, "earnings_date": 1, "_id": 0},
+        sort=[("earnings_date", 1)],
+    )
+    out: dict[str, datetime] = {}
+    for doc in cursor:
+        # First (earliest) per isin wins because of the asc sort
+        isin = doc["isin"]
+        if isin not in out:
+            out[isin] = doc["earnings_date"]
+    return out

@@ -337,4 +337,20 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    results["earnings_calendar"] = Collections.earnings_calendar().create_indexes(
+        [
+            IndexModel(
+                [("isin", ASCENDING), ("earnings_date", ASCENDING)],
+                name="isin_earnings_date_unique",
+                unique=True,
+            ),
+            IndexModel(
+                [("earnings_date", ASCENDING)],
+                name="earnings_date_asc",
+            ),
+            IndexModel([("isin", ASCENDING)], name="isin"),
+            IndexModel([("fetched_at", DESCENDING)], name="fetched_at_desc"),
+        ]
+    )
+
     return results

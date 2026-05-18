@@ -24,8 +24,11 @@ import logging
 import sys
 
 from app.db.client import Collections
+from app.services.fundamentals_service import (
+    refresh_earnings_universe,
+    refresh_universe,
+)
 from app.services.cron_heartbeat_service import cron_run
-from app.services.fundamentals_service import refresh_universe
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +53,23 @@ def get_active_holdings() -> list[dict]:
             {"_id": 0, "isin": 1, "symbol": 1, "exchange": 1},
         )
     )
+
+
+def get_nifty100_union_holdings() -> list[dict]:
+    """Default universe for the weekly refresh: NIFTY 100 ∪ active holdings.
+
+    Held stocks may be outside NIFTY 100 (e.g. midcaps). They still need
+    fresh fundamentals + earnings for F2 sell-side scoring.
+    """
+    seen: set[str] = set()
+    targets: list[dict] = []
+    for inst in get_nifty100() + get_active_holdings():
+        isin = inst["isin"]
+        if isin in seen:
+            continue
+        seen.add(isin)
+        targets.append(inst)
+    return targets
 
 
 def get_specific(symbols: list[str]) -> list[dict]:

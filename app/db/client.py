@@ -156,6 +156,17 @@ class Collections:
     # ─── F4: Cron health monitoring ─────────────────────────────────
 
     @staticmethod
+    def earnings_calendar() -> Collection:
+        """Upcoming + historical earnings events per ISIN (F14).
+
+        Source = yfinance Ticker.calendar, refreshed weekly alongside
+        fundamentals. One doc per (isin, earnings_date). Consumed by
+        suggestion_engine gates/signals (buy-side skip if earnings in
+        next 5 days; sell-side penalty in the same window).
+        """
+        return get_db()["earnings_calendar"]
+
+    @staticmethod
     def cron_heartbeats() -> Collection:
         """One doc per cron run with start/finish/status/error/metadata.
 
