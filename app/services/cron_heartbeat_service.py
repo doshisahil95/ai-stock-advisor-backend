@@ -64,11 +64,11 @@ CRON_REGISTRY: list[CronSpec] = [
     # idle. The entry exists so the registry / heartbeat dashboard
     # tolerates either deployment topology.
     CronSpec(
-        cron_name="weekly_suggestions_sell",
-        schedule_cron="30 7 * * 0",
-        schedule_ist_friendly="Sun 07:30 IST",
+        name="weekly_suggestions_sell",
         description="Weekly sell-side suggestions: profit-booking candidates from active holdings.",
-        max_age_hours=24 * 7 + 6,  # one week + 6h grace, matches buy
+        schedule_human="Sun 07:30 IST",
+        crontab="30 7 * * 0",
+        max_age_hours=24 * 7 + 6,
     ),
     # Phase 1 crons (instrumented in this commit)
     CronSpec(
