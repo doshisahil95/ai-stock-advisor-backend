@@ -27,7 +27,9 @@ logging.basicConfig(
 log = logging.getLogger("run_weekly_suggestions")
 
 
-def _run_single(direction: str, notify: bool) -> tuple[int, dict]:
+def _run_single(
+    direction: str, notify: bool, skip_dossiers: bool = False
+) -> tuple[int, dict]:
     """Run one direction. Returns (exit_code, metadata dict for heartbeat)."""
     from app.services.suggestion_engine import run_suggestions
 
@@ -35,6 +37,7 @@ def _run_single(direction: str, notify: bool) -> tuple[int, dict]:
         run_type="scheduled",
         notify=notify,
         direction=direction,
+        skip_dossiers=skip_dossiers,
     )
     meta = {
         f"{direction}_status": run.status,
@@ -67,9 +70,17 @@ def main() -> int:
             "Scheduled cron uses default (notify=True)."
         ),
     )
+    parser.add_argument(
+        "--skip-dossiers",
+        action="store_true",
+        help=(
+            "Skip Claude dossier generation. Smoke-test only -- the persisted "
+            "run will have no narratives. Do NOT use for scheduled production."
+        ),
+    )
     args = parser.parse_args()
     notify = not args.no_notify
-
+    skip_dossiers = args.skip_dossiers
     # Late imports: keep top-of-file fast in case heartbeat fails to import.
     from app.services.cron_heartbeat_service import cron_run
 
@@ -77,7 +88,9 @@ def main() -> int:
         job_name = "weekly_suggestions"
 
         def _do_buy():
-            exit_code, meta, _run = _run_single("buy", notify=notify)
+            exit_code, meta, _run = _run_single(
+                "buy", notify=notify, skip_dossiers=skip_dossiers
+            )
             if exit_code != 0:
                 raise RuntimeError(f"buy pipeline status={meta.get('buy_status')}")
             return meta
@@ -90,7 +103,9 @@ def main() -> int:
         job_name = "weekly_suggestions_sell"
 
         def _do_sell():
-            exit_code, meta, _run = _run_single("sell", notify=notify)
+            exit_code, meta, _run = _run_single(
+                "sell", notify=notify, skip_dossiers=skip_dossiers
+            )
             if exit_code != 0:
                 raise RuntimeError(f"sell pipeline status={meta.get('sell_status')}")
             return meta
@@ -116,6 +131,7 @@ def main() -> int:
             run_type="scheduled",
             notify=False,
             direction="buy",
+            skip_dossiers=skip_dossiers,
         )
         log.info(
             "  buy:  status=%s top=%d", buy_run.status, len(buy_run.top_candidates)
@@ -126,6 +142,7 @@ def main() -> int:
             run_type="scheduled",
             notify=False,
             direction="sell",
+            skip_dossiers=skip_dossiers,
         )
         log.info(
             "  sell: status=%s top=%d", sell_run.status, len(sell_run.top_candidates)
