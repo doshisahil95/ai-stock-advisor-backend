@@ -56,6 +56,20 @@ class CronSpec:
 
 
 CRON_REGISTRY: list[CronSpec] = [
+    # F2 (chunk 6): sell-side weekly suggestions. Same day as buy
+    # (Sunday) with 30-min offset so they don't pile on yfinance /
+    # Claude / Tavily quotas back-to-back. NOTE: when the EC2 crontab
+    # uses `--direction=both` the umbrella row is logged under
+    # 'weekly_suggestions' (08:00 IST equivalent) and this entry is
+    # idle. The entry exists so the registry / heartbeat dashboard
+    # tolerates either deployment topology.
+    CronSpec(
+        job_name="weekly_suggestions_sell",
+        schedule_cron="30 7 * * 0",
+        schedule_ist_friendly="Sun 07:30 IST",
+        description="Weekly sell-side suggestions: profit-booking candidates from active holdings.",
+        max_age_hours=24 * 7 + 6,  # one week + 6h grace, matches buy
+    ),
     # Phase 1 crons (instrumented in this commit)
     CronSpec(
         cron_name="refresh_instruments",

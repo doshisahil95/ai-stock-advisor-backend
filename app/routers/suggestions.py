@@ -97,30 +97,71 @@ def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
 
 
 @router.get("/latest")
-def get_latest_suggestion_run() -> dict:
-    """Most recent successful suggestion run with full dossiers + explainability."""
+def get_latest_run(
+    include_dossiers: bool = True,
+    direction: str = Query("buy", regex="^(buy|sell)$"),
+) -> dict | None:
+    """Return the most recent successful or partial run for the given direction.
+
+    F2: direction defaults to 'buy' for back-compat. Pre-F2 docs are
+    persisted without the field; the query matches them via
+    {"$or": [{"direction": "buy"}, {"direction": {"$exists": False}}]}
+    when direction='buy' is requested.
+    """
+    if direction == "buy":
+        direction_filter: dict = {
+            "$or": [
+                {"direction": "buy"},
+                {"direction": {"$exists": False}},
+            ]
+        }
+    else:
+        direction_filter = {"direction": "sell"}
+
     run = Collections.suggestion_runs().find_one(
-        {"status": {"$in": ["success", "partial"]}},
+        {
+            "status": {"$in": ["success", "partial"]},
+            **direction_filter,
+        },
         sort=[("run_date", -1)],
     )
-    if not run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No suggestion runs available yet. Run scripts/run_weekly_suggestions.py first.",
-        )
-    return _serialize_run(run, include_dossiers=True)
+    if run is None:
+        return None
+    return _serialize_run(run, include_dossiers=include_dossiers)
 
 
 @router.get("/runs")
 def list_suggestion_runs(
     limit: int = Query(20, ge=1, le=100),
     skip: int = Query(0, ge=0),
+    direction: str = Query("buy", regex="^(buy|sell)$"),
 ) -> dict:
-    """Paginated list of past suggestion runs (no dossiers, just metadata)."""
+    """Paginated list of past suggestion runs (no dossiers, just metadata).
+
+    F2: direction defaults to 'buy' for back-compat.
+    """
+    if direction == "buy":
+        direction_filter: dict = {
+            "$or": [
+                {"direction": "buy"},
+                {"direction": {"$exists": False}},
+            ]
+        }
+    else:
+        direction_filter = {"direction": "sell"}
+
+    status_filter = {"status": {"$in": ["success", "partial"]}}
+
+    # Combine filters with $and so $or in direction_filter survives the merge.
+    if "$or" in direction_filter:
+        full_filter = {"$and": [status_filter, direction_filter]}
+    else:
+        full_filter = {**status_filter, **direction_filter}
+
     cursor = (
         Collections.suggestion_runs()
         .find(
-            {"status": {"$in": ["success", "partial"]}},
+            full_filter,
             {
                 "_id": 1,
                 "run_date": 1,
@@ -130,7 +171,7 @@ def list_suggestion_runs(
                 "universe_size": 1,
                 "candidates_post_gates": 1,
                 "top_k": 1,
-                "direction": 1,  # F2
+                "direction": 1,
             },
         )
         .sort("run_date", -1)
@@ -140,12 +181,9 @@ def list_suggestion_runs(
     runs = [_decimal_to_jsonable(r) for r in cursor]
     for r in runs:
         r["_id"] = str(r["_id"])
-        # F2: same defaulting as _serialize_run -- pre-F2 docs lack the field.
         if not r.get("direction"):
             r["direction"] = "buy"
-    total = Collections.suggestion_runs().count_documents(
-        {"status": {"$in": ["success", "partial"]}}
-    )
+    total = Collections.suggestion_runs().count_documents(full_filter)
     return {"runs": runs, "total": total, "limit": limit, "skip": skip}
 
 
@@ -163,9 +201,19 @@ def get_suggestion_run(run_id: str = Path(...)) -> dict:
 
 
 @router.get("/performance")
-def get_performance() -> dict:
-    """Aggregate system-vs-benchmark performance for tracked outcomes."""
-    return compute_system_performance()
+def get_performance(
+    direction: str | None = Query(None, regex="^(buy|sell)$"),
+) -> dict:
+    """Aggregate performance metrics across tracked outcomes.
+
+    F2: direction filter. Default None = cross-direction (legacy behaviour;
+    semantically muddy since buy and sell excess_return have opposite
+    'good' signs, but kept for back-compat with the existing dashboard).
+    Pass direction='buy' or direction='sell' for clean per-side numbers.
+    sell-side: compute_system_performance sign-flips excess_return so
+    'higher is better' framing is preserved.
+    """
+    return compute_system_performance(direction=direction)
 
 
 # F10: static-path audit endpoint declared BEFORE /{isin}/audit so the

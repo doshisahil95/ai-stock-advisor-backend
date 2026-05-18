@@ -1,17 +1,16 @@
-"""Run the weekly suggestions cron.
+"""Cron wrapper: run weekly suggestions (buy and/or sell), instrumented with heartbeat.
 
-Usage:
-  # Production cron entry (Sunday 06:00 IST)
-  PYTHONPATH=. uv run python scripts/run_weekly_suggestions.py
+F2 (chunk 6):
+- --direction=buy|sell|both (default 'buy').
+- 'both' runs buy then sell sequentially under ONE heartbeat (cron_heartbeats
+  logs one row, not two) and emits ONE combined digest via
+  digest_delivery.send_combined_digest. This is the production cron path.
+- 'buy' or 'sell' alone behave as before with their own heartbeat + digest.
 
-  # Dry run — compute but don't persist
-  PYTHONPATH=. uv run python scripts/run_weekly_suggestions.py --dry-run
-
-  # Limit to first N stocks for fast testing
-  PYTHONPATH=. uv run python scripts/run_weekly_suggestions.py --dry-run --limit 10
-
-  # Override top-K
-  PYTHONPATH=. uv run python scripts/run_weekly_suggestions.py --dry-run --top-k 5
+Heartbeat job names:
+  buy      -> 'weekly_suggestions'
+  sell     -> 'weekly_suggestions_sell'
+  both     -> 'weekly_suggestions' (umbrella row records both)
 """
 
 from __future__ import annotations
@@ -20,90 +19,184 @@ import argparse
 import logging
 import sys
 
-from app.services.cron_heartbeat_service import cron_run
-from app.services.suggestion_engine import run_suggestions
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stderr,
 )
+log = logging.getLogger("run_weekly_suggestions")
+
+
+def _run_single(direction: str, notify: bool) -> tuple[int, dict]:
+    """Run one direction. Returns (exit_code, metadata dict for heartbeat)."""
+    from app.services.suggestion_engine import run_suggestions
+
+    run = run_suggestions(
+        run_type="scheduled",
+        notify=notify,
+        direction=direction,
+    )
+    meta = {
+        f"{direction}_status": run.status,
+        f"{direction}_top": len(run.top_candidates),
+        f"{direction}_eligible": run.candidates_post_gates,
+        f"{direction}_universe": run.universe_size,
+    }
+    exit_code = 0 if run.status in ("success", "partial") else 1
+    return exit_code, meta, run
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run weekly suggestions engine")
-    parser.add_argument("--dry-run", action="store_true", help="Don't persist run")
-    parser.add_argument(
-        "--limit", type=int, default=None, help="Limit universe to N stocks"
-    )
-    parser.add_argument("--top-k", type=int, default=None, help="Override top-K")
-    parser.add_argument(
-        "--run-type",
-        type=str,
-        default="manual",
-        choices=["scheduled", "manual"],
-        help="Mark this run's origin (default 'manual')",
+    parser = argparse.ArgumentParser(
+        description="Weekly suggestions cron entrypoint with heartbeat instrumentation",
     )
     parser.add_argument(
-        "--notify",
+        "--direction",
+        choices=("buy", "sell", "both"),
+        default="buy",
+        help=(
+            "Which side to run. 'both' runs buy then sell back-to-back under "
+            "ONE heartbeat and emits ONE combined digest."
+        ),
+    )
+    parser.add_argument(
+        "--no-notify",
         action="store_true",
-        help="Send email + ntfy digest after run (use for cron, NOT for testing)",
+        help=(
+            "Skip outcome creation + email/ntfy digest. Use for manual reruns. "
+            "Scheduled cron uses default (notify=True)."
+        ),
     )
     args = parser.parse_args()
+    notify = not args.no_notify
 
-    try:
-        with cron_run("run_weekly_suggestions") as hb:
-            hb.metadata["dry_run"] = args.dry_run
-            hb.metadata["notify"] = args.notify
-            hb.metadata["run_type"] = args.run_type
-            hb.metadata["limit"] = args.limit
-            hb.metadata["top_k_override"] = args.top_k
+    # Late imports: keep top-of-file fast in case heartbeat fails to import.
+    from app.services.cron_heartbeat_service import cron_run
 
-            run = run_suggestions(
-                run_type=args.run_type,
-                limit=args.limit,
-                dry_run=args.dry_run,
-                top_k_override=args.top_k,
-                notify=args.notify,
+    if args.direction == "buy":
+        job_name = "weekly_suggestions"
+
+        def _do_buy():
+            exit_code, meta, _run = _run_single("buy", notify=notify)
+            if exit_code != 0:
+                raise RuntimeError(f"buy pipeline status={meta.get('buy_status')}")
+            return meta
+
+        with cron_run(job_name) as ctx:
+            ctx["meta"] = _do_buy()
+        return 0
+
+    if args.direction == "sell":
+        job_name = "weekly_suggestions_sell"
+
+        def _do_sell():
+            exit_code, meta, _run = _run_single("sell", notify=notify)
+            if exit_code != 0:
+                raise RuntimeError(f"sell pipeline status={meta.get('sell_status')}")
+            return meta
+
+        with cron_run(job_name) as ctx:
+            ctx["meta"] = _do_sell()
+        return 0
+
+    # direction == "both": one heartbeat, sequential runs, combined digest.
+    # IMPORTANT: we call run_suggestions with notify=False per side so we don't
+    # send two separate digests; then we emit ONE combined digest at the end.
+    job_name = "weekly_suggestions"  # umbrella row, same as buy alone
+
+    def _do_both():
+        from app.services.suggestion_engine import run_suggestions
+        from app.services.digest_delivery import send_combined_digest
+        from app.services.outcome_tracker import create_outcomes_for_run
+
+        log.info("=== Running BOTH directions (F2 combined cron path) ===")
+
+        # 1. Buy run -- notify=False, we'll combine deliveries below.
+        buy_run = run_suggestions(
+            run_type="scheduled",
+            notify=False,
+            direction="buy",
+        )
+        log.info(
+            "  buy:  status=%s top=%d", buy_run.status, len(buy_run.top_candidates)
+        )
+
+        # 2. Sell run -- notify=False, same reason.
+        sell_run = run_suggestions(
+            run_type="scheduled",
+            notify=False,
+            direction="sell",
+        )
+        log.info(
+            "  sell: status=%s top=%d", sell_run.status, len(sell_run.top_candidates)
+        )
+
+        # 3. Outcomes for BOTH directions, only if notify is on (production).
+        if notify:
+            # We need the persisted run ids. run_suggestions returned the
+            # in-memory SuggestionRun. Fetch the most-recent persisted ids
+            # per direction to attach outcomes to. This is the same pattern
+            # _run_buy_pipeline / _run_sell_pipeline used internally.
+            from app.db.client import Collections
+
+            buy_doc = Collections.suggestion_runs().find_one(
+                {"direction": "buy", "status": {"$in": ["success", "partial"]}},
+                sort=[("run_date", -1)],
+            )
+            sell_doc = Collections.suggestion_runs().find_one(
+                {"direction": "sell", "status": {"$in": ["success", "partial"]}},
+                sort=[("run_date", -1)],
             )
 
-            hb.metadata["run_status"] = run.status
-            hb.metadata["universe_size"] = run.universe_size
-            hb.metadata["excluded_held"] = run.excluded_held
-            hb.metadata["excluded_rejected"] = run.excluded_rejected
-            hb.metadata["excluded_stale_data"] = run.excluded_stale_data
-            hb.metadata["candidates_considered"] = run.candidates_considered
-            hb.metadata["candidates_post_gates"] = run.candidates_post_gates
-            hb.metadata["top_k"] = run.top_k
+            if buy_doc and buy_run.top_candidates:
+                try:
+                    create_outcomes_for_run(
+                        buy_doc["_id"],
+                        buy_run.run_date,
+                        buy_run.top_candidates,
+                        direction="buy",
+                    )
+                except Exception:
+                    log.exception("create_outcomes_for_run (buy) failed")
 
-            print()
-            print("=" * 70)
-            print(f"  Run status: {run.status}")
-            print(f"  Universe:   {run.universe_size}")
-            print(
-                f"  Excluded:   held={run.excluded_held}, rejected={run.excluded_rejected}, stale={run.excluded_stale_data}"
+            if sell_doc and sell_run.top_candidates:
+                try:
+                    create_outcomes_for_run(
+                        sell_doc["_id"],
+                        sell_run.run_date,
+                        sell_run.top_candidates,
+                        direction="sell",
+                    )
+                except Exception:
+                    log.exception("create_outcomes_for_run (sell) failed")
+
+            # 4. Single combined digest.
+            try:
+                delivery = send_combined_digest(buy_run, sell_run)
+                log.info("Combined digest delivery: %s", delivery)
+            except Exception:
+                log.exception("send_combined_digest failed")
+
+        meta = {
+            "buy_status": buy_run.status,
+            "buy_top": len(buy_run.top_candidates),
+            "sell_status": sell_run.status,
+            "sell_top": len(sell_run.top_candidates),
+        }
+
+        # Heartbeat status: fail only if BOTH sides failed.
+        buy_ok = buy_run.status in ("success", "partial")
+        sell_ok = sell_run.status in ("success", "partial")
+        if not (buy_ok or sell_ok):
+            raise RuntimeError(
+                f"both pipelines failed: buy={buy_run.status} sell={sell_run.status}"
             )
-            print(f"  Considered: {run.candidates_considered}")
-            print(f"  Post-gates: {run.candidates_post_gates}")
-            print(f"  Top-{run.top_k} surfaced")
-            print("=" * 70)
-            print()
-            print("Top candidates:")
-            for c in run.top_candidates:
-                print(
-                    f"  #{c.rank:>2}  {c.symbol:<12} composite={c.composite_score:>5.1f}  "
-                    f"conf={c.confidence_score:>3.0f}  Q={c.quality_score:>5.1f}  "
-                    f"V={c.valuation_score:>5.1f}  M={c.momentum_score:>5.1f}"
-                )
-            print()
 
-            if run.status not in ("success", "partial"):
-                hb.status = "failure"
-                hb.error = f"Engine returned status={run.status!r}"
-                return 1
-            return 0
-    except Exception as exc:
-        print(f"⚠ Run failed: {exc}", file=sys.stderr)
-        return 1
+        return meta
+
+    with cron_run(job_name) as ctx:
+        ctx["meta"] = _do_both()
+    return 0
 
 
 if __name__ == "__main__":
