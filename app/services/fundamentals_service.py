@@ -349,6 +349,40 @@ def _coerce_naive_datetime(d: Any) -> datetime | None:
     return None
 
 
+def _sanitize_for_bson(value: Any) -> Any:
+    """Coerce arbitrary yfinance values into BSON-encodable shapes.
+
+    yfinance Ticker.calendar can contain datetime.date (BSON can't encode it,
+    only datetime is allowed), pandas Timestamps, numpy scalars, and lists
+    thereof. Walks dicts/lists/tuples and converts:
+      - date / Timestamp / tz-aware datetime → tz-naive datetime
+      - numpy scalars → native Python via .item()
+      - other primitives → unchanged
+      - unknown types → str(value) as a last resort
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo is not None else value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return _sanitize_for_bson(value.to_pydatetime())
+        except Exception:
+            return str(value)
+    if hasattr(value, "item"):  # numpy scalar
+        try:
+            return _sanitize_for_bson(value.item())
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {str(k): _sanitize_for_bson(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_for_bson(v) for v in value]
+    return str(value)
+
+
 def fetch_earnings_calendar_yfinance(
     symbol: str, exchange: str = "NSE"
 ) -> tuple[list[datetime], dict | None]:
@@ -398,6 +432,10 @@ def refresh_earnings_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
 
     inserted = 0
     if dates:
+        # yfinance Ticker.calendar contains datetime.date values
+        # (e.g. 'Ex-Dividend Date') that BSON cannot encode. Sanitize once
+        # before reuse across all docs for this ISIN.
+        raw_cal_safe = _sanitize_for_bson(raw_cal) if raw_cal else None
         docs = [
             {
                 "isin": isin,
@@ -405,7 +443,7 @@ def refresh_earnings_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
                 "exchange": exchange.upper(),
                 "earnings_date": d,
                 "source": "yfinance",
-                "source_raw": raw_cal,
+                "source_raw": raw_cal_safe,
                 "fetched_at": utcnow(),
                 "created_at": utcnow(),
             }
