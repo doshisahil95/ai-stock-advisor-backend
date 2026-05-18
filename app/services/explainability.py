@@ -136,8 +136,43 @@ SIGNAL_META: dict[str, dict[str, str]] = {
         "formatter_kind": "score_only",
         "fundamentals_field": None,
     },
+    # F2: sell-side-only signals (holding-specific).
+    "unrealized_gain_pct": {
+        "display_name": "Unrealized Gain %",
+        "short_description": "Current paper profit on this position as a percentage of invested amount.",
+        "what_higher_means": "Higher means more gains available to book. Loss positions are excluded by the in-profit gate.",
+        "formatter_kind": "percent_already",
+        "fundamentals_field": None,
+    },
+    "target_price_proximity": {
+        "display_name": "Target Price Proximity",
+        "short_description": "Current price as a percentage of your target price (100 = hit exactly).",
+        "what_higher_means": "Higher means the stock is at or above your target. Above 100 = target overshoot.",
+        "formatter_kind": "percent_already",
+        "fundamentals_field": None,
+    },
+    "portfolio_weight_pct": {
+        "display_name": "Portfolio Weight %",
+        "short_description": "How much of your total portfolio value this single holding represents.",
+        "what_higher_means": "Higher means greater concentration risk. >10% in one stock is meaningful concentration.",
+        "formatter_kind": "percent_already",
+        "fundamentals_field": None,
+    },
+    "is_ltcg_eligible": {
+        "display_name": "LTCG Eligible",
+        "short_description": "Whether the position has been held more than 365 days (qualifies for long-term capital gains tax).",
+        "what_higher_means": "LTCG-eligible sells are taxed at 10% above Rs 1L; STCG sells are taxed at 15%. Prefer LTCG-eligible sells when other signals are similar.",
+        "formatter_kind": "score_only",
+        "fundamentals_field": None,
+    },
+    "high_severity_negative_count": {
+        "display_name": "High-severity Negative News Count",
+        "short_description": "Number of confirmed high-severity NEGATIVE news stories in the last 30 days.",
+        "what_higher_means": "Higher means more recent bad news. For sell-side this is a contributor to the risk score, not an exclusion gate.",
+        "formatter_kind": "score_only",
+        "fundamentals_field": None,
+    },
 }
-
 
 # Group catalog
 # Each group is a weighted bundle of signals. Q/V/M/N = 30/25/25/20.
@@ -190,6 +225,51 @@ GROUP_META: dict[str, dict[str, str]] = {
             "If sparse, the engine may be operating with limited information."
         ),
     },
+    # F2: sell-side groups (used only when run.direction == "sell").
+    "booking_opportunity": {
+        "display_name": "Booking Opportunity",
+        "weight_pct": "30%",
+        "what_it_measures": (
+            "How attractive it is to take profits on this position right now. "
+            "Built from unrealized gain, 3-month return, distance from 52-week high, and target-price proximity."
+        ),
+        "interpretation_strong": "Strong case for booking some or all profit on this position now.",
+        "interpretation_ok": "Some profit-booking case but no urgent trigger.",
+        "interpretation_weak": "Not the right moment for profit-booking. Other signals are weak too.",
+    },
+    "valuation_stretch": {
+        "display_name": "Valuation Stretch",
+        "weight_pct": "25%",
+        "what_it_measures": (
+            "How expensive the stock has become relative to its current earnings power. "
+            "Built from P/E, P/B, and earnings growth direction."
+        ),
+        "interpretation_strong": "Valuation looks stretched relative to fundamentals. Selling lets you re-enter cheaper later.",
+        "interpretation_ok": "Valuation is reasonable. No fire sale needed.",
+        "interpretation_weak": "Valuation is still attractive. Not a structural sell case.",
+    },
+    "risk": {
+        "display_name": "Risk",
+        "weight_pct": "25%",
+        "what_it_measures": (
+            "Warning signs that justify trimming exposure. "
+            "Built from news sentiment, news velocity, high-severity negative news count, and debt levels."
+        ),
+        "interpretation_strong": "Multiple risk indicators flashing. Trimming exposure reduces tail risk.",
+        "interpretation_ok": "Some risk signals but nothing severe.",
+        "interpretation_weak": "Low risk indicators. No urgent reason to reduce exposure.",
+    },
+    "tax_concentration": {
+        "display_name": "Tax & Concentration",
+        "weight_pct": "20%",
+        "what_it_measures": (
+            "Structural reasons to trim NOW rather than later. "
+            "Built from LTCG eligibility (held > 1 year) and portfolio weight."
+        ),
+        "interpretation_strong": "LTCG-eligible and/or high portfolio concentration. Sell-now penalty is low.",
+        "interpretation_ok": "Mixed tax/concentration picture.",
+        "interpretation_weak": "STCG-only or low concentration. Waiting may make sense if other signals are weak.",
+    },
 }
 
 
@@ -233,6 +313,36 @@ GATE_META: dict[str, dict[str, str]] = {
         ),
         "plain_english_pass": "No serious negative-news red flags in the last 30 days.",
         "plain_english_fail": "Recent serious negative news. Excluded until the picture clears up.",
+    },
+    # F14: shared between buy and sell.
+    "earnings_proximity": {
+        "display_name": "Earnings Proximity check",
+        "why_we_check": (
+            "Prices around an earnings announcement are dominated by the print and "
+            "the guide, not by long-term fundamentals. We avoid both buys and sells "
+            "within 5 days of a known earnings date."
+        ),
+        "plain_english_pass": "No earnings announcement in the next 5 days.",
+        "plain_english_fail": "An earnings announcement is imminent. Skipped to avoid trading the headline.",
+    },
+    # F2: sell-side gates.
+    "in_profit": {
+        "display_name": "In-profit check",
+        "why_we_check": (
+            "Sell-side suggestions are for booking PROFITS. Cutting losses is a separate "
+            "use case with different signals. A loss-position is excluded from sell suggestions."
+        ),
+        "plain_english_pass": "The position is in profit, so it qualifies for profit-booking consideration.",
+        "plain_english_fail": "The position is at a loss. Loss-cutting is not in scope for these suggestions.",
+    },
+    "min_position_age": {
+        "display_name": "Position age check",
+        "why_we_check": (
+            "Brand-new positions (less than 30 days) shouldn't be suggested for selling. "
+            "The thesis needs time to play out."
+        ),
+        "plain_english_pass": "The position is at least 30 days old.",
+        "plain_english_fail": "The position is too new. Give the thesis time to develop.",
     },
 }
 
@@ -338,6 +448,28 @@ _GROUP_TO_SIGNALS: dict[str, set[str]] = {
         "news_net_sentiment",
         "news_story_velocity",
         "news_story_count",
+    },
+    # F2: sell-side groups
+    "booking_opportunity": {
+        "unrealized_gain_pct",
+        "return_3m",
+        "dist_from_52w_high_pct",
+        "target_price_proximity",
+    },
+    "valuation_stretch": {
+        "pe_ratio",
+        "pb_ratio",
+        "earnings_growth_yoy",
+    },
+    "risk": {
+        "news_net_sentiment",
+        "news_story_velocity",
+        "high_severity_negative_count",
+        "debt_to_equity",
+    },
+    "tax_concentration": {
+        "is_ltcg_eligible",
+        "portfolio_weight_pct",
     },
 }
 
