@@ -28,6 +28,11 @@ from app.models._common import BaseDoc, Money, PyObjectId, utcnow
 SuggestionRunStatus = Literal["running", "success", "partial", "failed"]
 SuggestionTrackingStatus = Literal["open", "acted", "passed", "expired"]
 
+# F2: buy-side scans NIFTY 100 minus held; sell-side scans held.
+# Default "buy" for back-compat: existing persisted SuggestionRun /
+# SuggestionOutcome docs do not have this field and must coerce as buy.
+SuggestionDirection = Literal["buy", "sell"]
+
 
 class GateResult(BaseModel):
     """Result of one quality gate for one candidate."""
@@ -109,6 +114,16 @@ class SuggestionRun(BaseDoc):
     run_date_ist: str = Field(..., description="YYYY-MM-DD in IST, used for de-dup")
     run_type: Literal["scheduled", "manual", "dry_run"] = "manual"
 
+    # F2: which side of the book this run scanned.
+    direction: SuggestionDirection = Field(
+        default="buy",
+        description=(
+            "Direction of suggestions in this run. 'buy' (existing pipeline) "
+            "scans NIFTY 100 minus held; 'sell' scans held holdings. "
+            "Default 'buy' so pre-F2 persisted docs coerce cleanly."
+        ),
+    )
+
     # Status
     status: SuggestionRunStatus = "running"
     started_at: datetime = Field(default_factory=utcnow)
@@ -155,6 +170,19 @@ class SuggestionOutcome(BaseDoc):
     suggested_at_price: Money
     suggested_rank: int
     suggested_composite_score: float
+
+    # F2: direction of the parent run. Used by compute_system_performance
+    # to interpret excess_return correctly: positive excess_return for a
+    # buy suggestion = engine helpful; positive excess_return for a sell
+    # suggestion = engine WRONG (stock went up after we suggested selling),
+    # so the sign is flipped before bucketing performance.
+    direction: SuggestionDirection = Field(
+        default="buy",
+        description=(
+            "Direction of the parent SuggestionRun. Defaults to 'buy' so "
+            "pre-F2 persisted outcomes coerce cleanly."
+        ),
+    )
 
     # User action
     tracking_status: SuggestionTrackingStatus = "open"
