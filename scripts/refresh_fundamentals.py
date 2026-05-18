@@ -113,52 +113,63 @@ def main() -> int:
         hb.metadata["explicit_symbols"] = args.symbols
         hb.metadata["limit"] = args.limit
 
-        if args.symbols:
-            symbol_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
-            targets = get_specific(symbol_list)
-            if not targets:
-                print(f"⚠ None of the symbols found in instruments: {symbol_list}")
-                hb.status = "failure"
-                hb.error = f"No matching instruments for {symbol_list}"
-                return 1
-            mode = f"specific symbols ({len(targets)})"
-        elif args.holdings_only:
-            targets = get_active_holdings()
-            mode = f"active holdings ({len(targets)})"
-        else:
-            targets = get_nifty100()
-            mode = f"NIFTY 100 universe ({len(targets)})"
-
-        if args.limit:
-            targets = targets[: args.limit]
-            mode += f" — LIMITED to {len(targets)}"
-
-        hb.metadata["mode"] = mode
-        hb.metadata["targets"] = len(targets)
-
-        print(f"Fundamentals refresh — target: {mode}")
-        print()
-
-        stats = refresh_universe(targets, throttle_sec=args.throttle)
-
-        hb.metadata["attempted"] = stats["attempted"]
-        hb.metadata["succeeded"] = stats["succeeded"]
-        hb.metadata["failed"] = stats["failed"]
-
-        print()
-        print("=" * 60)
-        print(f"  Attempted: {stats['attempted']}")
-        print(f"  Succeeded: {stats['succeeded']}")
-        print(f"  Failed:    {stats['failed']}")
-        if stats["failed_isins"]:
-            print(f"  Failed ISINs (first 10): {stats['failed_isins'][:10]}")
-        print("=" * 60)
-
-        if stats["failed"] >= stats["attempted"]:
-            hb.status = "failure"
-            hb.error = f"All {stats['attempted']} fundamentals refreshes failed"
+    if args.symbols:
+        symbol_list = [s.strip() for s in args.symbols.split(",") if s.strip()]
+        targets = get_specific(symbol_list)
+        if not targets:
+            print(f" None of the symbols found in instruments: {symbol_list}")
             return 1
-        return 0
+        mode = f"specific symbols ({len(targets)})"
+    elif args.holdings_only:
+        targets = get_active_holdings()
+        mode = f"active holdings ({len(targets)})"
+    else:
+        targets = get_nifty100_union_holdings()
+        mode = f"NIFTY 100  active holdings ({len(targets)})"
+
+    if args.limit:
+        targets = targets[: args.limit]
+        mode += f"  LIMITED to {len(targets)}"
+
+    print(f"Fundamentals refresh  target: {mode}")
+    print()
+
+    stats = refresh_universe(targets, throttle_sec=args.throttle)
+
+    print()
+    print("=" * 60)
+    print("Fundamentals refresh:")
+    print(f"  Attempted: {stats['attempted']}")
+    print(f"  Succeeded: {stats['succeeded']}")
+    print(f"  Failed:    {stats['failed']}")
+    if stats["failed_isins"]:
+        print(f"  Failed ISINs (first 10): {stats['failed_isins'][:10]}")
+    print("=" * 60)
+
+    # F14: earnings calendar refresh for the same universe.
+    # Shares the yfinance round-trip with fundamentals (same Ticker object
+    # produced upstream) but is logically separate so its stats are visible.
+    print()
+    print(f"Earnings calendar refresh  target: same {len(targets)} instruments")
+    print()
+    earnings_stats = refresh_earnings_universe(targets, throttle_sec=args.throttle)
+
+    print()
+    print("=" * 60)
+    print("Earnings calendar refresh:")
+    print(f"  Attempted:               {earnings_stats['attempted']}")
+    print(f"  Succeeded with events:   {earnings_stats['succeeded_with_events']}")
+    print(f"  Succeeded with NO events:{earnings_stats['succeeded_no_events']}")
+    print(f"  Failed:                  {earnings_stats['failed']}")
+    print(f"  Total events stored:     {earnings_stats['total_events_inserted']}")
+    if earnings_stats["failed_isins"]:
+        print(f"  Failed ISINs (first 10): {earnings_stats['failed_isins'][:10]}")
+    print("=" * 60)
+
+    # Exit non-zero only if BOTH steps mostly failed.
+    fundamentals_ok = stats["failed"] < stats["attempted"]
+    earnings_ok = earnings_stats["failed"] < earnings_stats["attempted"]
+    return 0 if (fundamentals_ok or earnings_ok) else 1
 
 
 if __name__ == "__main__":
