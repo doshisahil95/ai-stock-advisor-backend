@@ -57,10 +57,19 @@ def _flt(v: Any) -> float | None:
 
 
 def create_outcomes_for_run(
-    run_id: ObjectId, run_date: datetime, top_candidates: list
+    run_id: ObjectId,
+    run_date: datetime,
+    top_candidates: list,
+    direction: str = "buy",
 ) -> int:
     """Create SuggestionOutcome records for each top-K candidate at run time.
-    Idempotent: skips if an outcome already exists for this (isin, run_id)."""
+
+    Idempotent: skips if an outcome already exists for this (isin, run_id).
+
+    F2 (chunk 5): direction stamped on each outcome. Default 'buy' so
+    pre-F2 callers continue to work. compute_system_performance uses
+    direction to sign-flip excess_return for sell-side aggregates.
+    """
     coll = Collections.suggestion_outcomes()
     now = utcnow()
     created = 0
@@ -79,6 +88,7 @@ def create_outcomes_for_run(
             suggested_rank=c.rank,
             suggested_composite_score=c.composite_score,
             tracking_status="open",
+            direction=direction,
             created_at=now,
             updated_at=now,
         )
@@ -86,7 +96,11 @@ def create_outcomes_for_run(
         doc["suggestion_run_id"] = run_id  # ensure it's not coerced to None
         coll.insert_one(doc)
         created += 1
-    log.info("Created %d new outcome records for run", created)
+    log.info(
+        "Created %d new outcome records for run (direction=%s)",
+        created,
+        direction,
+    )
     return created
 
 
@@ -228,33 +242,73 @@ def snapshot_open_outcomes() -> dict:
     return stats
 
 
-def compute_system_performance() -> dict:
+def compute_system_performance(direction: str | None = None) -> dict:
     """Aggregate performance metrics across all tracked outcomes.
 
     Now also breaks out per-window aggregates by tracking_status bucket so
     you can see whether your 'acted' picks beat your 'passed' picks beat
     your 'rejected' picks.
+
+    F2 (chunk 5): direction filter + sign-flip semantics.
+      - direction=None    -> aggregate across BOTH buy and sell outcomes.
+                             Cross-direction average is statistically muddy
+                             (you're mixing semantics) — keep for legacy
+                             callers but prefer passing a direction.
+      - direction='buy'   -> only buy outcomes; excess_return interpreted
+                             literally (positive = engine helpful).
+      - direction='sell'  -> only sell outcomes; excess_return is SIGN-FLIPPED
+                             per outcome before aggregation so 'higher is
+                             better' framing is consistent: a stock that fell
+                             after the engine suggested selling = good = the
+                             flipped value is positive.
+
+    Pre-F2 outcomes (no direction field) default to 'buy' via the Pydantic
+    default and the Mongo query handles them by including {direction: 'buy'}
+    OR {direction: {$exists: False}} when direction='buy' is requested.
     """
     coll = Collections.suggestion_outcomes()
+
+    # Direction filter for ALL queries below.
+    if direction is None:
+        base_filter: dict = {}
+    elif direction == "buy":
+        # Include pre-F2 outcomes that don't have the field.
+        base_filter = {
+            "$or": [
+                {"direction": "buy"},
+                {"direction": {"$exists": False}},
+            ]
+        }
+    else:
+        base_filter = {"direction": direction}
+
+    def _q(extra: dict) -> dict:
+        if not base_filter:
+            return extra
+        if "$or" in base_filter and "$or" in extra:
+            # combine via $and to preserve both clauses
+            return {"$and": [base_filter, extra]}
+        return {**base_filter, **extra}
+
+    flip = direction == "sell"
+
     result: dict[str, Any] = {
         "windows": {},
-        "total_outcomes_tracked": coll.count_documents({}),
-        "open": coll.count_documents({"tracking_status": "open"}),
-        "acted": coll.count_documents({"tracking_status": "acted"}),
-        "passed": coll.count_documents({"tracking_status": "passed"}),
-        "rejected": coll.count_documents({"tracking_status": "rejected"}),
-        "expired": coll.count_documents({"tracking_status": "expired"}),
+        "direction": direction,
+        "total_outcomes_tracked": coll.count_documents(base_filter or {}),
+        "open": coll.count_documents(_q({"tracking_status": "open"})),
+        "acted": coll.count_documents(_q({"tracking_status": "acted"})),
+        "passed": coll.count_documents(_q({"tracking_status": "passed"})),
+        "rejected": coll.count_documents(_q({"tracking_status": "rejected"})),
+        "expired": coll.count_documents(_q({"tracking_status": "expired"})),
     }
-
     bucket_keys = ("open", "acted", "passed", "rejected", "expired")
-
     for window_days in WINDOWS_DAYS:
         excess_field = f"excess_return_{window_days}d"
         nifty_field = f"nifty_at_{window_days}d"
         price_field = f"price_at_{window_days}d"
-
         cursor = coll.find(
-            {excess_field: {"$exists": True, "$ne": None}},
+            _q({excess_field: {"$exists": True, "$ne": None}}),
             {
                 "suggested_at_price": 1,
                 price_field: 1,
@@ -273,6 +327,10 @@ def compute_system_performance() -> dict:
         for o in cursor:
             ex = _flt(o.get(excess_field))
             if ex is not None:
+                # F2: sell-side outcomes -- invert sign so 'higher is better'
+                # framing is consistent regardless of direction.
+                if flip:
+                    ex = -ex
                 excess_returns.append(ex)
                 bucket = o.get("tracking_status", "open")
                 if bucket in per_bucket:
