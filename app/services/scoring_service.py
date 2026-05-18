@@ -567,8 +567,8 @@ def score_candidates(
         gates = evaluate_gates(
             fundamentals_by_isin.get(isin),
             news_signals_by_isin.get(isin),
-            next_earnings_map.get(isin),
             cfg,
+            next_earnings_map.get(isin),
         )
         candidate_gates[isin] = gates
         _, _, _, eligible = gates_summary(gates)
