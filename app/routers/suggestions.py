@@ -73,6 +73,13 @@ def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
     out = _decimal_to_jsonable(dict(run))
     out["_id"] = str(run["_id"])
 
+    # F2: pre-F2 docs were persisted without 'direction'. Pydantic defaults
+    # only kick in via model_validate; the router serializes the raw dict,
+    # so we default here too. Missing => 'buy' (the only pipeline that
+    # existed before F2).
+    if not out.get("direction"):
+        out["direction"] = "buy"
+
     if include_dossiers and out.get("notes"):
         try:
             out["dossiers"] = json.loads(out["notes"]).get("dossiers", [])
@@ -85,6 +92,7 @@ def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
     out.pop("all_candidates", None)  # keep response light
 
     # Additive enrichment -- never mutates underlying doc, only the response.
+
     return enrich_run(out)
 
 
@@ -122,6 +130,7 @@ def list_suggestion_runs(
                 "universe_size": 1,
                 "candidates_post_gates": 1,
                 "top_k": 1,
+                "direction": 1,  # F2
             },
         )
         .sort("run_date", -1)
@@ -131,6 +140,9 @@ def list_suggestion_runs(
     runs = [_decimal_to_jsonable(r) for r in cursor]
     for r in runs:
         r["_id"] = str(r["_id"])
+        # F2: same defaulting as _serialize_run -- pre-F2 docs lack the field.
+        if not r.get("direction"):
+            r["direction"] = "buy"
     total = Collections.suggestion_runs().count_documents(
         {"status": {"$in": ["success", "partial"]}}
     )
