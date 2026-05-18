@@ -64,7 +64,7 @@ CRON_REGISTRY: list[CronSpec] = [
     # idle. The entry exists so the registry / heartbeat dashboard
     # tolerates either deployment topology.
     CronSpec(
-        job_name="weekly_suggestions_sell",
+        cron_name="weekly_suggestions_sell",
         schedule_cron="30 7 * * 0",
         schedule_ist_friendly="Sun 07:30 IST",
         description="Weekly sell-side suggestions: profit-booking candidates from active holdings.",
