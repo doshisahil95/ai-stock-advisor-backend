@@ -96,7 +96,7 @@ def main() -> int:
             return meta
 
         with cron_run(job_name) as ctx:
-            ctx["meta"] = _do_buy()
+            ctx.meta = _do_buy()
         return 0
 
     if args.direction == "sell":
@@ -111,7 +111,7 @@ def main() -> int:
             return meta
 
         with cron_run(job_name) as ctx:
-            ctx["meta"] = _do_sell()
+            ctx.meta = _do_sell()
         return 0
 
     # direction == "both": one heartbeat, sequential runs, combined digest.
@@ -212,7 +212,7 @@ def main() -> int:
         return meta
 
     with cron_run(job_name) as ctx:
-        ctx["meta"] = _do_both()
+        ctx.meta = _do_both()
     return 0
 
 
