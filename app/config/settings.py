@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     NTFY_PUBLIC_TOPIC_PRICE: str
     NTFY_PUBLIC_TOPIC_NEWS: str
     NTFY_PUBLIC_TOPIC_ERRORS: str  # F4: cron health alerts (instant iOS push)
+    NTFY_PUBLIC_TOPIC_DIGESTS: str  # F2b: weekly suggestions digest (instant iOS push)
 
     # Resend
     RESEND_API_KEY: str

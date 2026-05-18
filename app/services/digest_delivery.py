@@ -14,8 +14,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
 from bson import ObjectId
+
+from app.services.notify import push_public
 
 from app.config.settings import settings
 from app.db.client import Collections
@@ -25,7 +26,6 @@ from app.models.suggestion import SuggestionRun
 log = logging.getLogger(__name__)
 
 DEFAULT_DASHBOARD_URL = f"http://{settings.TAILSCALE_IP}:3000/suggestions"
-NTFY_PUBLIC_HELP_URL = "https://portfolio-advisor.tail0c8705.ts.net"
 TOP_K_FOR_EMAIL = 10  # was 5
 
 
@@ -109,7 +109,7 @@ def _format_email_html(run: SuggestionRun, dossiers: list[dict]) -> str:
         "You decide. The system synthesizes; it does not advise. Buy or skip via ICICI Direct as usual."
         "</p>"
         '<p style="font-size: 11px; color: #999; margin-top: 8px;">'
-        f"Did not get the ntfy push? Check that your ntfy app is subscribed to topic <code>portfolio-suggestions</code> on <code>{NTFY_PUBLIC_HELP_URL}</code> with credentials."
+        "Did not get the ntfy push? Confirm your iPhone ntfy app is subscribed to your configured digests topic on <code>https://ntfy.sh</code> (no credentials required for public topics)."
         "</p>"
         "</div>"
     )
@@ -183,24 +183,26 @@ def _send_email(subject: str, html: str, text: str) -> dict:
 
 
 def _send_ntfy(title: str, body: str, priority: str = "default") -> dict:
+    """Send the weekly digest via the public ntfy channel (F2b).
+
+    Was self-hosted ntfy on Tailscale Funnel. iOS delivery on that path was
+    poll-based and silently dropped digests. push_public("digests", …) hits
+    ntfy.sh with an unguessable-topic and reaches iOS instantly via APNs.
+
+    See notify.push_public and PROJECT_STATE Section 12.
+    """
     try:
-        url = f"{settings.NTFY_URL.rstrip('/')}/portfolio-suggestions"
-        response = requests.post(
-            url,
-            data=body.encode("utf-8"),
-            headers={
-                "Title": title,
-                "Markdown": "yes",
-                "Priority": priority,
-            },
-            auth=(settings.NTFY_USER, settings.NTFY_PASS),
-            timeout=10,
+        response = push_public(
+            "digests",
+            title=title,
+            message=body,
+            priority=priority,
+            tags=["chart_with_upwards_trend"],
         )
-        response.raise_for_status()
-        log.info("ntfy push sent: status=%s", response.status_code)
-        return {"ok": True, "status": response.status_code}
+        log.info("ntfy digest pushed via public channel: %s", response.get("id", "ok"))
+        return {"ok": True, "status": 200, "response": response}
     except Exception as exc:
-        log.error("ntfy push failed: %s", exc)
+        log.error("ntfy digest push failed: %s", exc)
         return {"ok": False, "error": str(exc)}
 
 

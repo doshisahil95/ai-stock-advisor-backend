@@ -17,7 +17,7 @@ from base64 import b64encode
 from app.config.settings import settings
 
 PrivateTopic = Literal["digests", "errors"]
-PublicChannel = Literal["price", "news", "errors"]
+PublicChannel = Literal["price", "news", "errors", "digests"]
 
 _NTFY_AUTH = b64encode(f"{settings.NTFY_USER}:{settings.NTFY_PASS}".encode()).decode()
 _PRIORITY_MAP = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
@@ -94,6 +94,7 @@ def push_public(
         "price": settings.NTFY_PUBLIC_TOPIC_PRICE,
         "news": settings.NTFY_PUBLIC_TOPIC_NEWS,
         "errors": settings.NTFY_PUBLIC_TOPIC_ERRORS,
+        "digests": settings.NTFY_PUBLIC_TOPIC_DIGESTS,
     }
     topic = topic_map[channel]  # Literal type guarantees this is a valid key
 
