@@ -405,7 +405,7 @@ FEEDBACK_META: dict[str, dict[str, str]] = {
 
 # Page-level intro
 
-PAGE_INTRO: dict[str, Any] = {
+BUY_PAGE_INTRO: dict[str, Any] = {
     "title": "How to read this page",
     "summary": (
         "Every Sunday morning the system scans the NIFTY 100 (minus stocks you already "
@@ -419,6 +419,25 @@ PAGE_INTRO: dict[str, Any] = {
         "Confidence score (0-100) tells you how much to trust the ranking for that specific stock.",
         "Q / V / M / N bars are Quality, Valuation, Momentum, News. Each is 0-100 within this week's universe.",
         "Quality gates are hard filters. A failed gate makes the candidate ineligible regardless of score.",
+        "Performance tab tracks the engine's suggestions vs the NIFTY 100 over 30, 60, 90, and 180 days.",
+        "History tab shows past weekly runs and their outcomes.",
+    ],
+}
+
+SELL_PAGE_INTRO: dict[str, Any] = {
+    "title": "How to read this page",
+    "summary": (
+        "Every Sunday morning the system scans your current holdings, filters to positions "
+        "that are in profit and old enough to evaluate, and ranks them by a composite "
+        "sell-side score built from four signal groups. The top candidates get a Claude-generated "
+        "trim / book-profit dossier. Nothing here is a buy or sell instruction -- the system "
+        "records, analyzes, and advises only. You decide and you trade manually."
+    ),
+    "bullets": [
+        "Composite score (0-100) is the headline ranking. 70+ is strong; 55-69 is okay; below 55 is weak.",
+        "Confidence score (0-100) tells you how much to trust the ranking for that specific stock.",
+        "Booking Opportunity / Valuation Stretch / Risk / Tax & Concentration bars show why a holding is surfacing as a sell-side candidate.",
+        "Eligibility gates are hard filters. A failed gate makes the holding ineligible regardless of score.",
         "Performance tab tracks the engine's suggestions vs the NIFTY 100 over 30, 60, 90, and 180 days.",
         "History tab shows past weekly runs and their outcomes.",
     ],
@@ -752,7 +771,9 @@ def enrich_run(run_dict: dict) -> dict:
         )
 
     run_dict["feedback_meta"] = FEEDBACK_META
-    run_dict["page_intro"] = PAGE_INTRO
+    run_dict["page_intro"] = (
+        SELL_PAGE_INTRO if run_dict.get("direction") == "sell" else BUY_PAGE_INTRO
+    )
     return run_dict
 
 

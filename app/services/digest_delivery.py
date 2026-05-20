@@ -62,6 +62,34 @@ def _format_subject(run: SuggestionRun) -> str:
     return f"[{priority}] Weekly suggestions - {run.run_date_ist} - top: {symbols}"
 
 
+def _format_score_breakdown(run: SuggestionRun, candidate: Any) -> str:
+    if run.direction == "sell":
+        return (
+            "Book="
+            f"{getattr(candidate, 'booking_opportunity_score', 0.0):.0f} "
+            "Stretch="
+            f"{getattr(candidate, 'valuation_stretch_score', 0.0):.0f} "
+            "Risk="
+            f"{getattr(candidate, 'risk_score', 0.0):.0f} "
+            "Tax/Conc="
+            f"{getattr(candidate, 'tax_concentration_score', 0.0):.0f}"
+        )
+    return (
+        f"Q={candidate.quality_score:.0f} "
+        f"V={candidate.valuation_score:.0f} "
+        f"M={candidate.momentum_score:.0f} "
+        f"N={candidate.news_score:.0f}"
+    )
+
+
+def _format_score_breakdown_html(run: SuggestionRun, candidate: Any) -> str:
+    return (
+        '<p style="margin: 4px 0; font-family: monospace; font-size: 11px; color: #888;">'
+        f"{_format_score_breakdown(run, candidate)}"
+        "</p>"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Single-direction (buy or sell) digest formatters
 # ─────────────────────────────────────────────────────────────────────
@@ -112,9 +140,7 @@ def _format_email_html(run: SuggestionRun, dossiers: list[dict]) -> str:
             f'<span style="font-family: monospace; font-size: 13px; color: #666;">composite {c.composite_score:.1f} | confidence {c.confidence_score:.0f}</span>'
             "</div>"
             f'<p style="margin: 8px 0; font-size: 14px; color: #333; line-height: 1.5;">{plain_english}</p>'
-            '<p style="margin: 4px 0; font-family: monospace; font-size: 11px; color: #888;">'
-            f"Q={c.quality_score:.0f} V={c.valuation_score:.0f} M={c.momentum_score:.0f} N={c.news_score:.0f}"
-            "</p>"
+            f"{_format_score_breakdown_html(run, c)}"
             f'<p style="margin: 6px 0 0; font-size: 12px; color: #555; font-style: italic;">Valuation: {verdict}</p>'
             "</div>"
         )
@@ -153,9 +179,7 @@ def _format_email_text(run: SuggestionRun, dossiers: list[dict]) -> str:
         lines.append(
             f"#{c.rank} {c.symbol}  composite={c.composite_score:.1f}  conf={c.confidence_score:.0f}"
         )
-        lines.append(
-            f"  Q={c.quality_score:.0f} V={c.valuation_score:.0f} M={c.momentum_score:.0f} N={c.news_score:.0f}"
-        )
+        lines.append(f"  {_format_score_breakdown(run, c)}")
         lines.append(f"  {summary}")
         lines.append(f"  Valuation: {dossier.get('valuation_verdict', '(none)')}")
         lines.append("")
@@ -251,6 +275,7 @@ def _format_side_html(
             f'<span style="font-family: monospace; font-size: 12px; color: #666;">composite {c.composite_score:.1f} | confidence {c.confidence_score:.0f}</span>'
             "</div>"
             f'<p style="margin: 8px 0; font-size: 13px; color: #333; line-height: 1.5;">{plain_english}</p>'
+            f"{_format_score_breakdown_html(run, c)}"
             f'<p style="margin: 4px 0 0; font-size: 11px; color: #555; font-style: italic;">Valuation: {verdict}</p>'
             "</div>"
         )
@@ -310,6 +335,7 @@ def _format_side_text(run: SuggestionRun, dossiers: list[dict], heading: str) ->
         lines.append(
             f"  #{c.rank} {c.symbol}  composite={c.composite_score:.1f}  conf={c.confidence_score:.0f}"
         )
+        lines.append(f"    {_format_score_breakdown(run, c)}")
         lines.append(f"    {summary}")
     return "\n".join(lines)
 
