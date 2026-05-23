@@ -100,7 +100,7 @@ def _serialize_run(run: dict, include_dossiers: bool = True) -> dict:
 @router.get("/latest")
 def get_latest_run(
     include_dossiers: bool = True,
-    direction: str = Query("buy", regex="^(buy|sell)$"),
+    direction: str = Query("buy", pattern="^(buy|sell)$"),
 ) -> dict | None:
     """Return the most recent successful or partial run for the given direction.
 
@@ -135,7 +135,7 @@ def get_latest_run(
 def list_suggestion_runs(
     limit: int = Query(20, ge=1, le=100),
     skip: int = Query(0, ge=0),
-    direction: str = Query("buy", regex="^(buy|sell)$"),
+    direction: str = Query("buy", pattern="^(buy|sell)$"),
 ) -> dict:
     """Paginated list of past suggestion runs (no dossiers, just metadata).
 
@@ -203,7 +203,7 @@ def get_suggestion_run(run_id: str = Path(...)) -> dict:
 
 @router.get("/performance")
 def get_performance(
-    direction: str | None = Query(None, regex="^(buy|sell)$"),
+    direction: str | None = Query(None, pattern="^(buy|sell)$"),
 ) -> dict:
     """Aggregate performance metrics across tracked outcomes.
 
