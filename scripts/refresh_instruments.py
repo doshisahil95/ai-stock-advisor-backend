@@ -1,9 +1,15 @@
-"""Refresh `instruments` collection from Zerodha Kite.
+"""Refresh `instruments` collection from the NSE EQUITY_L.csv master.
+
+Delegates to app.services.instrument_service.refresh_from_nse, which
+downloads the official NSE master CSV and upserts the instruments
+collection. The project does not use Zerodha Kite Connect anywhere.
 
 Run on demand:
+
     PYTHONPATH=. uv run python scripts/refresh_instruments.py
 
 Or via cron on EC2 (daily at 3 AM IST):
+
     0 3 * * *  cd /home/ubuntu/ai-stock-advisor-backend && \\
                /home/ubuntu/.local/bin/uv run python scripts/refresh_instruments.py \\
                >> /home/ubuntu/cron-instruments.log 2>&1
