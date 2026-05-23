@@ -27,9 +27,11 @@ DEFAULT_CONFIG = {
         "min_return_on_equity": 0.10,
         "min_market_cap_inr": 10_000 * 1_00_00_000,
         "max_high_severity_negative_news_30d": 1,
-        # F14: shared with sell-side. Buy-side will start applying this
-        # in chunk 5 once suggestion_engine threads next_earnings_by_isin.
-        # Until then this gate is always 'skipped' in buy-side responses.
+        # F14: shared between buy and sell via evaluate_earnings_proximity_gate.
+        # Both pipelines thread next_earnings_by_isin -- see
+        # suggestion_engine._run_buy_pipeline and _run_sell_pipeline.
+        # When earnings_calendar has no entry, the gate reports skipped
+        # (which counts as passed) so missing data does not exclude.
         "earnings_proximity_days": 5,
     },
     "freshness": {
@@ -426,16 +428,26 @@ def composite_for_candidate(
     config: dict,
     group_signals_def: dict[str, dict[str, float]] | None = None,
     missing_group_default: float = 0.0,
+    candidate_signals_for_isin: dict[str, float | None] | None = None,
 ) -> tuple[float, dict[str, float], list[SignalScore]]:
     """Compute composite score for one candidate.
 
     `group_signals_def` defaults to module-level GROUP_SIGNALS (buy-side).
+
     `missing_group_default` is the score assigned to a group when ALL its
     signals are unavailable for this candidate. Buy-side keeps the historic
     behaviour: 0.0 (hard penalty), except the news group which falls back
     to 50.0 when the candidate has no classified news in the window.
     Sell-side passes 50.0 so missing tax/concentration data doesn't tank
     the composite.
+
+    A3+A4 (Chat 5): when `candidate_signals_for_isin` is provided (the dict
+    returned by extract_signals / extract_sell_signals for this ISIN),
+    SignalScore.raw_value is populated with the actual raw input that fed
+    normalization (fundamental ratio, momentum %, news scaled-sentiment /
+    velocity / count). When None (back-compat), falls back to the historic
+    behaviour of stringifying the normalized score -- preserves the prior
+    wire shape for any caller missed by the audit.
     """
     group_scores: dict[str, float] = {}
     signal_scores: list[SignalScore] = []
@@ -443,17 +455,21 @@ def composite_for_candidate(
     group_def_map = (
         group_signals_def if group_signals_def is not None else GROUP_SIGNALS
     )
+    raw_signals = candidate_signals_for_isin or {}
     for group_name, signal_weights in group_def_map.items():
         per_signal = normalized_by_group.get(group_name, {}).get(isin, {})
         total_weight = 0.0
         weighted_sum = 0.0
         for signal_name, weight_in_group in signal_weights.items():
             score = per_signal.get(signal_name)
+            raw_input = raw_signals.get(signal_name)
             if score is None:
+                # Signal unavailable for normalization. Still surface a raw
+                # input if extract_signals captured one; otherwise empty.
                 signal_scores.append(
                     SignalScore(
                         signal_name=signal_name,
-                        raw_value="",
+                        raw_value=(f"{raw_input:.4f}" if raw_input is not None else ""),
                         normalized_score=0.0,
                         weight=weight_in_group * weights.get(group_name, 0.0),
                         available=False,
@@ -462,16 +478,25 @@ def composite_for_candidate(
                 continue
             weighted_sum += score * weight_in_group
             total_weight += weight_in_group
+            # A3+A4: write the RAW input (fundamental / momentum % / news
+            # scaled-sentiment / velocity / count) instead of the normalized
+            # 0-100 score (which already lives in normalized_score).
+            # Back-compat fallback: if no raw_signals dict was passed,
+            # preserve the historic (incorrect) string of the normalized
+            # score so any unaudited caller does not crash.
+            if candidate_signals_for_isin is not None:
+                raw_value_str = f"{raw_input:.4f}" if raw_input is not None else ""
+            else:
+                raw_value_str = f"{score:.2f}"
             signal_scores.append(
                 SignalScore(
                     signal_name=signal_name,
-                    raw_value=f"{score:.2f}",
+                    raw_value=raw_value_str,
                     normalized_score=score,
                     weight=weight_in_group * weights.get(group_name, 0.0),
                     available=True,
                 )
             )
-
         if total_weight > 0:
             group_scores[group_name] = weighted_sum / total_weight
         elif group_name == "news" and not candidate_has_news:
@@ -603,6 +628,7 @@ def score_candidates(
                 normalized_by_group,
                 has_news,
                 cfg,
+                candidate_signals_for_isin=candidate_signals.get(isin),
             )
         else:
             composite, group_scores, signal_scores = (
@@ -1076,6 +1102,7 @@ def score_sell_candidates(
                 cfg,
                 group_signals_def=GROUP_SIGNALS_SELL,
                 missing_group_default=50.0,
+                candidate_signals_for_isin=candidate_signals.get(isin),
             )
         else:
             composite = 0.0
