@@ -1,4 +1,3 @@
-
 # ai-stock-advisor-backend
 
 Personal AI Stock Advisor — backend. FastAPI + Pydantic v2 + MongoDB Atlas. Single-user portfolio + research tool for NSE equities. **Strictly advisory; the system never trades.**
@@ -185,10 +184,12 @@ Crontab lives on EC2 — `ssh ubuntu@100.112.20.41 'crontab -l'`. Source-of-trut
 | `0 19 * * 1-5` | `refresh_prices.py` | `refresh_prices_eod` | Daily EOD OHLCV bars for held + universe ISINs into `prices_daily` |
 | `*/15 9-15 * * 1-5` | `refresh_prices_intraday.py` | `refresh_prices_intraday` | 15-min snapshots during market hours into `prices_intraday` (append-only) |
 | `30 19 * * 1-5` | `take_reconciliation_snapshot.py` | `reconciliation_snapshot` | Auto reconciliation against cached ICICI baseline; emits `_send_drift_alerts` on threshold breach |
+| `45 19 * * 1-5` | `track_suggestion_outcomes.py` | `track_suggestion_outcomes` | Per-candidate outcome tracking; writes to `suggestion_outcomes` for `/suggestions/performance` |
 | `0 6 * * 0` | `refresh_fundamentals.py` | `refresh_fundamentals` | Weekly fundamentals for the buy-side universe into `instruments_fundamentals` |
 | `30 6 * * 0` | `fetch_news_for_universe.py --include-held` | `fetch_news_universe` | Weekly Tavily + Haiku classified news for universe ∪ held ∪ watchlist into `news_articles` (A16 — `--include-held` is mandatory) |
 | `0 7 * * 0` | `run_weekly_suggestions.py --direction=both --notify --run-type scheduled` | `weekly_suggestions` | Buy + sell pipelines + combined digest (one email + one ntfy push for both sides) |
-| `0 21 * * *` | `cron_health_check.py` | (consumer, not producer) | F4 daily comparator; pushes to `errors` ntfy topic if heartbeats lag |
+| `0 21 * * *` | `cron_health_check.py` | `cron_health_check` | F4 daily comparator; pushes on BOTH transports (`errors` ntfy channel + Resend email; commit 8 added email) if heartbeats lag. Also writes its own heartbeat via `cron_run("cron_health_check")` and skips itself when comparing registry vs heartbeats |
+| `0 0 * * 0` | log truncation (legacy) | (none) | **Superseded by `logrotate`** at `/etc/logrotate.d/portfolio-advisor` (weekly, rotate 4, compress). Safe to remove via `crontab -e` |
 
 ### Registry-only entries (idle in current deployment)
 
@@ -250,13 +251,13 @@ Flags:
 
 For `--direction=both`, dispatches to both `_run_buy_pipeline` and `_run_sell_pipeline`, then calls `digest_delivery.send_combined_digest(buy_run, sell_run)` — ONE email + ONE ntfy push covering both sides. The standalone `--direction=sell` reach calls `send_weekly_digest(run)` instead (refresh of the A17 stale NOTE in `_run_sell_pipeline`).
 
-#### `cron_health_check.py` (126 lines)
+#### `cron_health_check.py` (~155 lines post-commit-8)
 
-F4 daily alerter. Compares `cron_heartbeats` against `CRON_REGISTRY` and pushes to the `errors` ntfy channel if any cron is missing a heartbeat or last-failed. Runs daily at 21:00 IST. Does NOT itself write a heartbeat (consumer, not producer).
+F4 daily alerter. Compares `cron_heartbeats` against `CRON_REGISTRY` and pushes on TWO independent transports (`errors` ntfy channel + Resend email) if any cron is missing a heartbeat or last-failed. Runs daily at 21:00 IST. Writes its own heartbeat via `cron_run("cron_health_check")` (recursive but intentional — the comparator loop skips itself when iterating the registry). Raises (so `cron_run` records this run as failed and tomorrow re-alerts) only when BOTH transports fail.
 
 #### `track_suggestion_outcomes.py` (48 lines)
 
-Per-candidate outcome tracking. Compares price-at-suggestion vs price-at-window-end and writes to `suggestion_outcomes`, feeding `/suggestions/performance`. Designed to run on demand (not currently cron-scheduled).
+Per-candidate outcome tracking. Compares price-at-suggestion vs price-at-window-end and writes to `suggestion_outcomes`, feeding `/suggestions/performance`. Runs Mon-Fri at 19:45 IST (after the 19:00 EOD price refresh and 19:30 reconciliation snapshot). Listed in `CRON_REGISTRY` as `track_suggestion_outcomes`.
 
 ### Operator scripts (manual)
 
@@ -358,6 +359,29 @@ PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/smoke_test.py
 ```
 
 Rollback: `git reset --hard <prev-sha>`, `uv sync`, restart. Mongo schema changes are forward-compatible by convention (use `extra="forbid"` only on writer paths, not readers).
+
+### One-time infra setup (already installed on production EC2 2026-05-24)
+
+Logrotate config for cron logs:
+
+```bash
+sudo tee /etc/logrotate.d/portfolio-advisor > /dev/null <<'EOF'
+/home/ubuntu/cron-*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    notifempty
+    missingok
+    copytruncate
+    su ubuntu ubuntu
+    create 0664 ubuntu ubuntu
+}
+EOF
+sudo logrotate -f /etc/logrotate.d/portfolio-advisor  # force first rotation
+```
+
+OS-default `/etc/cron.daily/logrotate` invokes it nightly; our config rotates weekly with 4-week retention and gzip after the first rotation. `copytruncate` is essential — without it, the `>>` redirects in every crontab line keep writing to the old (now-deleted) inode and the new file stays empty. The legacy `0 0 * * 0  find ... -size +10M ... tail -10000` crontab line is now redundant and can be removed via `crontab -e`.
 
 ---
 

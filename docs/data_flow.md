@@ -1,4 +1,3 @@
-
 # Portfolio Advisor — Data Flow Reference
 
 > Last updated: 2026-05-23. This is a "future-self" doc — open it when you need
@@ -164,11 +163,14 @@ These MUST hold or computed P&L / suggestions / feedback are wrong:
 | `0 19 * * 1-5` | `refresh_prices.py` | Daily EOD prices (after market close) |
 | `*/15 9-15 * * 1-5` | `refresh_prices_intraday.py` | 15-min intraday during market hours |
 | `30 19 * * 1-5` | `take_reconciliation_snapshot.py` | Auto reconciliation (system-side) |
+| `45 19 * * 1-5` | `track_suggestion_outcomes.py` | Per-candidate outcome tracking (weekdays 19:45 IST, after EOD prices land) |
 | `0 6 * * 0` | `refresh_fundamentals.py` | Weekly fundamentals refresh for universe (Sun 06:00 IST) |
 | `30 6 * * 0` | `fetch_news_for_universe.py --include-held` | Weekly news fetch + classification for universe ∪ held ∪ watchlist (Sun 06:30 IST) |
 | `0 7 * * 0` | `run_weekly_suggestions.py --direction=both --notify --run-type scheduled` | Weekly buy + sell suggestion runs + combined digest (Sun 07:00 IST) |
 | `0 21 * * *` | `cron_health_check.py` | F4 daily cron-health alerter |
-| `0 0 * * 0` | log truncation | Keep cron logs bounded |
+| `0 0 * * 0` | log truncation (legacy) | **Superseded by logrotate** at `/etc/logrotate.d/portfolio-advisor` (weekly, rotate 4, compress). Safe to remove via `crontab -e` |
+
+**Log retention** is handled by `logrotate` via `/etc/logrotate.d/portfolio-advisor` (installed 2026-05-24). Config: weekly rotation, rotate 4 (keep 4 weeks), `compress` + `delaycompress` (most recent rotation kept uncompressed for easier tail/grep), `copytruncate` (critical — preserves the `>>` redirect file handles that all crons use), `missingok` + `notifempty` (silent on Sunday-only crons that may not write between rotations). Covers all `/home/ubuntu/cron-*.log` files. The legacy `find ... -size +10M ... tail -10000` weekly crontab line is now redundant and can be removed via `crontab -e`.
 
 The `CRON_REGISTRY` in `app/services/cron_heartbeat_service.py` is the source-of-truth registry that the daily health check compares heartbeats against. After A6 (commit 3), `run_weekly_suggestions`'s registry entry says `Sunday 07:00 IST` to match the actual crontab line. After A6.5 (commit 3), `refresh_instruments`'s registry description says "NSE EQUITY_L.csv" (was "Zerodha Kite" — same drift as A13 fixed in commit 4 + 4b).
 
