@@ -2,7 +2,7 @@
 
 Delegates to app.services.instrument_service.refresh_from_nse, which
 downloads the official NSE master CSV and upserts the instruments
-collection. The project does not use Zerodha Kite Connect anywhere.
+collection.
 
 Run on demand:
 
