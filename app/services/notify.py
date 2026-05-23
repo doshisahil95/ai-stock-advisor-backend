@@ -16,14 +16,11 @@ from typing import Literal
 
 import requests
 import resend
-from base64 import b64encode
 
 from app.config.settings import settings
 
-PrivateTopic = Literal["digests", "errors"]
 PublicChannel = Literal["price", "news", "errors", "digests"]
 
-_NTFY_AUTH = b64encode(f"{settings.NTFY_USER}:{settings.NTFY_PASS}".encode()).decode()
 _PRIORITY_MAP = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
 
 resend.api_key = settings.RESEND_API_KEY
@@ -53,31 +50,6 @@ def _publish(
     response = requests.post(base_url, json=payload, headers=headers, timeout=10)
     response.raise_for_status()
     return response.json()
-
-
-def push_private(
-    topic: PrivateTopic,
-    title: str,
-    message: str,
-    priority: str = "default",
-    tags: list[str] | None = None,
-) -> dict:
-    """Send via self-hosted ntfy (Tailscale Funnel).
-
-    Use for sensitive content. iOS delivery is slower (poll-based) but content
-    never touches public infrastructure.
-
-    Topics: 'digests', 'errors'
-    """
-    return _publish(
-        base_url=settings.NTFY_URL,
-        topic=topic,
-        title=title,
-        message=message,
-        priority=priority,
-        tags=tags,
-        auth_header=f"Basic {_NTFY_AUTH}",
-    )
 
 
 def push_public(
