@@ -1,3 +1,39 @@
+"""Monitored stocks — agent-tracked candidates (formerly 'watchlist').
+
+Populated today by the feedback writer at POST /suggestions/{isin}/feedback.
+Future populated by agent / user_query / user_explicit code paths (F1, F3,
+F13) — fields for those paths exist on the model but are not written yet.
+
+Schema notes (Chat 5, A1 — 2026-05-20):
+- `MonitoringStatus` Literal aligned with writer-produced values:
+  "tracking" / "passed" / "rejected" plus future-use "watchlist" (F13).
+  Previous values "promoted_to_holding" / "dropped" REMOVED — no code in
+  the current tree writes them; they were aspirational lifecycle states
+  from the original scaffold. The matching `promoted_to_holding_at` /
+  `dropped_at` / `dropped_reason` lifecycle fields are removed for the
+  same reason. If F1/F3/F13 needs any of these back, re-add them then.
+- Feedback fields (`acted_at` / `passed_at` / `rejected_at`,
+  `last_feedback_action` / `last_feedback_at` / `last_feedback_note`)
+  ADDED to match writer reality. Previously the writer wrote them via
+  raw `update_one` and the model didn't declare them, which meant any
+  future `MonitoredStock(**doc)` round-trip would crash.
+- `symbol` downgraded to optional (default ""). The feedback writer
+  doesn't have it; rich-entry paths (agent, watchlist seed) will
+  populate it when they ship. Strict re-tightening can wait until
+  those paths exist.
+- `MonitoredStockFeedbackPatch` below is the typed shape the feedback
+  writer uses to build its $set patch. Constructing it catches Literal
+  drift (status, action) at write time. Its field set MUST match what
+  `submit_feedback`'s $set block writes — if you add a field there,
+  add it here too, and vice versa. This is the load-bearing schema
+  for the feedback path (Chat 5 / A1).
+
+See also:
+- PROJECT_STATE Section 7 (collection schema), Section 12 (F6 + F5b
+  invariants), Section 14 (write-before-apply via
+  monitored_stocks_audit_service.log_change).
+"""
+
 from datetime import datetime
 from typing import Literal
 
@@ -16,67 +52,66 @@ AlertOn = Literal[
 class MonitoredStock(BaseDoc):
     """A stock the agent / user is actively monitoring across digest runs."""
 
+    id: PyObjectId | None = Field(default=None, alias="_id")
 
-id: PyObjectId | None = Field(default=None, alias="_id")
+    # Identity
+    isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
+    symbol: str = Field(default="")
+    exchange: str = "NSE"
+    name: str = Field(default="")
+    sector: str = Field(default="")
+    industry: str = Field(default="")
 
-# Identity
-isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
-symbol: str = Field(default="")
-exchange: str = "NSE"
-name: str = Field(default="")
-sector: str = Field(default="")
-industry: str = Field(default="")
+    # Provenance
+    added_by: AddedBy
+    added_reason: str = Field(default="", description="Why this is being monitored")
+    added_at: datetime = Field(default_factory=utcnow)
 
-# Provenance
-added_by: AddedBy
-added_reason: str = Field(default="", description="Why this is being monitored")
-added_at: datetime = Field(default_factory=utcnow)
+    # Evolving thesis (agent updates this over time — F1/F3 future use)
+    thesis: str = ""
+    conviction: float = Field(
+        default=0.5,
+        ge=0,
+        le=1,
+        description="Agent's evolving confidence in this opportunity (0-1)",
+    )
+    conviction_history: list[dict] = Field(
+        default_factory=list,
+        description="[{date, score, reason}] — track how conviction evolved",
+    )
 
-# Evolving thesis (agent updates this over time — F1/F3 future use)
-thesis: str = ""
-conviction: float = Field(
-    default=0.5,
-    ge=0,
-    le=1,
-    description="Agent's evolving confidence in this opportunity (0-1)",
-)
-conviction_history: list[dict] = Field(
-    default_factory=list,
-    description="[{date, score, reason}] — track how conviction evolved",
-)
+    # Action triggers (F13 watchlist + future intraday alert paths)
+    target_buy_price: Money | None = None
+    alert_above: Money | None = None
+    alert_below: Money | None = None
+    alert_on: list[AlertOn] = Field(
+        default_factory=lambda: ["price_target", "earnings", "news"]
+    )
 
-# Action triggers (F13 watchlist + future intraday alert paths)
-target_buy_price: Money | None = None
-alert_above: Money | None = None
-alert_below: Money | None = None
-alert_on: list[AlertOn] = Field(
-    default_factory=lambda: ["price_target", "earnings", "news"]
-)
+    # Tags & notes
+    tags: list[str] = Field(default_factory=list)
+    user_notes: str = ""
 
-# Tags & notes
-tags: list[str] = Field(default_factory=list)
-user_notes: str = ""
+    # Lifecycle
+    status: MonitoringStatus = "tracking"
+    last_reviewed_at: datetime = Field(default_factory=utcnow)
+    last_user_interest_at: datetime | None = Field(
+        default=None,
+        description="When you last asked about it — used in digest 'stocks you've shown interest in'",
+    )
 
-# Lifecycle
-status: MonitoringStatus = "tracking"
-last_reviewed_at: datetime = Field(default_factory=utcnow)
-last_user_interest_at: datetime | None = Field(
-    default=None,
-    description="When you last asked about it — used in digest 'stocks you've shown interest in'",
-)
+    # Feedback fields (written by POST /suggestions/{isin}/feedback via
+    # MonitoredStockFeedbackPatch). See PROJECT_STATE Section 12 / F6 + F5b.
+    acted_at: datetime | None = None
+    passed_at: datetime | None = None
+    rejected_at: datetime | None = None
+    last_feedback_action: FeedbackAction | None = None
+    last_feedback_at: datetime | None = None
+    last_feedback_note: str = ""
 
-# Feedback fields (written by POST /suggestions/{isin}/feedback via
-# MonitoredStockFeedbackPatch). See PROJECT_STATE Section 12 / F6 + F5b.
-acted_at: datetime | None = None
-passed_at: datetime | None = None
-rejected_at: datetime | None = None
-last_feedback_action: FeedbackAction | None = None
-last_feedback_at: datetime | None = None
-last_feedback_note: str = ""
-
-# Audit
-created_at: datetime = Field(default_factory=utcnow)
-updated_at: datetime = Field(default_factory=utcnow)
+    # Audit
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class MonitoredStockFeedbackPatch(BaseModel):
@@ -103,15 +138,14 @@ class MonitoredStockFeedbackPatch(BaseModel):
     preserved across status flips.
     """
 
+    model_config = ConfigDict(extra="forbid")
 
-model_config = ConfigDict(extra="forbid")
-
-isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
-status: MonitoringStatus
-last_feedback_action: FeedbackAction
-last_feedback_at: datetime
-last_feedback_note: str = ""
-updated_at: datetime
-acted_at: datetime | None = None
-passed_at: datetime | None = None
-rejected_at: datetime | None = None
+    isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
+    status: MonitoringStatus
+    last_feedback_action: FeedbackAction
+    last_feedback_at: datetime
+    last_feedback_note: str = ""
+    updated_at: datetime
+    acted_at: datetime | None = None
+    passed_at: datetime | None = None
+    rejected_at: datetime | None = None
