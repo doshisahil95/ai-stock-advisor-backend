@@ -34,7 +34,6 @@ IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 # Weekday helpers (Python convention: Mon=0..Sun=6).
 WEEKDAYS_MON_FRI = {0, 1, 2, 3, 4}
 WEEKDAYS_ALL = {0, 1, 2, 3, 4, 5, 6}
-SATURDAY = {5}
 SUNDAY = {6}
 
 
@@ -72,7 +71,7 @@ CRON_REGISTRY: list[CronSpec] = [
     # Phase 1 crons (instrumented in this commit)
     CronSpec(
         cron_name="refresh_instruments",
-        description="Refresh NSE master from Zerodha Kite",
+        description="Refresh NSE master from NSE EQUITY_L.csv",
         schedule_human="daily 03:00 IST",
         expected_weekdays=WEEKDAYS_ALL,
     ),
@@ -111,7 +110,7 @@ CRON_REGISTRY: list[CronSpec] = [
     CronSpec(
         cron_name="run_weekly_suggestions",
         description="Weekly buy-side suggestions run + digest",
-        schedule_human="Sunday 06:00 IST",
+        schedule_human="Sunday 07:00 IST",
         expected_weekdays=SUNDAY,
     ),
     CronSpec(
