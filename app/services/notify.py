@@ -1,11 +1,15 @@
 """Wrappers for ntfy push notifications and Resend email.
 
-Two notification paths:
-- push_private(): self-hosted ntfy via Tailscale Funnel. For sensitive content
-  (digests, errors). Slower iOS delivery.
+Notification paths:
 - push_public(): public ntfy.sh service with random unguessable topics.
-  For time-critical alerts (price, news, F4 cron-health errors). Instant
-  full-content iOS push.
+  For time-critical alerts (price, news, F4 cron-health errors) AND for
+  digest delivery. Instant full-content iOS push.
+- email(): Resend transactional email. Returns {ok, id, error}; never
+  raises (Section A2 part 1 wrapper contract).
+
+F2b (2026-05-18): self-hosted ntfy via Tailscale Funnel was retired
+because iOS poll-based delivery dropped digests silently. Public ntfy.sh
+with unguessable topics is the only live push transport.
 """
 
 from typing import Literal

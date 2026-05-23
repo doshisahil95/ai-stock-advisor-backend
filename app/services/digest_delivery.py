@@ -6,10 +6,10 @@ Unit 3 polish:
   - Per-delivery audit log in `digest_deliveries` collection
   - Sends digest even when zero candidates (so user knows the system ran)
 
-F2b: ntfy moved from self-hosted Tailscale Funnel to public ntfy.sh
-because iOS delivery on the private path was poll-based and dropped
-digests silently. push_private remains in notify.py for future
-genuinely-sensitive content.
+F2b (2026-05-18): ntfy moved from self-hosted Tailscale Funnel to
+public ntfy.sh because iOS delivery on the private path was poll-based
+and dropped digests silently. The self-hosted ntfy service was
+decommissioned and push_private was removed from notify.py (TD8).
 
 F2 chunk 6: send_combined_digest(buy_run, sell_run) emits ONE email +
 ONE ntfy push covering both sides. Used by the --direction=both cron

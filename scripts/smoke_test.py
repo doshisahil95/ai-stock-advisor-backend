@@ -1,8 +1,8 @@
-"""End-to-end smoke test: load config, hit Anthropic, MongoDB, both ntfy paths, email."""
+"""End-to-end smoke test: load config, hit Anthropic, MongoDB, ntfy push, email."""
 
 import time
 from app.config.settings import settings
-from app.services.notify import push_private, push_public, email
+from app.services.notify import push_public, email
 from anthropic import Anthropic
 from anthropic._exceptions import OverloadedError, RateLimitError, APIStatusError
 from pymongo import MongoClient
@@ -40,7 +40,6 @@ def main() -> None:
     print("✓ Config loaded")
     print(f"  Anthropic key: {settings.ANTHROPIC_API_KEY[:15]}...")
     print(f"  Mongo host:    {settings.MONGODB_URI.split('@')[1].split('/')[0]}")
-    print(f"  ntfy private:  {settings.NTFY_URL}")
     print(
         f"  ntfy public:   {settings.NTFY_PUBLIC_URL}/{settings.NTFY_PUBLIC_TOPIC_PRICE[:20]}..."
     )
@@ -58,17 +57,7 @@ def main() -> None:
     db.smoke_test.delete_many({})
     print("✓ MongoDB:      ping ok, insert+delete ok")
 
-    # Private ntfy (self-hosted via Tailscale Funnel)
-    private_resp = push_private(
-        topic="digests",
-        title="🛠️ Smoke test (private)",
-        message="Self-hosted ntfy works. Content stays on your EC2.",
-        priority="default",
-        tags=["lock"],
-    )
-    print(f"✓ ntfy private: id={private_resp.get('id')}")
-
-    # Public ntfy.sh — instant iOS delivery
+    # Public ntfy.sh — instant iOS delivery (only live push channel post-F2b)
     public_resp = push_public(
         channel="price",
         title="🛠️ Smoke test (public)",
@@ -87,10 +76,8 @@ def main() -> None:
 
     print("\n🎉 All checks passed.")
     print("\nExpect on your iPhone:")
-    print(
-        "  - 1 'private' notification in #digests (may show 'ntfy: new message' first)"
-    )
     print("  - 1 'public' notification with FULL content visible in banner")
+    print("  - 1 email from Portfolio Advisor")
 
 
 if __name__ == "__main__":
