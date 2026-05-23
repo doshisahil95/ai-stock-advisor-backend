@@ -4,12 +4,7 @@
 Living source of truth for the Personal AI Stock Advisor.
 Updated at the end of every chat.
 
-This file is the bootstrap document for any new conversation with an AI assistant.
-If you (the assistant) are reading this for the first time in a new chat: read it top to bottom before doing anything.
-Do not skim.
-Do not assume.
-Do not redesign.
-The prior chat hit context limits or context drift — that's why we're here.
+This file is the bootstrap document for any new conversation with an AI assistant. If you (the assistant) are reading this for the first time in a new chat: read it top to bottom before doing anything. Do not skim. Do not assume. Do not redesign. The prior chat hit context limits or context drift — that's why we're here.
 
 ## Section 0: How to start a new chat
 
@@ -18,49 +13,43 @@ Paste this verbatim at the top of any new chat with an AI assistant working on t
 ```
 I need you to continue work on a project called Personal AI Stock Advisor.
 Before you do ANYTHING else, read the following in order:
-1. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/PROJECT_STATE.md
+1. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/Project_State.md
 2. The current HEAD commit of both repos:
-   - https://github.com/doshisahil95/ai-stock-advisor-backend
-   - https://github.com/doshisahil95/ai-stock-advisor-frontend
+ - https://github.com/doshisahil95/ai-stock-advisor-backend
+ - https://github.com/doshisahil95/ai-stock-advisor-frontend
 3. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/data_flow.md
 4. Both repo READMEs
 
-GitHub content may be cached.
-Whenever you read a file, capture the commit
+GitHub content may be cached. Whenever you read a file, capture the commit
 SHA you read at, and re-read if the user tells you they have pushed since.
 
 Today's scope is: <DESCRIBE THE FEATURE OR FIX FOR THIS CHAT>
 
 Hard rules:
-- Do not invent parallel patterns.
-  Evolve existing code, don't redesign.
-- Re-read files at HEAD before patching them.
-  Do not trust memory.
-- Hand me full file contents OR exact find-and-replace.
-  Never "rest unchanged".
-- Use canvas artifacts for files.
-  Use chat for tests.
-- PROJECT_STATE.md is ALWAYS delivered as a complete full-file replacement,
-  never as a patch, find-and-replace, or "rest unchanged".
-  No exceptions,
-  no matter how small the edit.
+- Do not invent parallel patterns. Evolve existing code, don't redesign.
+- Re-read files at HEAD before patching them. Do not trust memory.
+- Hand me full file contents OR exact find-and-replace. Never "rest unchanged".
+- Use canvas artifacts for files. Use chat for tests.
+- Project_State.md is ALWAYS delivered as a complete full-file replacement,
+ never as a patch, find-and-replace, or "rest unchanged".
+ No exceptions, no matter how small the edit.
 - Every code/file change MUST be followed by a `git add .` + `git commit -m`
-  block in chat, ready to paste, written in the project's commit-message style.
+ block in chat, ready to paste, written in the project's commit-message style.
 - Every test block MUST begin with `ssh ubuntu@100.112.20.41` and run curls
-  against `localhost:8000` from inside the box (not against the Tailscale IP
-  from the laptop).
+ against `localhost:8000` from inside the box (not against the Tailscale IP
+ from the laptop).
 - In every mapping table, the Action column must say NEW FILE, REPLACE
-  EXISTING, or PATCH.
+ EXISTING, or PATCH.
 - BEFORE constructing any class or dataclass via `Foo(field=...)`, run
-  `grep -A 20 "class Foo" <path>` on the actual file on disk and verify
-  every field name you reference. Glean snippets are often call sites or
-  docstrings, NOT the @dataclass definition. Three field-name drifts in
-  Chat 4 forced this rule. (See Section 14.)
+ `grep -A 20 "class Foo" <path>` on the actual file on disk and verify
+ every field name you reference. Glean snippets are often call sites or
+ docstrings, NOT the @dataclass definition. Three field-name drifts in
+ Chat 4 forced this rule. (See Section 14.)
 - If you start hallucinating, drifting, or forgetting facts, say
-  "I AM LOSING CONTEXT" so I can switch to a new chat.
+ "I AM LOSING CONTEXT" so I can switch to a new chat.
 
 Acknowledge by summarizing back to me:
-- What you understood about the project from PROJECT_STATE.md
+- What you understood about the project from Project_State.md
 - What's already shipped vs open
 - The exact scope of today's chat
 - Any uncertainty you have before starting
@@ -68,25 +57,17 @@ Acknowledge by summarizing back to me:
 Do not start coding until I confirm your summary is accurate.
 ```
 
+Note on filename casing: the file on disk is `docs/Project_State.md` (title case). GitHub paths are case-sensitive. Earlier copies of this bootstrap used `PROJECT_STATE.md` (all-caps) and `404`'d. The Section 0 prompt above uses the correct casing.
+
 ## Section 1: Project identity
 
-Personal AI Stock Advisor.
-Single-user portfolio + research tool for Indian NSE equities.
-Built for and by Sahil Doshi (Senior Consulting Engineer, MongoDB, India).
+Personal AI Stock Advisor. Single-user portfolio + research tool for Indian NSE equities. Built for and by Sahil Doshi (Senior Consulting Engineer, MongoDB, India).
 
-Strict design constraint that overrides everything else: the system never executes trades.
-Sahil trades manually in ICICI Direct.
-The system records, analyzes, and advises only.
-Any feature that would auto-place an order is out of scope, permanently.
+Strict design constraint that overrides everything else: the system never executes trades. Sahil trades manually in ICICI Direct. The system records, analyzes, and advises only. Any feature that would auto-place an order is out of scope, permanently.
 
-The system is also not regulatory advice.
-Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because...".
-The user decides; the user trades.
+The system is also not regulatory advice. Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because...". The user decides; the user trades.
 
-The goal of the system is to maximise the investments.
-Goal of the tool: grow money.
-Every feature is judged on whether it helps with one of:
-
+The goal of the system is to maximise the investments. Goal of the tool: grow money. Every feature is judged on whether it helps with one of:
 - Buy better (find opportunities you'd otherwise miss)
 - Sell better (exit before reversals, hold through noise)
 - Avoid mistakes (concentration, FOMO, panic sells, missed corporate actions)
@@ -94,36 +75,23 @@ Every feature is judged on whether it helps with one of:
 
 Anything that doesn't map to one of these is decoration and gets cut.
 
-Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax filing, goal-based planning.
-The tool informs investment decisions; bank statements and the CA handle the rest.
+Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax filing, goal-based planning. The tool informs investment decisions; bank statements and the CA handle the rest.
 
 ## Section 2: User communication preferences (apply to all chats)
 
-- Honest, slightly contrarian opinions over fake agreement.
-  The user will push back when he disagrees; the assistant must do the same.
-- Build right, no shortcuts.
-  Do not introduce avoidable rework.
-- Math accuracy and legal compliance matter.
-  If something is mathematically wrong or legally non-compliant, call it out immediately.
-- Use existing project conventions.
-  Do not invent parallel patterns.
-- Give full file contents OR exact find-and-replace instructions.
-  Never use placeholders like "rest unchanged" or "// existing code here".
-  Do not truncate important code.
-- Prefer meaningful units of work.
-  Small enough to test, not so tiny that we ping-pong.
+- Honest, slightly contrarian opinions over fake agreement. The user will push back when he disagrees; the assistant must do the same.
+- Build right, no shortcuts. Do not introduce avoidable rework.
+- Math accuracy and legal compliance matter. If something is mathematically wrong or legally non-compliant, call it out immediately.
+- Use existing project conventions. Do not invent parallel patterns.
+- Give full file contents OR exact find-and-replace instructions. Never use placeholders like "rest unchanged" or "// existing code here". Do not truncate important code.
+- Prefer meaningful units of work. Small enough to test, not so tiny that we ping-pong.
 - Give concrete test commands when appropriate.
-- Files go in canvas artifacts.
-  Tests go in chat as fenced code blocks.
+- Files go in canvas artifacts. Tests go in chat as fenced code blocks.
 - Every mapping table must use Action column values: NEW FILE, REPLACE EXISTING, or PATCH.
-- The user edits on Mac, commits, pushes.
-  EC2 is for build/test/deploy/debug.
-  The assistant should not edit Mac files directly; it produces artifacts the user pastes.
+- The user edits on Mac, commits, pushes. EC2 is for build/test/deploy/debug. The assistant should not edit Mac files directly; it produces artifacts the user pastes.
 - Every code/file delivery in chat MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block in the project's existing commit-message style.
-- Every test block in chat MUST start with `ssh ubuntu@100.112.20.41` and run subsequent curls against `localhost:8000`.
-  Do not give curls against the Tailscale IP from the Mac.
-- PROJECT_STATE.md is ALWAYS delivered as a complete full-file replacement, never a patch or diff or find-and-replace.
-  No exceptions.
+- Every test block in chat MUST start with `ssh ubuntu@100.112.20.41` and run subsequent curls against `localhost:8000`. Do not give curls against the Tailscale IP from the Mac.
+- Project_State.md is ALWAYS delivered as a complete full-file replacement, never a patch or diff or find-and-replace. No exceptions.
 
 ## Section 3: Tech stack
 
@@ -166,10 +134,7 @@ The tool informs investment decisions; bank statements and the CA handle the res
 - Backend port on Mac (local dev): `8001` (NOT 8000)
 - Frontend port on Mac (local dev): `3000`
 
-This Mac vs EC2 port difference is a real, recurring source of confusion for assistants.
-The assistant has gotten this wrong multiple times.
-Always specify which machine when giving test commands.
-For chat-supplied test blocks, the standing convention is "SSH into EC2 first, then curl localhost:8000" — see Section 14.
+This Mac vs EC2 port difference is a real, recurring source of confusion for assistants. The assistant has gotten this wrong multiple times. Always specify which machine when giving test commands. For chat-supplied test blocks, the standing convention is "SSH into EC2 first, then curl localhost:8000" — see Section 14.
 
 ### Repo paths
 Mac:
@@ -193,11 +158,9 @@ So:
 - On EC2 the file is `/etc/portfolio-advisor/secrets.env` (chmod 600, owned by root)
 - On Mac the file is `<repo>/.env` (chmod 600, gitignored)
 
-The `Settings` class uses pydantic-settings with `model_config = SettingsConfigDict(env_file=str(SECRETS_FILE), env_file_encoding="utf-8", case_sensitive=True, extra="ignore")`.
-Pydantic-settings reads the file directly into the `Settings` object — secrets are NOT exported to `os.environ`.
+The `Settings` class uses pydantic-settings with `model_config = SettingsConfigDict(env_file=str(SECRETS_FILE), env_file_encoding="utf-8", case_sensitive=True, extra="ignore")`. Pydantic-settings reads the file directly into the `Settings` object — secrets are NOT exported to `os.environ`.
 
-If the assistant ever suggests `~/secrets/secrets.env` on EC2, it is wrong.
-That path was a transient debug artifact.
+If the assistant ever suggests `~/secrets/secrets.env` on EC2, it is wrong. That path was a transient debug artifact.
 
 F2b addition (Chat 4): `NTFY_PUBLIC_TOPIC_DIGESTS` must be present in `/etc/portfolio-advisor/secrets.env` — required (no default). If missing, app startup fails with a Pydantic validation error. Subscribe the iPhone ntfy app to the topic value before running cron.
 
@@ -206,10 +169,9 @@ On EC2:
 - `~/deploy.sh` — pulls backend, runs `uv sync`, restarts `portfolio-advisor.service`
 - `~/deploy-ui.sh` — pulls frontend, runs `npm install --legacy-peer-deps`, runs `npm run gen-api`, runs `npm run build`, restarts `portfolio-advisor-ui.service`
 
-The `gen-api` step in `deploy-ui.sh` regenerates `lib/api-types.ts` against the running backend's OpenAPI spec.
-That file is gitignored.
-On Mac, running `npm run gen-api` without overriding the URL will fail because Mac backend is on port 8001 and the default is 8000.
-Use:
+The `gen-api` step in `deploy-ui.sh` regenerates `lib/api-types.ts` against the running backend's OpenAPI spec. That file is gitignored.
+
+On Mac, running `npm run gen-api` without overriding the URL will fail because Mac backend is on port 8001 and the default is 8000. Use:
 
 ```
 API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
@@ -218,8 +180,7 @@ API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 or just skip it — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `EnvironmentFile` NOT used (settings.py loads from `/etc/portfolio-advisor/secrets.env` directly), `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`.
-  Logs to journald.
+- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `EnvironmentFile` NOT used (settings.py loads from `/etc/portfolio-advisor/secrets.env` directly), `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald.
 - `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
 
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
@@ -228,9 +189,11 @@ A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` re
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-GitHub is the source of truth for code.
-GitHub may serve cached content via Glean's reader.
-When in doubt, find the latest commit SHA and read at that SHA explicitly.
+GitHub is the source of truth for code. GitHub may serve cached content via Glean's reader. When in doubt, find the latest commit SHA and read at that SHA explicitly.
+
+Last verified SHAs (Chat 5 audit, 2026-05-20):
+- Backend: `cea8eeef7c461f216f211def0ca013bb543bfcc7`
+- Frontend: `e34e1264cdaaeace345a8fa9b433c6b3213a134b`
 
 ## Section 5: Backend file map
 
@@ -238,193 +201,237 @@ Directory layout under `app/`:
 
 ```
 app/
-  main.py                     FastAPI bootstrap, router includes, lifespan
-  config/
-    settings.py               pydantic-settings, loads secrets file
-                              F2b: NTFY_PUBLIC_TOPIC_DIGESTS (required)
-  db/
-    client.py                 Mongo client, get_db(), Collections accessor class
-                              (incl. Collections.monitored_stocks_audit() — F10)
-                              (incl. Collections.earnings_calendar() — F14)
-    indexes.py                ensure_indexes() called on startup
-                              (incl. monitored_stocks_audit indexes — F10)
-                              (incl. earnings_calendar indexes — F14)
-  models/
-    _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
-    instrument.py             Instrument (NSE master record)
-    holding.py                Holding (active position)
-    transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER)
-    fundamentals.py           InstrumentFundamentals (per-ISIN, per-refresh)
-    earnings_event.py         F14: EarningsEvent (one doc per ISIN per earnings_date)
-    suggestion.py             SuggestionRun, SuggestionOutcome, CandidateScore,
-                              SignalScore, GateResult
-                              F2: SuggestionDirection literal; direction field
-                              on SuggestionRun and SuggestionOutcome (default
-                              "buy" so pre-F2 docs coerce cleanly)
-    news.py                   NewsArticle (live model)
-    news_article.py           DEAD; older parallel model, do not use, do not import
-    monitored_stock.py        MonitoredStock; Literal status is DRIFTED (see tech debt)
-    macro_signal.py           placeholder
-    conversation.py           placeholder (will be used for chat features F1/F3)
-    reconciliation.py         ReconciliationSnapshot
-    cost_basis_adjustment.py  CostBasisAdjustment
-  routers/
-    holdings.py               /portfolio/holdings, /portfolio/holdings/{isin},
-                              /sell, /preview-sell, /history, /transactions
-    portfolio.py              /portfolio/summary
-    transactions.py           /transactions/search, /transactions/{id} CRUD,
-                              /transactions/audit/recent, /transactions/{id}/audit
-    reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
-    instruments.py            /instruments (symbol_overrides CRUD)
-    cost_basis.py             /cost-basis/adjustments
-    suggestions.py            /suggestions/latest, /runs, /runs/{id},
-                              /performance, /{isin}/feedback,
-                              /{isin}/audit, /feedback/audit/recent (F10)
-                              F2: ?direction=buy|sell on /latest, /runs,
-                              /performance. /runs/{id} unchanged (direction
-                              is implicit in the stored doc).
-    cron.py                   /cron/heartbeats (F4 — health summary +
-                              recent heartbeats; mirrors reconciliation.py
-                              local _serialize helper)
-  services/
-    instrument_service.py     lookup_isin, bulk_lookup_isins, refresh
-    price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
-                              annotate_with_current_price, get_previous_close
-    holdings_service.py       recompute_holding, validate_replay, preview_sell,
-                              _to_decimal helper
-    portfolio_service.py      compute_summary
-    transactions_audit_service.py  log_change, get_audit_for_transaction
-    monitored_stocks_audit_service.py  F10: log_change (write-before-apply),
-                                       get_audit_for_isin, get_recent_audit
-    reconciliation.py         take_auto_snapshot, drift detection
-    cost_basis_service.py     get_active_adjustments, total_adjustment_amount
-    fundamentals_service.py   yfinance provider, refresh_one, refresh_universe,
-                              get_latest_for_isin, get_latest_bulk, is_fresh,
-                              _normalize_debt_to_equity, _normalize_dividend_yield
-                              F14: fetch_earnings_calendar_yfinance,
-                              refresh_earnings_for, refresh_earnings_universe,
-                              get_next_earnings_for_isin, get_next_earnings_bulk,
-                              _sanitize_for_bson (yfinance dates coerce)
-    tavily_client.py          quota-tracked wrapper, TavilyQuotaExceeded
-    news_fetcher.py           fetch_for_instrument, fetch_for_universe
-    news_classifier.py        Haiku batch classifier, retry pass
-    news_signals.py           compute_news_signals_for_isin, _bulk
-    scoring_service.py        extract_signals, score_candidates,
-                              Q/V/M/N weights, gates, version "1.0.0-unit2"
-                              F14: evaluate_earnings_proximity_gate (shared);
-                              evaluate_gates accepts optional next_earnings;
-                              score_candidates accepts optional
-                              next_earnings_by_isin (buy-side wires it in
-                              suggestion_engine).
-                              F2: DEFAULT_SELL_CONFIG, GROUP_SIGNALS_SELL,
-                              extract_sell_signals, evaluate_sell_gates
-                              (in_profit, min_position_age, earnings_proximity),
-                              score_sell_candidates. score_group +
-                              composite_for_candidate refactored to accept
-                              optional group_signals_def (back-compat with
-                              GROUP_SIGNALS default).
-    dossier_service.py        generate_dossiers_for_top_k, Sonnet,
-                              plain_english_summary in schema
-                              F2: _SYSTEM_PROMPT_SELL with tax_consideration +
-                              concentration_note; _parse_dossier required
-                              fields switch on direction; per-candidate
-                              POSITION CONTEXT block (cost basis, unrealized
-                              gain %, tax window, portfolio weight, next
-                              earnings) appended for sell-side.
-    suggestion_engine.py      run_suggestions (full pipeline);
-                              get_excluded_isins (F6+F5b: rejected 90d,
-                              passed this-run, acted 30d)
-                              F2: run_suggestions(direction="buy"|"sell")
-                              dispatches to _run_buy_pipeline (F14 gate now
-                              activated) or _run_sell_pipeline (universe =
-                              active holdings, portfolio_value computed via
-                              bulk_get_latest_prices, sell-side scoring +
-                              dossier).
-    outcome_tracker.py        create_outcomes_for_run, snapshot_open_outcomes,
-                              compute_system_performance
-                              F2: create_outcomes_for_run stamps direction;
-                              compute_system_performance accepts optional
-                              direction filter and sign-flips excess_return
-                              for sell-side at read time.
-    digest_delivery.py        send_weekly_digest (Resend + ntfy)
-                              F2b: ntfy via push_public("digests", ...) on
-                              public ntfy.sh; private path retired here.
-                              F2 (Chat 4): send_combined_digest(buy_run,
-                              sell_run) for the --direction=both cron path.
-                              KNOWN BUG: sell-side sections (in both
-                              send_weekly_digest sell standalone AND
-                              send_combined_digest sell section) render
-                              Q=V=M=N=0 because CandidateScore has fixed
-                              buy-side group fields; sell-side group scores
-                              live separately. See Section 18.
-    explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
-                              PAGE_INTRO, enrich_run, enrich_candidate;
-                              _load_monitored_bulk + _build_user_action (F6)
-                              F2: SIGNAL_META extended (unrealized_gain_pct,
-                              target_price_proximity, portfolio_weight_pct,
-                              is_ltcg_eligible, high_severity_negative_count).
-                              GROUP_META extended (booking_opportunity,
-                              valuation_stretch, risk, tax_concentration).
-                              GATE_META extended (earnings_proximity,
-                              in_profit, min_position_age).
-                              _GROUP_TO_SIGNALS extended for sell groups.
-                              NOT YET DONE: enrich_run page_intro still
-                              buy-centric for sell runs.
-    notify.py                 push_private, push_public, email (generic wrappers;
-                              digest_delivery uses its own copies of Resend +
-                              ntfy code, not these — that's intentional drift).
-                              PublicChannel now includes "errors" (F4) and
-                              "digests" (F2b)
-    cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
-                              get_recent_heartbeats, get_latest_per_cron,
-                              count_today_heartbeats, ist_today_window_utc,
-                              is_expected_today
-                              F2: CRON_REGISTRY includes
-                              "weekly_suggestions_sell" CronSpec.
-                              CONVENTION (Section 14): CronSpec fields are
-                              (cron_name, description, schedule_human,
-                              expected_weekdays, min_runs_per_day=1). Three
-                              field-name drifts in Chat 4 produced this rule.
-  scripts/
-    init_db.py
-    refresh_instruments.py
-    refresh_prices.py
-    refresh_prices_intraday.py
-    take_reconciliation_snapshot.py
-    seed_nifty100.py
-    seed_cost_basis_adjustments.py
-    import_orderbooks.py
-    reconcile_staging.py
-    promote_staging.py
-    add_manual_transactions.py
-    refresh_fundamentals.py        F14: default universe is now NIFTY 100 ∪
-                                   active holdings (held stocks outside
-                                   NIFTY 100 still need fundamentals +
-                                   earnings for F2 sell-side); folds earnings
-                                   refresh into the same Sunday cron via
-                                   refresh_earnings_universe.
-                                   --holdings-only and --symbols overrides
-                                   preserved.
-    fetch_news_for_universe.py
-    run_weekly_suggestions.py      F2: --direction=buy|sell|both (default
-                                   "buy"). "both" runs buy then sell under
-                                   ONE heartbeat and emits ONE combined
-                                   digest via send_combined_digest.
-                                   --no-notify skips outcomes + digest.
-                                   --skip-dossiers skips Claude (smoke-test
-                                   only; not for production).
-                                   _do_buy/_do_sell/_do_both call sites use
-                                   ctx.meta = {...} (NOT ctx["meta"] — see
-                                   Section 14).
-    track_suggestion_outcomes.py
-    cron_health_check.py           F4: daily 21:00 IST; reads CRON_REGISTRY +
-                                   today's heartbeats; fires single batched
-                                   push_public("errors", ...) on anomalies
+main.py                     FastAPI bootstrap, router includes, lifespan
+config/
+  settings.py               pydantic-settings, loads secrets file
+                            F2b: NTFY_PUBLIC_TOPIC_DIGESTS (required)
+db/
+  client.py                 Mongo client, get_db(), Collections accessor class
+                            (incl. Collections.monitored_stocks_audit() — F10)
+                            (incl. Collections.earnings_calendar() — F14)
+  indexes.py                ensure_indexes() called on startup
+                            (incl. monitored_stocks_audit indexes — F10)
+                            (incl. earnings_calendar indexes — F14)
+models/
+  _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
+  instrument.py             Instrument (NSE master record)
+  holding.py                Holding (active position)
+  transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER)
+  fundamentals.py           InstrumentFundamentals (per-ISIN, per-refresh)
+  earnings_event.py         F14: EarningsEvent (one doc per ISIN per earnings_date)
+  suggestion.py             SuggestionRun, SuggestionOutcome, CandidateScore,
+                            SignalScore, GateResult
+                            F2: SuggestionDirection literal; direction field
+                            on SuggestionRun and SuggestionOutcome (default
+                            "buy" so pre-F2 docs coerce cleanly)
+  news.py                   NewsArticle (live model)
+  news_article.py           DEAD; older parallel model, do not use, do not import
+                            (tech debt: delete in Chat 8 / F5c)
+  monitored_stock.py        MonitoredStock; Literal status is DRIFTED (see Section 18)
+  macro_signal.py           placeholder
+  conversation.py           placeholder (will be used for chat features F1/F3)
+  reconciliation.py         ReconciliationSnapshot
+  cost_basis_adjustment.py  CostBasisAdjustment
+routers/
+  holdings.py               /portfolio/holdings, /portfolio/holdings/{isin},
+                            /sell, /preview-sell, /history, /transactions
+  portfolio.py              /portfolio/summary
+  transactions.py           /transactions/search, /transactions/{id} CRUD,
+                            /transactions/audit/recent, /transactions/{id}/audit
+  reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
+  instruments.py            /instruments (symbol_overrides CRUD)
+  cost_basis.py             /cost-basis/adjustments
+  suggestions.py            /suggestions/latest, /runs, /runs/{id},
+                            /performance, /{isin}/feedback,
+                            /{isin}/audit, /feedback/audit/recent (F10)
+                            F2: ?direction=buy|sell on /latest, /runs,
+                            /performance. /runs/{id} unchanged (direction
+                            is implicit in the stored doc).
+  cron.py                   /cron/heartbeats (F4 — health summary +
+                            recent heartbeats; mirrors reconciliation.py
+                            local _serialize helper)
+services/
+  instrument_service.py     lookup_isin, bulk_lookup_isins, refresh
+  price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
+                            annotate_with_current_price, get_previous_close
+  holdings_service.py       recompute_holding, validate_replay, preview_sell,
+                            _to_decimal helper
+  portfolio_service.py      compute_summary
+  transactions_audit_service.py  log_change, get_audit_for_transaction
+  monitored_stocks_audit_service.py  F10: log_change (write-before-apply),
+                                     get_audit_for_isin, get_recent_audit
+  reconciliation.py         take_auto_snapshot, drift detection
+  cost_basis_service.py     get_active_adjustments, total_adjustment_amount
+  fundamentals_service.py   yfinance provider, refresh_one, refresh_universe,
+                            get_latest_for_isin, get_latest_bulk, is_fresh,
+                            _normalize_debt_to_equity, _normalize_dividend_yield
+                            F14: fetch_earnings_calendar_yfinance,
+                            refresh_earnings_for, refresh_earnings_universe,
+                            get_next_earnings_for_isin, get_next_earnings_bulk,
+                            _sanitize_for_bson (yfinance dates coerce)
+  tavily_client.py          quota-tracked wrapper, TavilyQuotaExceeded
+  news_fetcher.py           fetch_for_instrument, fetch_for_universe
+  news_classifier.py        Haiku batch classifier, retry pass
+  news_signals.py           compute_news_signals_for_isin, _bulk
+  scoring_service.py        extract_signals, score_candidates,
+                            Q/V/M/N weights, gates, version "1.0.0-unit2"
+                            F14: evaluate_earnings_proximity_gate (shared);
+                            evaluate_gates accepts optional next_earnings;
+                            score_candidates accepts optional
+                            next_earnings_by_isin (buy-side wires it in
+                            suggestion_engine).
+                            F2: DEFAULT_SELL_CONFIG, GROUP_SIGNALS_SELL,
+                            extract_sell_signals, evaluate_sell_gates
+                            (in_profit, min_position_age, earnings_proximity),
+                            score_sell_candidates.
+                            score_group + composite_for_candidate refactored
+                            to accept optional group_signals_def (back-compat
+                            with GROUP_SIGNALS default).
+                            TECH DEBT: comment in DEFAULT_CONFIG.gates still
+                            says earnings_proximity is "always 'skipped' in
+                            buy-side responses ... until then" — outdated
+                            since F14 chunk 5 wired it. Trivial fix.
+  dossier_service.py        generate_dossiers_for_top_k, Sonnet,
+                            plain_english_summary in schema
+                            F2: _SYSTEM_PROMPT_SELL with tax_consideration +
+                            concentration_note; _parse_dossier required
+                            fields switch on direction; per-candidate
+                            POSITION CONTEXT block (cost basis, unrealized
+                            gain %, tax window, portfolio weight, next
+                            earnings) appended for sell-side.
+  suggestion_engine.py      run_suggestions (full pipeline);
+                            get_excluded_isins (F6+F5b: rejected 90d,
+                            passed this-run, acted 30d)
+                            F2: run_suggestions(direction="buy"|"sell")
+                            dispatches to _run_buy_pipeline (F14 gate now
+                            activated) or _run_sell_pipeline (universe =
+                            active holdings, portfolio_value computed via
+                            bulk_get_latest_prices, sell-side scoring +
+                            dossier).
+                            NOTE: pre-chunk-6 comment in _run_sell_pipeline
+                            saying "TWO digests if both run with notify=True"
+                            is stale — chunk 6 added --direction=both umbrella
+                            that combines into one digest.
+  outcome_tracker.py        create_outcomes_for_run, snapshot_open_outcomes,
+                            compute_system_performance
+                            F2: create_outcomes_for_run stamps direction;
+                            compute_system_performance accepts optional
+                            direction filter and sign-flips excess_return
+                            for sell-side at read time.
+  digest_delivery.py        send_weekly_digest (Resend + ntfy),
+                            send_combined_digest (F2 Chat 4 — both directions)
+                            F2b: ntfy via push_public("digests", ...) on
+                            public ntfy.sh; private path retired here.
+                            F2b (2026-05-20 / cea8eee): _format_score_breakdown
+                            is now DIRECTION-AWARE — sell rows render
+                            Book/Stretch/Risk/Tax-Conc from group_meta lookup
+                            instead of Q/V/M/N=0. Bug from email of 2026-05-18
+                            15:56 IST is fixed.
+                            TECH DEBT (A2): _send_email still has inline
+                            `import resend; resend.api_key = ...;
+                            resend.Emails.send(...)` instead of going through
+                            notify.email(). The ntfy path was reconciled in
+                            F2b; the Resend path was not. notify.email() also
+                            doesn't currently accept a plain-text body for
+                            multipart — fix needs to extend the wrapper.
+  explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
+                            PAGE_INTRO, enrich_run, enrich_candidate;
+                            _load_monitored_bulk + _build_user_action (F6)
+                            F2: SIGNAL_META extended (unrealized_gain_pct,
+                            target_price_proximity, portfolio_weight_pct,
+                            is_ltcg_eligible, high_severity_negative_count).
+                            GROUP_META extended (booking_opportunity,
+                            valuation_stretch, risk, tax_concentration).
+                            GATE_META extended (earnings_proximity,
+                            in_profit, min_position_age).
+                            _GROUP_TO_SIGNALS extended for sell groups.
+                            TECH DEBT: enrich_run page_intro is still
+                            buy-centric for sell runs (introductory text only;
+                            gates/signals/group_meta all populate correctly).
+  notify.py                 push_private, push_public, email (generic wrappers;
+                            digest_delivery uses its own copy of Resend code,
+                            and pushes via push_public("digests", ...) — ntfy
+                            reconciled in F2b, Resend still drifted, see A2).
+                            PublicChannel = "price" | "news" | "errors" |
+                            "digests". PrivateTopic = "digests" | "errors".
+  cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
+                            get_recent_heartbeats, get_latest_per_cron,
+                            count_today_heartbeats, ist_today_window_utc,
+                            is_expected_today
+                            F2: CRON_REGISTRY includes
+                            "weekly_suggestions_sell" CronSpec.
+                            CONVENTION (Section 14): CronSpec fields are
+                            (cron_name, description, schedule_human,
+                            expected_weekdays, min_runs_per_day=1). Three
+                            field-name drifts in Chat 4 produced this rule.
+                            TECH DEBT (A6 — Chat 5 audit): weekly_suggestions
+                            CronSpec has schedule_human="Sunday 06:00 IST"
+                            but the actual crontab line is `0 7 * * 0` (07:00).
+                            Cosmetic only — schedule_human is human-readable
+                            metadata, not parsed — but it feeds /cron/heartbeats
+                            and the daily health check display. Fix to
+                            "Sunday 07:00 IST" during Chat 5.
+                            TECH DEBT (A7): SATURDAY = {5} weekday-set constant
+                            is unused. Remove.
+scripts/
+  init_db.py
+  refresh_instruments.py        TECH DEBT (A13 — Chat 5 audit): docstring
+                                says "refreshes from Zerodha Kite" but actual
+                                implementation is refresh_from_nse() reading
+                                NSE's official EQUITY_L.csv. Fix doc + any
+                                stale comments.
+  refresh_prices.py
+  refresh_prices_intraday.py
+  take_reconciliation_snapshot.py
+  seed_nifty100.py
+  seed_cost_basis_adjustments.py
+  import_orderbooks.py
+  reconcile_staging.py
+  promote_staging.py
+  add_manual_transactions.py
+  refresh_fundamentals.py        F14: default universe is now NIFTY 100 ∪
+                                 active holdings (held stocks outside
+                                 NIFTY 100 still need fundamentals +
+                                 earnings for F2 sell-side); folds earnings
+                                 refresh into the same Sunday cron via
+                                 refresh_earnings_universe.
+                                 --holdings-only and --symbols overrides
+                                 preserved.
+  fetch_news_for_universe.py     TECH DEBT (A16 — Chat 5 audit): default
+                                 universe excludes held stocks
+                                 (get_universe_for_news filters them out
+                                 unless --include-held is passed). The sell
+                                 pipeline scans held stocks and consumes
+                                 whatever's classified, so unless the cron
+                                 line passes --include-held, sell-side news
+                                 scores are systematically thin for held
+                                 names. Needs verification against EC2
+                                 crontab during Chat 5.
+  run_weekly_suggestions.py      F2: --direction=buy|sell|both (default
+                                 "buy"). "both" runs buy then sell under
+                                 ONE heartbeat and emits ONE combined
+                                 digest via send_combined_digest.
+                                 --no-notify skips outcomes + digest.
+                                 --skip-dossiers skips Claude (smoke-test
+                                 only; not for production).
+                                 _do_buy/_do_sell/_do_both call sites use
+                                 ctx.meta = {...} (NOT ctx["meta"] — see
+                                 Section 14).
+  track_suggestion_outcomes.py
+  cron_health_check.py           F4: daily 21:00 IST; reads CRON_REGISTRY +
+                                 today's heartbeats; fires single batched
+                                 push_public("errors", ...) on anomalies
 docs/
-  data_flow.md                  Phase 1 invariants; missing Phase 2 collections
-  PROJECT_STATE.md              THIS FILE
+  data_flow.md                  Phase 1 invariants; STALE — missing every
+                                Phase 2 collection, cron, invariant. Rewrite
+                                scheduled as the final Chat 5 deliverable
+                                after bug fixes are deployed.
+  Project_State.md              THIS FILE
 pyproject.toml
-README.md                       stale; says Phase 2 is "what's next" with old ordering
+README.md                       STALE — calls Phase 2 "what's next" with
+                                old ordering; omits /suggestions, /cron, all
+                                Phase 2 collections, F2/F4/F14 crons. Rewrite
+                                during Chat 8 (F5d) or Chat 5 cleanup pass.
 ```
 
 ## Section 6: Frontend file map
@@ -443,20 +450,24 @@ app/
   transactions/page.tsx
   transactions/audit/page.tsx
   suggestions/page.tsx        F6: no actedThisSession; user_action stamp from
-                              backend drives the collapsed-card render
-                              F2: PENDING (next chat) — Buy/Sell toggle,
-                              direction-aware fetch, sell-side dossier
-                              rendering (tax_consideration +
-                              concentration_note instead of portfolio_fit),
-                              sell-side group_meta display
-                              (booking_opportunity/valuation_stretch/risk/
-                              tax_concentration instead of Q/V/M/N)
+                              backend drives the collapsed-card render.
+                              F2: SHIPPED — useState<SuggestionDirection>("buy");
+                              shadcn Tabs with "buy"/"sell" triggers and a
+                              direction-row card; per-direction TanStack query
+                              keys ("suggestions"/"latest"/direction,
+                              "suggestions"/"performance"/direction,
+                              "suggestions"/"history"/direction);
+                              direction-aware page subtitle + empty-state copy;
+                              direction-aware toast description on feedback.
 components/
   ui/                         shadcn primitives (button, card, dialog, popover,
                               tabs, separator, badge, skeleton, etc.)
   holdings-table.tsx
   buy-sheet.tsx
-  sell-sheet.tsx
+  sell-sheet.tsx              Phase-1 manual SELL transaction sheet with FIFO
+                              preview. NOT the F2 sell-side suggestion surface.
+                              That lives inside suggestion-card.tsx via the
+                              isSellSide branch.
   edit-transaction-sheet.tsx
   holding-header.tsx, holding-stats.tsx, price-chart.tsx,
   transactions-list.tsx, notes-panel.tsx
@@ -465,10 +476,14 @@ components/
   refresh-button.tsx
   suggestion-card.tsx         full explainability layer (Commit B);
                               F6: CollapsedFeedbackRow when user_action != null
-                              F2: PENDING (next chat) — branch on
-                              dossier.direction to render tax_consideration +
-                              concentration_note for sell, portfolio_fit for
-                              buy; sell-side group bars from group_meta
+                              F2: SHIPPED — isSellSide = Boolean(groupMeta?.
+                              booking_opportunity); when true, group bars
+                              switch to Booking Opportunity / Valuation Stretch
+                              / Risk / Tax & Concentration. Dossier section
+                              renders tax_consideration + concentration_note
+                              for sell, portfolio_fit for buy (both via guarded
+                              showTaxConsideration / showConcentrationNote /
+                              fallback portfolio_fit blocks).
   explain-popover.tsx         reusable info-icon popover (Commit B)
   page-intro.tsx              "How to read this page" collapsible (Commit B)
 lib/
@@ -477,11 +492,13 @@ lib/
                               F6+F10: UserAction, MonitoredStocksAuditEntry,
                               getRecentFeedbackAudit, getFeedbackAuditForIsin,
                               previous_status on submitFeedback response,
-                              excluded_acted on SuggestionRun
-                              F2: PENDING (next chat) — SuggestionDirection
-                              type, direction param on getLatestRun /
-                              listRuns / getPerformance, direction on
-                              SuggestionRun + SuggestionOutcome + Dossier
+                              excluded_acted on SuggestionRun.
+                              F2: SHIPPED — SuggestionDirection type,
+                              direction param on getLatestSuggestionRun /
+                              listSuggestionRuns / getSuggestionPerformance,
+                              direction on SuggestionRun + SuggestionOutcome +
+                              SuggestionDossier, BucketKey type, by_bucket
+                              breakdowns on SuggestionPerformance windows.
   api-types.ts                GITIGNORED; auto-generated by `npm run gen-api`;
                               not actually used at runtime; do not check in
   format.ts                   inr(value), pct(value, withSign?),
@@ -495,19 +512,16 @@ tsconfig.json                 paths: "@/*" -> "./*"
 
 ## Section 7: Database collections (exhaustive)
 
-All collections live in MongoDB Atlas M10.
-The DB name is set by env (`MONGODB_DB_NAME`).
-All collections accessed via `Collections.<name>()` from `app.db.client`.
-Indexes ensured at startup via `app/db/indexes.py`.
+All collections live in MongoDB Atlas M10. The DB name is set by env (`MONGODB_DB_NAME`). All collections accessed via `Collections.<name>()` from `app.db.client`. Indexes ensured at startup via `app/db/indexes.py`.
 
 ### Phase 1 collections
 
 #### `instruments`
-- Master NSE/BSE instrument list, refreshed daily from Zerodha Kite instruments CSV
+- Master NSE/BSE instrument list, refreshed daily from NSE's official `EQUITY_L.csv` (tech debt: backend README and some docstrings still reference Zerodha Kite — historical, never used)
 - Key fields: `exchange`, `symbol`, `isin`, `name`, `instrument_type`, `segment`, `lot_size`, `tick_size`, `source`, `last_seen_at`, `last_changed_at`, `in_nifty100`
 - Count: ~2,368 total; 100 with `in_nifty100=True`
 - Indexes: `(exchange, symbol)` unique, `isin`, `last_seen_at`, `last_changed_at`, `in_nifty100`
-- Writer: `scripts/refresh_instruments.py` (delta-aware), `scripts/seed_nifty100.py`, manual upserts for BSE-only stocks
+- Writer: `scripts/refresh_instruments.py` (delta-aware, `refresh_from_nse()`), `scripts/seed_nifty100.py`, manual upserts for BSE-only stocks
 
 #### `symbol_overrides`
 - Manual ISIN aliases when the master list is wrong or missing
@@ -573,24 +587,21 @@ Indexes ensured at startup via `app/db/indexes.py`.
 
 #### `monitored_stocks`
 - User-feedback state for stocks the engine has surfaced, plus watchlist entries (F13)
-- Key fields: `isin`, `status` (writers use `"tracking"/"passed"/"rejected"/"watchlist"`; Pydantic model says `"tracking"/"promoted_to_holding"/"dropped"` — SCHEMA DRIFT, see tech debt), `acted_at`, `passed_at`, `rejected_at`, `last_feedback_at`, `last_feedback_action`, `last_feedback_note`, `created_at`, `updated_at`
-- INVARIANT: writes go through `routers/suggestions.submit_feedback` only, using raw `update_one` (Pydantic bypassed because of the schema drift)
+- Key fields: `isin`, `status` (writers use `"tracking"/"passed"/"rejected"/"watchlist"`; Pydantic model says `"tracking"/"promoted_to_holding"/"dropped"` — SCHEMA DRIFT, see Section 18 A1), `acted_at`, `passed_at`, `rejected_at`, `last_feedback_at`, `last_feedback_action`, `last_feedback_note`, `created_at`, `updated_at`
+- INVARIANT: writes go through `monitored_stocks_audit_service.apply_feedback` only, using raw `update_one` (Pydantic bypassed because of the schema drift)
 - INVARIANT (F10): every write is preceded by a `monitored_stocks_audit_service.log_change(...)` insert. Audit row lands BEFORE the `update_one` apply, so even if the apply crashes the intent is recorded. Same write-before-apply pattern as `transactions_audit`.
 - Consumer: `suggestion_engine.get_excluded_isins()` (renamed from `get_rejected_isins` in Chat 3) returns three buckets at run-build time:
   - `rejected` — `status="rejected"` AND `rejected_at >= now - 90d`
   - `passed` — `status="passed"` for this run only (resurfaces next Sunday)
   - `acted` — `status="tracking"` AND `acted_at >= now - 30d` (F5b 30-day soft-exclude; naturally suppressed thereafter by the held filter if the trade landed, or resurfaces if it didn't)
-- Consumer: `explainability._build_user_action()` at serialization time stamps each enriched candidate with `user_action` (null | "acted" | "passed" | "rejected") + the corresponding timestamp.
-  This is the second of the two F6 exclusion mechanisms — see Section 14.
+- Consumer: `explainability._build_user_action()` at serialization time stamps each enriched candidate with `user_action` (null | "acted" | "passed" | "rejected") + the corresponding timestamp. This is the second of the two F6 exclusion mechanisms — see Section 14.
 - F2 (Chat 4): `monitored_stocks` is CURRENTLY DIRECTION-AGNOSTIC. A user rejecting a SELL suggestion for INFY also suppresses the next BUY suggestion for INFY for 90 days, and vice versa. Documented in `get_excluded_isins` and `filter_sell_universe` docstrings. Acceptable for v1 (both interpretations are defensible: "I'm done thinking about INFY"). Add a `direction` column if it bites in practice — pending tech debt item.
-- Indexes: `isin` unique, `(status, rejected_at)`
+- Indexes: `isin` unique (PARTIAL — `partialFilterExpression={"status": "tracking"}`), `(status, rejected_at)`. WARNING (Section 18 A14): the partial unique index is load-bearing on the writer drift. It only works because the writer flips status away from `"tracking"` on passed/rejected. If A1 is "fixed" without keeping this behavior, the index semantics change.
 
 #### `monitored_stocks_audit` (F10 — shipped Chat 3)
 - Append-only audit log for `monitored_stocks` writes; one doc per `POST /suggestions/{isin}/feedback`
 - Key fields: `isin`, `action` (`"acted"|"passed"|"rejected"`), `previous_status` (string or null), `new_status`, `note`, `performed_at`, `_schema_version` (1)
-- INVARIANT: append-only.
-  Writer (`monitored_stocks_audit_service.log_change`) is invoked BEFORE the corresponding `monitored_stocks.update_one` apply in `submit_feedback`, so intent survives even if the apply step crashes.
-  Mirrors `transactions_audit` exactly.
+- INVARIANT: append-only. Writer (`monitored_stocks_audit_service.log_change`) is invoked BEFORE the corresponding `monitored_stocks.update_one` apply in `submit_feedback`, so intent survives even if the apply step crashes. Mirrors `transactions_audit` exactly.
 - Indexes: `(performed_at desc)`, `(isin, performed_at desc)`
 - Writer: `app/services/monitored_stocks_audit_service.py`
 - Consumer: `GET /suggestions/{isin}/audit` (per-ISIN history), `GET /suggestions/feedback/audit/recent?limit=N` (cross-ISIN feed for ops/debug surfaces and the frontend audit-trail view)
@@ -617,6 +628,7 @@ Indexes ensured at startup via `app/db/indexes.py`.
 - Indexes: `url` unique, `(entities_isins, classified, fetched_at)`, `(classified, fetched_at)`
 - Writer: `news_fetcher.py` (fetch) then `news_classifier.py` (classify in two-phase Haiku batches: `BATCH_SIZE=25` main pass, `RETRY_PASS_BATCH_SIZE=3` for stragglers)
 - Consumer: `news_signals.py` (compute `net_sentiment`, `story_velocity`, `story_count`), `dossier_service.py` (per-candidate news context, last 8 articles)
+- NOTE (A16): the cron-default universe for `fetch_news_for_universe.py` excludes held stocks (`get_universe_for_news` filters them out unless `--include-held` is passed). The sell pipeline needs news for held stocks. Verify EC2 crontab passes `--include-held` during Chat 5.
 
 #### `suggestion_runs`
 - Append-only history of every weekly run
@@ -662,18 +674,14 @@ Indexes ensured at startup via `app/db/indexes.py`.
 - The expected cron schedule lives in code as `CRON_REGISTRY` (a list of `CronSpec` entries) in `cron_heartbeat_service.py` — NOT in Mongo. Keep `CRON_REGISTRY` and `crontab -l` in sync whenever a cron is added or rescheduled.
 
 ### `digests` / `alerts_log` / `conversations` / `macro_signals`
-Scaffolds; not actively written by current code.
-`conversations` will be used for chat features (F1, F3).
-Reserved; do not delete.
+Scaffolds; not actively written by current code. `conversations` will be used for chat features (F1, F3). Reserved; do not delete.
 
 ### Future collections (planned, not yet created)
 - None pending in the current plan after F14 shipped. F11 (capital gains pack) is a read-only reformatter on existing collections.
 
 ## Section 8: API endpoints (exhaustive)
 
-All routes are under the FastAPI app, served on port 8000 (EC2) or 8001 (Mac local).
-All return JSON.
-ISIN path params are validated 12-char.
+All routes are under the FastAPI app, served on port 8000 (EC2) or 8001 (Mac local). All return JSON. ISIN path params are validated 12-char.
 
 ### Phase 1
 
@@ -712,7 +720,7 @@ GET    /suggestions/latest?direction=buy|sell        SuggestionRun + enrichment
                                                      for back-compat; pre-F2 docs without
                                                      the field match the buy filter via
                                                      $or {direction:"buy"} OR
-                                                        {direction:{$exists:false}}.
+                                                     {direction:{$exists:false}}.
 GET    /suggestions/runs?direction=buy|sell&limit=N&skip=N
                                                      {runs, total, limit, skip}
                                                      F2: same direction semantics
@@ -764,39 +772,46 @@ GET    /tax/capital-gains?fy=YYYY-YY                 capital gains pack (F11)
 - The full updated `Holding` doc (partial sell, position still active)
 - `{message: "Position fully exited", realized_total: "<string Decimal>"}` (full exit)
 
-The frontend discriminates via type guard on the `_id` field, NOT a status field.
-The original `SellSheet` was written this way; do not change it.
+The frontend discriminates via type guard on the `_id` field, NOT a status field. The original `SellSheet` was written this way; do not change it.
 
 ## Section 9: Cron registry on EC2
 
-Run `crontab -l` to see current state.
-As of Chat 4, every script below is heartbeat-instrumented via `app.services.cron_heartbeat_service.cron_run()` and writes a doc to `cron_heartbeats` on completion (success, failure, or skipped).
-The daily `cron_health_check` at 21:00 IST consumes those heartbeats and fires `push_public("errors", ...)` on anomalies.
+Run `crontab -l` to see current state. As of Chat 4, every script below is heartbeat-instrumented via `app.services.cron_heartbeat_service.cron_run()` and writes a doc to `cron_heartbeats` on completion (success, failure, or skipped). The daily `cron_health_check` at 21:00 IST consumes those heartbeats and fires `push_public("errors", ...)` on anomalies.
+
 `CRON_REGISTRY` in `cron_heartbeat_service.py` is the in-code mirror of this schedule — keep both in sync.
 
-Registered entries on EC2:
+Documented entries (as of last edit; verify on EC2 with `crontab -l` before patching):
 
 ```cron
 # Phase 1 crons (heartbeat-instrumented Chat 2)
+
 # Daily instrument refresh — 03:00 IST
 0 3 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_instruments.py >> /home/ubuntu/cron-instruments.log 2>&1
+
 # Weekday EOD price refresh — 19:00 IST
 0 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices.py >> /home/ubuntu/cron-prices.log 2>&1
+
 # Intraday price refresh — every 15 min during market hours (09:15-15:45 IST), weekdays
 */15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
+
 # Daily reconciliation auto-snapshot — 19:30 IST (after price refresh)
 30 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/take_reconciliation_snapshot.py >> /home/ubuntu/cron-reconciliation.log 2>&1
 
 # Phase 2 crons (registered Chat 2 via F5a — all heartbeat-instrumented)
+
 # Sunday 06:00 IST — refresh fundamentals + earnings calendar for NIFTY 100 ∪ held (F14 expansion)
 0 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_fundamentals.py >> /home/ubuntu/cron-fundamentals.log 2>&1
+
 # Sunday 06:30 IST — fetch + classify news for the universe
+# VERIFY (A16): does this line pass --include-held? Sell-side needs news for held names.
 30 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/fetch_news_for_universe.py >> /home/ubuntu/cron-news.log 2>&1
+
 # Sunday 07:00 IST — run weekly suggestions
-# PENDING: line still uses default (--direction=buy implicit). Chat 4 added
-# --direction=buy|sell|both. To get combined buy+sell digest, swap this line
-# to use --direction=both. Until swapped, sell-side will NOT run on Sunday cron.
-0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --notify --run-type scheduled >> /home/ubuntu/cron-suggestions.log 2>&1
+# AS OF Chat 4 (commit 1196e1c7) the recommended production path is --direction=both
+# (one heartbeat, one combined digest). Verify on EC2: was the line swapped?
+# Until swapped, sell-side does NOT run on Sunday cron — only manual --direction=sell invocations.
+0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both --notify --run-type scheduled >> /home/ubuntu/cron-suggestions.log 2>&1
+
 # Weekdays 19:45 IST — outcome tracking snapshot (after 19:00 EOD refresh + 19:30 reconciliation)
 45 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/track_suggestion_outcomes.py >> /home/ubuntu/cron-outcomes.log 2>&1
 
@@ -809,21 +824,24 @@ Registered entries on EC2:
 0 0 * * 0 find /home/ubuntu -maxdepth 1 -name "cron-*.log" -size +10M -exec sh -c 'tail -10000 "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
 ```
 
-PENDING ONE-TIME EC2 STEPS (Chat 4 follow-up — manual, not committable):
-- Swap the Sunday 07:00 IST line to `... run_weekly_suggestions.py --direction=both --notify --run-type scheduled ...` so the combined buy+sell digest path is exercised by cron. Until done, sell-side suggestions only run from manual `--direction=sell` invocations.
-- Stop + disable the self-hosted private ntfy service (F2b moved digests to public ntfy.sh; the private service is no longer used). One-time: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`.
+PENDING ONE-TIME EC2 STEPS:
+- Confirm the Sunday 07:00 IST line uses `--direction=both --notify --run-type scheduled` (Chat 4 follow-up). If still on `--notify --run-type scheduled` alone (buy-only), swap it.
+- Confirm whether the Sunday 06:30 IST `fetch_news_for_universe.py` line includes `--include-held`. If not, sell-side news scoring is thin for held names (A16).
+- Stop + disable the self-hosted private ntfy service (F2b moved digests to public ntfy.sh; the private service is no longer used). One-time: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`. Confirm no remaining consumers first: `grep -r "push_private" app/`.
 
-`CRON_REGISTRY` (in code) now also contains:
+`CRON_REGISTRY` (in code) entries:
+- `instruments_refresh`, `prices_eod`, `prices_intraday`, `reconciliation_auto`, `fundamentals_refresh`, `news_fetch`, `weekly_suggestions`, `track_outcomes`, `cron_health_check`
 - `weekly_suggestions_sell` — `CronSpec(cron_name="weekly_suggestions_sell", description="Weekly sell-side suggestions: profit-booking candidates from active holdings.", schedule_human="Sun 07:30 IST", expected_weekdays={6})`
-  - The standalone `weekly_suggestions_sell` cron line is NOT yet registered on EC2. The recommended production path is `--direction=both` under the existing `weekly_suggestions` umbrella heartbeat. The standalone registry entry exists so a future deployment topology that wants two separate runs can install the matching crontab line without code changes.
+  - The standalone `weekly_suggestions_sell` cron line is NOT yet registered on EC2 by design. The production path is `--direction=both` under the existing `weekly_suggestions` umbrella heartbeat. The standalone registry entry exists so a future deployment topology that wants two separate runs can install the matching crontab line without code changes.
 
-No silent failures: every cron registration must include log file paths AND be heartbeat-instrumented via `cron_run()` AND have a corresponding `CronSpec` entry in `CRON_REGISTRY`.
-Adding a cron without all three breaks the F4 contract.
+KNOWN REGISTRY DRIFT (Section 18 A6 — Chat 5 audit):
+- The `weekly_suggestions` CronSpec entry has `schedule_human="Sunday 06:00 IST"` but the actual cron line is at 07:00 IST. Fix to "Sunday 07:00 IST". Cosmetic only — `schedule_human` is human-readable metadata used by `/cron/heartbeats` display, not parsed.
+
+No silent failures: every cron registration must include log file paths AND be heartbeat-instrumented via `cron_run()` AND have a corresponding `CronSpec` entry in `CRON_REGISTRY`. Adding a cron without all three breaks the F4 contract.
 
 ## Section 10: Settings and environment variables
 
-Configured in `app/config/settings.py` via pydantic-settings reading `/etc/portfolio-advisor/secrets.env` (EC2) or `<repo>/.env` (Mac).
-All required unless marked default.
+Configured in `app/config/settings.py` via pydantic-settings reading `/etc/portfolio-advisor/secrets.env` (EC2) or `<repo>/.env` (Mac). All required unless marked default.
 
 ### Anthropic
 - `ANTHROPIC_API_KEY` (required)
@@ -854,11 +872,11 @@ All required unless marked default.
 - `NTFY_PUBLIC_TOPIC_ERRORS` specifically is used by F4 `cron_health_check` — if you change the topic value, also update the subscription on the iPhone ntfy app
 - All `NTFY_PUBLIC_TOPIC_*` values must be IDENTICAL on EC2 and Mac so dev-testing of alert paths reaches the same subscribed device
 - `push_public(channel)` signature: `channel: Literal["price", "news", "errors", "digests"]`; defined in `app/services/notify.py`. F4 cron alerts use `push_public("errors", ...)` for instant iOS delivery; content is "script name + error message", no portfolio/PII data. F2b digests use `push_public("digests", ...)`; content includes top symbols and composite scores, no PII.
+- `push_private(topic)` signature: `topic: Literal["digests", "errors"]`. Currently unused after F2b; kept available for any future sensitive-content path.
 
 ## Section 11: Phase 1 INVARIANTS — never violate
 
-These come straight from `docs/data_flow.md`.
-They are hard rules.
+These come straight from `docs/data_flow.md` (the file is stale on Phase 2; the Phase 1 section is still authoritative). They are hard rules.
 
 - Transactions are immutable except through the audited PATCH/DELETE flow. Every PATCH/DELETE writes a `transactions_audit` entry BEFORE applying the change. The `reason` field is required.
 - `recompute_holding(isin)` is the only authoritative writer to `holdings`. It is idempotent and recomputes from `transactions` from scratch using FIFO. Never write directly to `holdings`. Call `recompute_holding` after any transaction change.
@@ -866,7 +884,7 @@ They are hard rules.
 - `holdings.deleted_at = None` filter is universal. Every read of active holdings must include this filter. Deleted holdings preserve replay correctness.
 - Cost basis is IT-Act-correct, not broker-nominal. `holdings.invested_amount` reflects the tax-correct cost basis (which for TMPV/TMCV reflects the 68.85/31.15 cost basis split per Tata Motors official Section 49(2C) disclosure). The broker-nominal view is recoverable as `holdings.invested_amount + total_cost_basis_adjustment` and surfaced via `summary.totals.broker_invested`.
 - `prices_intraday` writes are append-only within a day (inserted, not upserted) so we keep intraday history.
-- ICICI portfolio display shows TMPV at ~813 and TMCV at ~253 (sums to ~1,06,673), which is ~25k higher than our correct ~81,337. Our numbers reflect tax-correct cost basis; ICICI display is cosmetically wrong but does not affect actual money or tax filing.
+- ICICI portfolio display shows TMPV at ~₹813 and TMCV at ~₹253 (sums to ~₹1,06,673), which is ~₹25k higher than our correct ~₹81,337. Our numbers reflect tax-correct cost basis; ICICI display is cosmetically wrong but does not affect actual money or tax filing.
 
 ## Section 12: Phase 2 INVARIANTS
 
@@ -883,901 +901,10 @@ They are hard rules.
   - `passed` — `monitored_stocks.status == "passed"`. THIS run only — naturally resurfaces on the next run because the bucket is recomputed every time.
   - `acted` — `monitored_stocks.status == "tracking"` AND `acted_at >= now - 30d` (F5b). Soft-exclude for 30 days; naturally suppressed thereafter by the held filter if the trade landed, or resurfaces if it didn't. There is no manual-clear mechanism and we deliberately did not build one.
 - F10 write-before-apply: every `POST /suggestions/{isin}/feedback` writes the `monitored_stocks_audit` row via `monitored_stocks_audit_service.log_change(...)` BEFORE the corresponding `monitored_stocks.update_one` apply. Same invariant as `transactions_audit` — intent survives even if the apply step crashes.
-- Per `monitored_stocks` schema-vs-writer drift: the model says `Literal["tracking", "promoted_to_holding", "dropped"]` but the writer writes `"tracking"`, `"passed"`, `"rejected"`. The writer uses raw `update_one` so Pydantic is bypassed. If you ever load a `monitored_stocks` doc through `MonitoredStock(**doc)` it will throw. See tech debt (F5c).
+- Per `monitored_stocks` schema-vs-writer drift: the model says `Literal["tracking", "promoted_to_holding", "dropped"]` but the writer writes `"tracking"`, `"passed"`, `"rejected"`. The writer uses raw `update_one` so Pydantic is bypassed. If you ever load a `monitored_stocks` doc through `MonitoredStock(**doc)` it will throw. See Section 18 A1.
 - The `notes` field on a `SuggestionRun` is a JSON string containing `{dossiers: [...]}`. The router parses it and exposes `dossiers` at the top level of the response, then strips `notes`. The router also strips `all_candidates` from the response to keep payloads small. The persisted doc still has it.
 
 ### F2 / F14 invariants (Chat 4)
-
-- `SuggestionDirection` liter
-# PROJECT_STATE.md
-
-Living source of truth for the Personal AI Stock Advisor.
-Updated at the end of every chat.
-
-This file is the bootstrap document for any new conversation with an AI assistant.
-If you (the assistant) are reading this for the first time in a new chat: read it top to bottom before doing anything.
-Do not skim.
-Do not assume.
-Do not redesign.
-The prior chat hit context limits or context drift — that's why we're here.
-
-## Section 0: How to start a new chat
-
-Paste this verbatim at the top of any new chat with an AI assistant working on this project:
-
-```
-I need you to continue work on a project called Personal AI Stock Advisor.
-Before you do ANYTHING else, read the following in order:
-1. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/PROJECT_STATE.md
-2. The current HEAD commit of both repos:
-   - https://github.com/doshisahil95/ai-stock-advisor-backend
-   - https://github.com/doshisahil95/ai-stock-advisor-frontend
-3. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/data_flow.md
-4. Both repo READMEs
-
-GitHub content may be cached.
-Whenever you read a file, capture the commit
-SHA you read at, and re-read if the user tells you they have pushed since.
-
-Today's scope is: <DESCRIBE THE FEATURE OR FIX FOR THIS CHAT>
-
-Hard rules:
-- Do not invent parallel patterns.
-  Evolve existing code, don't redesign.
-- Re-read files at HEAD before patching them.
-  Do not trust memory.
-- Hand me full file contents OR exact find-and-replace.
-  Never "rest unchanged".
-- Use canvas artifacts for files.
-  Use chat for tests.
-- PROJECT_STATE.md is ALWAYS delivered as a complete full-file replacement,
-  never as a patch, find-and-replace, or "rest unchanged".
-  No exceptions,
-  no matter how small the edit.
-- Every code/file change MUST be followed by a `git add .` + `git commit -m`
-  block in chat, ready to paste, written in the project's commit-message style.
-- Every test block MUST begin with `ssh ubuntu@100.112.20.41` and run curls
-  against `localhost:8000` from inside the box (not against the Tailscale IP
-  from the laptop).
-- In every mapping table, the Action column must say NEW FILE, REPLACE
-  EXISTING, or PATCH.
-- BEFORE constructing any class or dataclass via `Foo(field=...)`, run
-  `grep -A 20 "class Foo" <path>` on the actual file on disk and verify
-  every field name you reference. Glean snippets are often call sites or
-  docstrings, NOT the @dataclass definition. Three field-name drifts in
-  Chat 4 forced this rule. (See Section 14.)
-- If you start hallucinating, drifting, or forgetting facts, say
-  "I AM LOSING CONTEXT" so I can switch to a new chat.
-
-Acknowledge by summarizing back to me:
-- What you understood about the project from PROJECT_STATE.md
-- What's already shipped vs open
-- The exact scope of today's chat
-- Any uncertainty you have before starting
-
-Do not start coding until I confirm your summary is accurate.
-```
-
-## Section 1: Project identity
-
-Personal AI Stock Advisor.
-Single-user portfolio + research tool for Indian NSE equities.
-Built for and by Sahil Doshi (Senior Consulting Engineer, MongoDB, India).
-
-Strict design constraint that overrides everything else: the system never executes trades.
-Sahil trades manually in ICICI Direct.
-The system records, analyzes, and advises only.
-Any feature that would auto-place an order is out of scope, permanently.
-
-The system is also not regulatory advice.
-Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because...".
-The user decides; the user trades.
-
-The goal of the system is to maximise the investments.
-Goal of the tool: grow money.
-Every feature is judged on whether it helps with one of:
-
-- Buy better (find opportunities you'd otherwise miss)
-- Sell better (exit before reversals, hold through noise)
-- Avoid mistakes (concentration, FOMO, panic sells, missed corporate actions)
-- Reduce costs (taxes, fees, opportunity cost of dead capital)
-
-Anything that doesn't map to one of these is decoration and gets cut.
-
-Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax filing, goal-based planning.
-The tool informs investment decisions; bank statements and the CA handle the rest.
-
-## Section 2: User communication preferences (apply to all chats)
-
-- Honest, slightly contrarian opinions over fake agreement.
-  The user will push back when he disagrees; the assistant must do the same.
-- Build right, no shortcuts.
-  Do not introduce avoidable rework.
-- Math accuracy and legal compliance matter.
-  If something is mathematically wrong or legally non-compliant, call it out immediately.
-- Use existing project conventions.
-  Do not invent parallel patterns.
-- Give full file contents OR exact find-and-replace instructions.
-  Never use placeholders like "rest unchanged" or "// existing code here".
-  Do not truncate important code.
-- Prefer meaningful units of work.
-  Small enough to test, not so tiny that we ping-pong.
-- Give concrete test commands when appropriate.
-- Files go in canvas artifacts.
-  Tests go in chat as fenced code blocks.
-- Every mapping table must use Action column values: NEW FILE, REPLACE EXISTING, or PATCH.
-- The user edits on Mac, commits, pushes.
-  EC2 is for build/test/deploy/debug.
-  The assistant should not edit Mac files directly; it produces artifacts the user pastes.
-- Every code/file delivery in chat MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block in the project's existing commit-message style.
-- Every test block in chat MUST start with `ssh ubuntu@100.112.20.41` and run subsequent curls against `localhost:8000`.
-  Do not give curls against the Tailscale IP from the Mac.
-- PROJECT_STATE.md is ALWAYS delivered as a complete full-file replacement, never a patch or diff or find-and-replace.
-  No exceptions.
-
-## Section 3: Tech stack
-
-### Backend
-- Python 3.12
-- FastAPI
-- Pydantic v2
-- MongoDB Atlas, M10 cluster, ap-south-1 region
-- uv (package manager — replaces pip/poetry)
-- yfinance (price + fundamentals + earnings calendar data; free tier)
-- Anthropic Claude SDK (Sonnet 4.5 for dossiers, Haiku 4.5 for classification)
-- Tavily (news search; free tier, daily quota enforced)
-- Resend (transactional email for digests)
-- ntfy (push notifications — public ntfy.sh for all paths after F2b; self-hosted private path is still installed on EC2 but no longer used and pending decommission — see Section 18)
-
-### Frontend
-- Next.js 16 (Turbopack)
-- React 19
-- TypeScript strict mode
-- Tailwind v4
-- shadcn/ui Nova preset
-- Recharts (price charts)
-- TanStack Query (server state)
-- react-hook-form + zod (forms)
-- sonner (toasts)
-- next-themes (dark mode)
-
-### Hosting
-- AWS EC2 t3.micro instance in ap-south-1
-- Tailscale only — no public ingress, no Caddy yet
-- MongoDB Atlas M10 (separate from EC2)
-
-## Section 4: Infrastructure paths and ports
-
-### Network
-- EC2 Tailscale IP: `100.112.20.41`
-- SSH from Mac: `ssh ubuntu@100.112.20.41`
-- Backend port on EC2: `8000`
-- Frontend port on EC2: `3000`
-- Backend port on Mac (local dev): `8001` (NOT 8000)
-- Frontend port on Mac (local dev): `3000`
-
-This Mac vs EC2 port difference is a real, recurring source of confusion for assistants.
-The assistant has gotten this wrong multiple times.
-Always specify which machine when giving test commands.
-For chat-supplied test blocks, the standing convention is "SSH into EC2 first, then curl localhost:8000" — see Section 14.
-
-### Repo paths
-Mac:
-- Backend: `~/Projects/Personal/ai-stock-advisor/ai-stock-advisor-backend`
-- Frontend: `~/Projects/Personal/ai-stock-advisor/ai-stock-advisor-frontend`
-
-EC2:
-- Backend: `/home/ubuntu/ai-stock-advisor-backend` (alias `~/ai-stock-advisor-backend`)
-- Frontend: `/home/ubuntu/ai-stock-advisor-frontend` (alias `~/ai-stock-advisor-frontend`)
-
-### Secrets paths
-The application resolves secrets via `app/config/settings.py`:
-
-```python
-EC2_SECRETS = Path("/etc/portfolio-advisor/secrets.env")
-LOCAL_SECRETS = Path(__file__).resolve().parents[2] / ".env"
-SECRETS_FILE = EC2_SECRETS if EC2_SECRETS.exists() else LOCAL_SECRETS
-```
-
-So:
-- On EC2 the file is `/etc/portfolio-advisor/secrets.env` (chmod 600, owned by root)
-- On Mac the file is `<repo>/.env` (chmod 600, gitignored)
-
-The `Settings` class uses pydantic-settings with `model_config = SettingsConfigDict(env_file=str(SECRETS_FILE), env_file_encoding="utf-8", case_sensitive=True, extra="ignore")`.
-Pydantic-settings reads the file directly into the `Settings` object — secrets are NOT exported to `os.environ`.
-
-If the assistant ever suggests `~/secrets/secrets.env` on EC2, it is wrong.
-That path was a transient debug artifact.
-
-F2b addition (Chat 4): `NTFY_PUBLIC_TOPIC_DIGESTS` must be present in `/etc/portfolio-advisor/secrets.env` — required (no default). If missing, app startup fails with a Pydantic validation error. Subscribe the iPhone ntfy app to the topic value before running cron.
-
-### Deploy scripts
-On EC2:
-- `~/deploy.sh` — pulls backend, runs `uv sync`, restarts `portfolio-advisor.service`
-- `~/deploy-ui.sh` — pulls frontend, runs `npm install --legacy-peer-deps`, runs `npm run gen-api`, runs `npm run build`, restarts `portfolio-advisor-ui.service`
-
-The `gen-api` step in `deploy-ui.sh` regenerates `lib/api-types.ts` against the running backend's OpenAPI spec.
-That file is gitignored.
-On Mac, running `npm run gen-api` without overriding the URL will fail because Mac backend is on port 8001 and the default is 8000.
-Use:
-
-```
-API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
-```
-
-or just skip it — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
-
-### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `EnvironmentFile` NOT used (settings.py loads from `/etc/portfolio-advisor/secrets.env` directly), `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`.
-  Logs to journald.
-- `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
-
-A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
-
-### Repos
-- Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
-- Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
-
-GitHub is the source of truth for code.
-GitHub may serve cached content via Glean's reader.
-When in doubt, find the latest commit SHA and read at that SHA explicitly.
-
-## Section 5: Backend file map
-
-Directory layout under `app/`:
-
-```
-app/
-  main.py                     FastAPI bootstrap, router includes, lifespan
-  config/
-    settings.py               pydantic-settings, loads secrets file
-                              F2b: NTFY_PUBLIC_TOPIC_DIGESTS (required)
-  db/
-    client.py                 Mongo client, get_db(), Collections accessor class
-                              (incl. Collections.monitored_stocks_audit() — F10)
-                              (incl. Collections.earnings_calendar() — F14)
-    indexes.py                ensure_indexes() called on startup
-                              (incl. monitored_stocks_audit indexes — F10)
-                              (incl. earnings_calendar indexes — F14)
-  models/
-    _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
-    instrument.py             Instrument (NSE master record)
-    holding.py                Holding (active position)
-    transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER)
-    fundamentals.py           InstrumentFundamentals (per-ISIN, per-refresh)
-    earnings_event.py         F14: EarningsEvent (one doc per ISIN per earnings_date)
-    suggestion.py             SuggestionRun, SuggestionOutcome, CandidateScore,
-                              SignalScore, GateResult
-                              F2: SuggestionDirection literal; direction field
-                              on SuggestionRun and SuggestionOutcome (default
-                              "buy" so pre-F2 docs coerce cleanly)
-    news.py                   NewsArticle (live model)
-    news_article.py           DEAD; older parallel model, do not use, do not import
-    monitored_stock.py        MonitoredStock; Literal status is DRIFTED (see tech debt)
-    macro_signal.py           placeholder
-    conversation.py           placeholder (will be used for chat features F1/F3)
-    reconciliation.py         ReconciliationSnapshot
-    cost_basis_adjustment.py  CostBasisAdjustment
-  routers/
-    holdings.py               /portfolio/holdings, /portfolio/holdings/{isin},
-                              /sell, /preview-sell, /history, /transactions
-    portfolio.py              /portfolio/summary
-    transactions.py           /transactions/search, /transactions/{id} CRUD,
-                              /transactions/audit/recent, /transactions/{id}/audit
-    reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
-    instruments.py            /instruments (symbol_overrides CRUD)
-    cost_basis.py             /cost-basis/adjustments
-    suggestions.py            /suggestions/latest, /runs, /runs/{id},
-                              /performance, /{isin}/feedback,
-                              /{isin}/audit, /feedback/audit/recent (F10)
-                              F2: ?direction=buy|sell on /latest, /runs,
-                              /performance. /runs/{id} unchanged (direction
-                              is implicit in the stored doc).
-    cron.py                   /cron/heartbeats (F4 — health summary +
-                              recent heartbeats; mirrors reconciliation.py
-                              local _serialize helper)
-  services/
-    instrument_service.py     lookup_isin, bulk_lookup_isins, refresh
-    price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
-                              annotate_with_current_price, get_previous_close
-    holdings_service.py       recompute_holding, validate_replay, preview_sell,
-                              _to_decimal helper
-    portfolio_service.py      compute_summary
-    transactions_audit_service.py  log_change, get_audit_for_transaction
-    monitored_stocks_audit_service.py  F10: log_change (write-before-apply),
-                                       get_audit_for_isin, get_recent_audit
-    reconciliation.py         take_auto_snapshot, drift detection
-    cost_basis_service.py     get_active_adjustments, total_adjustment_amount
-    fundamentals_service.py   yfinance provider, refresh_one, refresh_universe,
-                              get_latest_for_isin, get_latest_bulk, is_fresh,
-                              _normalize_debt_to_equity, _normalize_dividend_yield
-                              F14: fetch_earnings_calendar_yfinance,
-                              refresh_earnings_for, refresh_earnings_universe,
-                              get_next_earnings_for_isin, get_next_earnings_bulk,
-                              _sanitize_for_bson (yfinance dates coerce)
-    tavily_client.py          quota-tracked wrapper, TavilyQuotaExceeded
-    news_fetcher.py           fetch_for_instrument, fetch_for_universe
-    news_classifier.py        Haiku batch classifier, retry pass
-    news_signals.py           compute_news_signals_for_isin, _bulk
-    scoring_service.py        extract_signals, score_candidates,
-                              Q/V/M/N weights, gates, version "1.0.0-unit2"
-                              F14: evaluate_earnings_proximity_gate (shared);
-                              evaluate_gates accepts optional next_earnings;
-                              score_candidates accepts optional
-                              next_earnings_by_isin (buy-side wires it in
-                              suggestion_engine).
-                              F2: DEFAULT_SELL_CONFIG, GROUP_SIGNALS_SELL,
-                              extract_sell_signals, evaluate_sell_gates
-                              (in_profit, min_position_age, earnings_proximity),
-                              score_sell_candidates. score_group +
-                              composite_for_candidate refactored to accept
-                              optional group_signals_def (back-compat with
-                              GROUP_SIGNALS default).
-    dossier_service.py        generate_dossiers_for_top_k, Sonnet,
-                              plain_english_summary in schema
-                              F2: _SYSTEM_PROMPT_SELL with tax_consideration +
-                              concentration_note; _parse_dossier required
-                              fields switch on direction; per-candidate
-                              POSITION CONTEXT block (cost basis, unrealized
-                              gain %, tax window, portfolio weight, next
-                              earnings) appended for sell-side.
-    suggestion_engine.py      run_suggestions (full pipeline);
-                              get_excluded_isins (F6+F5b: rejected 90d,
-                              passed this-run, acted 30d)
-                              F2: run_suggestions(direction="buy"|"sell")
-                              dispatches to _run_buy_pipeline (F14 gate now
-                              activated) or _run_sell_pipeline (universe =
-                              active holdings, portfolio_value computed via
-                              bulk_get_latest_prices, sell-side scoring +
-                              dossier).
-    outcome_tracker.py        create_outcomes_for_run, snapshot_open_outcomes,
-                              compute_system_performance
-                              F2: create_outcomes_for_run stamps direction;
-                              compute_system_performance accepts optional
-                              direction filter and sign-flips excess_return
-                              for sell-side at read time.
-    digest_delivery.py        send_weekly_digest (Resend + ntfy)
-                              F2b: ntfy via push_public("digests", ...) on
-                              public ntfy.sh; private path retired here.
-                              F2 (Chat 4): send_combined_digest(buy_run,
-                              sell_run) for the --direction=both cron path.
-                              KNOWN BUG: sell-side sections (in both
-                              send_weekly_digest sell standalone AND
-                              send_combined_digest sell section) render
-                              Q=V=M=N=0 because CandidateScore has fixed
-                              buy-side group fields; sell-side group scores
-                              live separately. See Section 18.
-    explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
-                              PAGE_INTRO, enrich_run, enrich_candidate;
-                              _load_monitored_bulk + _build_user_action (F6)
-                              F2: SIGNAL_META extended (unrealized_gain_pct,
-                              target_price_proximity, portfolio_weight_pct,
-                              is_ltcg_eligible, high_severity_negative_count).
-                              GROUP_META extended (booking_opportunity,
-                              valuation_stretch, risk, tax_concentration).
-                              GATE_META extended (earnings_proximity,
-                              in_profit, min_position_age).
-                              _GROUP_TO_SIGNALS extended for sell groups.
-                              NOT YET DONE: enrich_run page_intro still
-                              buy-centric for sell runs.
-    notify.py                 push_private, push_public, email (generic wrappers;
-                              digest_delivery uses its own copies of Resend +
-                              ntfy code, not these — that's intentional drift).
-                              PublicChannel now includes "errors" (F4) and
-                              "digests" (F2b)
-    cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
-                              get_recent_heartbeats, get_latest_per_cron,
-                              count_today_heartbeats, ist_today_window_utc,
-                              is_expected_today
-                              F2: CRON_REGISTRY includes
-                              "weekly_suggestions_sell" CronSpec.
-                              CONVENTION (Section 14): CronSpec fields are
-                              (cron_name, description, schedule_human,
-                              expected_weekdays, min_runs_per_day=1). Three
-                              field-name drifts in Chat 4 produced this rule.
-  scripts/
-    init_db.py
-    refresh_instruments.py
-    refresh_prices.py
-    refresh_prices_intraday.py
-    take_reconciliation_snapshot.py
-    seed_nifty100.py
-    seed_cost_basis_adjustments.py
-    import_orderbooks.py
-    reconcile_staging.py
-    promote_staging.py
-    add_manual_transactions.py
-    refresh_fundamentals.py        F14: default universe is now NIFTY 100 ∪
-                                   active holdings (held stocks outside
-                                   NIFTY 100 still need fundamentals +
-                                   earnings for F2 sell-side); folds earnings
-                                   refresh into the same Sunday cron via
-                                   refresh_earnings_universe.
-                                   --holdings-only and --symbols overrides
-                                   preserved.
-    fetch_news_for_universe.py
-    run_weekly_suggestions.py      F2: --direction=buy|sell|both (default
-                                   "buy"). "both" runs buy then sell under
-                                   ONE heartbeat and emits ONE combined
-                                   digest via send_combined_digest.
-                                   --no-notify skips outcomes + digest.
-                                   --skip-dossiers skips Claude (smoke-test
-                                   only; not for production).
-                                   _do_buy/_do_sell/_do_both call sites use
-                                   ctx.meta = {...} (NOT ctx["meta"] — see
-                                   Section 14).
-    track_suggestion_outcomes.py
-    cron_health_check.py           F4: daily 21:00 IST; reads CRON_REGISTRY +
-                                   today's heartbeats; fires single batched
-                                   push_public("errors", ...) on anomalies
-docs/
-  data_flow.md                  Phase 1 invariants; missing Phase 2 collections
-  PROJECT_STATE.md              THIS FILE
-pyproject.toml
-README.md                       stale; says Phase 2 is "what's next" with old ordering
-```
-
-## Section 6: Frontend file map
-
-Directory layout:
-
-```
-app/
-  layout.tsx                  root layout, fonts, ThemeProvider, QueryProvider
-  page.tsx                    dashboard
-  globals.css                 Tailwind v4 imports, font variable mappings,
-                              shadcn .dark class
-  holdings/[isin]/page.tsx    single holding drill-down
-  reconciliation/page.tsx
-  cost-basis/page.tsx
-  transactions/page.tsx
-  transactions/audit/page.tsx
-  suggestions/page.tsx        F6: no actedThisSession; user_action stamp from
-                              backend drives the collapsed-card render
-                              F2: PENDING (next chat) — Buy/Sell toggle,
-                              direction-aware fetch, sell-side dossier
-                              rendering (tax_consideration +
-                              concentration_note instead of portfolio_fit),
-                              sell-side group_meta display
-                              (booking_opportunity/valuation_stretch/risk/
-                              tax_concentration instead of Q/V/M/N)
-components/
-  ui/                         shadcn primitives (button, card, dialog, popover,
-                              tabs, separator, badge, skeleton, etc.)
-  holdings-table.tsx
-  buy-sheet.tsx
-  sell-sheet.tsx
-  edit-transaction-sheet.tsx
-  holding-header.tsx, holding-stats.tsx, price-chart.tsx,
-  transactions-list.tsx, notes-panel.tsx
-  reconciliation-badge.tsx
-  theme-toggle.tsx
-  refresh-button.tsx
-  suggestion-card.tsx         full explainability layer (Commit B);
-                              F6: CollapsedFeedbackRow when user_action != null
-                              F2: PENDING (next chat) — branch on
-                              dossier.direction to render tax_consideration +
-                              concentration_note for sell, portfolio_fit for
-                              buy; sell-side group bars from group_meta
-  explain-popover.tsx         reusable info-icon popover (Commit B)
-  page-intro.tsx              "How to read this page" collapsible (Commit B)
-lib/
-  api.ts                      hand-typed API client; SINGLE SOURCE OF TRUTH for
-                              frontend types; ~600 lines.
-                              F6+F10: UserAction, MonitoredStocksAuditEntry,
-                              getRecentFeedbackAudit, getFeedbackAuditForIsin,
-                              previous_status on submitFeedback response,
-                              excluded_acted on SuggestionRun
-                              F2: PENDING (next chat) — SuggestionDirection
-                              type, direction param on getLatestRun /
-                              listRuns / getPerformance, direction on
-                              SuggestionRun + SuggestionOutcome + Dossier
-  api-types.ts                GITIGNORED; auto-generated by `npm run gen-api`;
-                              not actually used at runtime; do not check in
-  format.ts                   inr(value), pct(value, withSign?),
-                              colorForChange(value), dateTime(iso), nf, date
-  utils.ts                    cn() (clsx + tailwind-merge)
-  config.ts                   apiBaseUrl (reads NEXT_PUBLIC_API_BASE_URL env)
-  query-client.tsx            TanStack Query provider
-package.json
-tsconfig.json                 paths: "@/*" -> "./*"
-```
-
-## Section 7: Database collections (exhaustive)
-
-All collections live in MongoDB Atlas M10.
-The DB name is set by env (`MONGODB_DB_NAME`).
-All collections accessed via `Collections.<name>()` from `app.db.client`.
-Indexes ensured at startup via `app/db/indexes.py`.
-
-### Phase 1 collections
-
-#### `instruments`
-- Master NSE/BSE instrument list, refreshed daily from Zerodha Kite instruments CSV
-- Key fields: `exchange`, `symbol`, `isin`, `name`, `instrument_type`, `segment`, `lot_size`, `tick_size`, `source`, `last_seen_at`, `last_changed_at`, `in_nifty100`
-- Count: ~2,368 total; 100 with `in_nifty100=True`
-- Indexes: `(exchange, symbol)` unique, `isin`, `last_seen_at`, `last_changed_at`, `in_nifty100`
-- Writer: `scripts/refresh_instruments.py` (delta-aware), `scripts/seed_nifty100.py`, manual upserts for BSE-only stocks
-
-#### `symbol_overrides`
-- Manual ISIN aliases when the master list is wrong or missing
-- Key fields: `exchange`, `symbol`, `isin`, `reason`, `created_at`
-- Writer: `/instruments` router (CRUD)
-
-#### `holdings`
-- Active positions, one doc per ISIN; soft-deleted on full exit
-- Key fields: `isin`, `symbol`, `exchange`, `name`, `sector`, `industry`, `quantity` (Decimal128), `avg_cost`, `invested_amount`, `realized_pnl`, `first_purchased_at`, `last_traded_at`, `thesis`, `notes`, `stop_loss`, `target_price`, `tags`, `deleted_at`
-- INVARIANT: every query MUST include `deleted_at: None` to see active holdings; deleted holdings preserve replay correctness (FIFO needs full history)
-- Indexes: `isin` unique (partial: only where `deleted_at` is None), `(deleted_at, last_traded_at)`
-- Writer: `recompute_holding(isin)` in `holdings_service.py` is the ONLY authoritative writer; idempotent; recomputes from transactions from scratch using FIFO
-- Note: `realized_pnl` is structural (FIFO computes it as a side-effect) but per user direction is HIDDEN in UI (see Section 13, Cleanup chat)
-- F2 (Chat 4): `target_price` is now consumed by sell-side scoring (`target_price_proximity` signal in `booking_opportunity` group). `stop_loss` still unconsumed — see tech debt.
-
-#### `transactions`
-- Append-only ledger of all trades and corporate actions
-- Key fields: `isin`, `symbol`, `exchange`, `type` (BUY/SELL/SPLIT/BONUS/DEMERGER), `trade_date`, `quantity` (Decimal128), `price`, `total_fees`, `remaining_quantity` (for FIFO lot tracking), `notes`, `source`, `corporate_action.ratio_from`, `corporate_action.ratio_to`, `fully_consumed_at`, `deleted_at`
-- INVARIANT: never directly UPDATEd or DELETEd; edits and deletes go through `/transactions/{id}` PATCH/DELETE which require a reason, write to `transactions_audit` first, then apply the change, then call `recompute_holding`
-- Indexes: `(isin, trade_date)`, `(symbol, trade_date)`, `trade_date`
-
-#### `transactions_staging`
-- Holding area for the bulk ICICI order book imports before promotion to live
-- Same shape as `transactions`
-- Cleared by `scripts/promote_staging.py --confirm --wipe-live`
-
-#### `transactions_audit`
-- Append-only audit log; one doc per edit/delete
-- Key fields: `transaction_id`, `action` (edit/delete), `reason`, `changed_fields` (dict of {field: [before, after]}), `performed_at`, `symbol`
-- INVARIANT: written BEFORE the actual change is applied, so even if the apply step crashes, the intent is recorded
-
-#### `prices_daily`
-- EOD OHLCV bars; ~5 years of history
-- Key fields: `isin`, `date` (UTC-naive midnight), `open`, `high`, `low`, `close` (Decimal128), `volume`, `source`
-- Count: ~115,791 docs across 100 NIFTY 100 ISINs (~1,158 per stock), plus 32 held ISINs
-- Indexes: `(isin, date)` unique
-- Writer: `scripts/refresh_prices.py` (yfinance)
-
-#### `prices_intraday`
-- Latest intraday quote captured every 15 min during market hours
-- Key fields: `isin`, `symbol`, `date` (UTC), `captured_at`, OHLCV, `source="yfinance_5m_latest"`
-- INVARIANT: append-only within a day (not upserted) so we keep history
-- No TTL configured yet
-- Writer: `scripts/refresh_prices_intraday.py`
-- Consumer: `bulk_get_latest_prices` prefers today's intraday over EOD; falls back to EOD
-
-#### `reconciliation_snapshots`
-- Daily comparisons of our system totals vs ICICI Direct portfolio totals
-- Key fields: `type` (manual/auto), `taken_at`, `our_invested`, `our_current_value`, `our_day_gain`, `icici_invested`, `icici_current_value`, `icici_day_gain`, `drift_invested_pct`, `drift_current_pct`, `drift_alerts` (list of strings), `notes`
-- Writer: `/reconciliation/snapshot` (manual) or `/reconciliation/auto-snapshot` (cron at 19:30 IST weekdays)
-- Drift detection rules: invested has baseline-relative drift; current_value uses absolute 15k threshold (intra-day timing is noise); day_gain dropped from alerts (always noise)
-
-#### `cost_basis_adjustments`
-- Audit trail for tax-correct cost basis adjustments (e.g., TMPV/TMCV demerger per IT Act Section 49(2C))
-- Key fields: `name`, `amount` (Decimal128), `effective_date`, `it_act_section`, `rationale`, `source_documents`, `created_at`
-- Consumer: `compute_summary` adds `broker_invested = our_invested + total_adjustment`, plus `broker_unrealized_pnl` and `broker_unrealized_pnl_pct`, so the UI can show both tax view and broker view
-
-#### `user_profile`
-- Single doc, `_id="sahil"`
-- Holds investing philosophy notes, TMPV/TMCV cost basis annotation, etc.
-
-### Phase 2 collections (Suggestions Engine)
-
-#### `monitored_stocks`
-- User-feedback state for stocks the engine has surfaced, plus watchlist entries (F13)
-- Key fields: `isin`, `status` (writers use `"tracking"/"passed"/"rejected"/"watchlist"`; Pydantic model says `"tracking"/"promoted_to_holding"/"dropped"` — SCHEMA DRIFT, see tech debt), `acted_at`, `passed_at`, `rejected_at`, `last_feedback_at`, `last_feedback_action`, `last_feedback_note`, `created_at`, `updated_at`
-- INVARIANT: writes go through `routers/suggestions.submit_feedback` only, using raw `update_one` (Pydantic bypassed because of the schema drift)
-- INVARIANT (F10): every write is preceded by a `monitored_stocks_audit_service.log_change(...)` insert. Audit row lands BEFORE the `update_one` apply, so even if the apply crashes the intent is recorded. Same write-before-apply pattern as `transactions_audit`.
-- Consumer: `suggestion_engine.get_excluded_isins()` (renamed from `get_rejected_isins` in Chat 3) returns three buckets at run-build time:
-  - `rejected` — `status="rejected"` AND `rejected_at >= now - 90d`
-  - `passed` — `status="passed"` for this run only (resurfaces next Sunday)
-  - `acted` — `status="tracking"` AND `acted_at >= now - 30d` (F5b 30-day soft-exclude; naturally suppressed thereafter by the held filter if the trade landed, or resurfaces if it didn't)
-- Consumer: `explainability._build_user_action()` at serialization time stamps each enriched candidate with `user_action` (null | "acted" | "passed" | "rejected") + the corresponding timestamp.
-  This is the second of the two F6 exclusion mechanisms — see Section 14.
-- F2 (Chat 4): `monitored_stocks` is CURRENTLY DIRECTION-AGNOSTIC. A user rejecting a SELL suggestion for INFY also suppresses the next BUY suggestion for INFY for 90 days, and vice versa. Documented in `get_excluded_isins` and `filter_sell_universe` docstrings. Acceptable for v1 (both interpretations are defensible: "I'm done thinking about INFY"). Add a `direction` column if it bites in practice — pending tech debt item.
-- Indexes: `isin` unique, `(status, rejected_at)`
-
-#### `monitored_stocks_audit` (F10 — shipped Chat 3)
-- Append-only audit log for `monitored_stocks` writes; one doc per `POST /suggestions/{isin}/feedback`
-- Key fields: `isin`, `action` (`"acted"|"passed"|"rejected"`), `previous_status` (string or null), `new_status`, `note`, `performed_at`, `_schema_version` (1)
-- INVARIANT: append-only.
-  Writer (`monitored_stocks_audit_service.log_change`) is invoked BEFORE the corresponding `monitored_stocks.update_one` apply in `submit_feedback`, so intent survives even if the apply step crashes.
-  Mirrors `transactions_audit` exactly.
-- Indexes: `(performed_at desc)`, `(isin, performed_at desc)`
-- Writer: `app/services/monitored_stocks_audit_service.py`
-- Consumer: `GET /suggestions/{isin}/audit` (per-ISIN history), `GET /suggestions/feedback/audit/recent?limit=N` (cross-ISIN feed for ops/debug surfaces and the frontend audit-trail view)
-
-#### `instruments_fundamentals`
-- One doc per ISIN per fundamentals refresh (so we have history)
-- Key fields: `isin`, `symbol`, `as_of` (date), `fetched_at` (datetime), `market_cap`, `pe_ratio`, `pb_ratio`, `dividend_yield`, `return_on_equity`, `return_on_assets`, `operating_margin`, `debt_to_equity`, `earnings_growth_yoy`, `revenue_growth_yoy`, `beta`, `fifty_two_week_high`, `fifty_two_week_low`, `sector` (yfinance), `industry`, `source`, `source_raw` (full yfinance dict for replay), `fields_present`, `fields_missing`
-- Indexes: `isin_latest_unique` (unique, latest only via `(isin, fetched_at desc)`), `fetched_at`
-- Writer: `scripts/refresh_fundamentals.py` → `fundamentals_service.refresh_one`. F14: default universe is now NIFTY 100 ∪ active holdings (held stocks outside NIFTY 100 also need fundamentals for F2 sell-side scoring).
-- Consumer: `suggestion_engine` (scoring), `explainability.py` (raw values for UI rendering)
-
-#### `earnings_calendar` (F14 — shipped Chat 4)
-- Upcoming + historical earnings events per ISIN. Source = yfinance `Ticker.calendar`, refreshed weekly alongside fundamentals.
-- Key fields: `isin`, `symbol`, `exchange`, `earnings_date` (tz-naive datetime), `source` ("yfinance"), `source_raw` (sanitized yfinance calendar dict), `fetched_at`, `created_at`
-- INVARIANT (refresh semantics): `refresh_earnings_for(isin, symbol, exchange)` deletes ALL future events for the ISIN (>= today) then re-inserts the freshly-fetched list. Past events are immutable history. yfinance occasionally shifts a confirmed date — we lose the "we used to think it was 7/25" history (acceptable for v1; consumer only ever asks "next earnings >= today").
-- INVARIANT (BSON sanitization): yfinance `Ticker.calendar` contains `datetime.date` values (notably `Ex-Dividend Date`) that BSON cannot encode. `_sanitize_for_bson` in `fundamentals_service.py` recursively walks dicts/lists and coerces date → datetime, tz-aware → naive, Timestamp/numpy scalars → native, unknown → `str()`. Applied to `source_raw` before insert.
-- Indexes: `(isin, earnings_date)` unique, `(earnings_date asc)`, `(isin)`, `(fetched_at desc)`
-- Writer: `fundamentals_service.refresh_earnings_for` (single ISIN), `refresh_earnings_universe` (bulk; called by `scripts/refresh_fundamentals.py`)
-- Consumer: `fundamentals_service.get_next_earnings_for_isin` / `get_next_earnings_bulk`; `suggestion_engine` (buy + sell pipelines) threads result into `score_candidates` / `score_sell_candidates`; `scoring_service.evaluate_earnings_proximity_gate` skips trades within 5 days of an earnings event (shared between buy and sell).
-
-#### `news_articles`
-- Classified news per article; one doc per URL with `$addToSet`-merged `entities_isins`
-- Key fields: `url` (unique), `title`, `published_at`, `fetched_at`, `source`, `body` (purged after classification), `body_purged_at`, `entities_isins` (list), `themes` (`Literal[earnings|regulatory|corporate_action|management_commentary|sector_macro|noise]`), `sentiment` (positive/neutral/negative/mixed), `sentiment_confidence`, `severity` (low/medium/high), `classifier_summary`, `classified` (bool)
-- Indexes: `url` unique, `(entities_isins, classified, fetched_at)`, `(classified, fetched_at)`
-- Writer: `news_fetcher.py` (fetch) then `news_classifier.py` (classify in two-phase Haiku batches: `BATCH_SIZE=25` main pass, `RETRY_PASS_BATCH_SIZE=3` for stragglers)
-- Consumer: `news_signals.py` (compute `net_sentiment`, `story_velocity`, `story_count`), `dossier_service.py` (per-candidate news context, last 8 articles)
-
-#### `suggestion_runs`
-- Append-only history of every weekly run
-- Key fields: `_id`, `_schema_version`, `run_date`, `run_date_ist`, `run_type` (scheduled/manual), `direction` (`"buy"`|`"sell"`, default `"buy"`), `status` (success/partial/failure), `started_at`, `finished_at`, `error`, `universe_size`, `excluded_held`, `excluded_rejected`, `excluded_passed` (F6), `excluded_acted` (F5b), `excluded_stale_data`, `candidates_considered`, `candidates_post_gates`, `config` (full snapshot of weights, gates, freshness, scoring, top_k, version), `top_candidates` (list of CandidateScore docs, persisted in full), `all_candidates`, `top_k`, `notes` (JSON string containing dossiers array)
-- INVARIANT: append-only; never updated; re-running creates a new doc
-- INVARIANT: `top_candidates[*].user_action` is NOT in the persisted doc. It is added at API serialization time by `enrich_run` only. See Section 12 + Section 14.
-- INVARIANT (F2 / Chat 4): pre-F2 runs persisted without a `direction` key still load cleanly. Pydantic default = `"buy"` via `model_validate`. The router serializer (`_serialize_run`) also defensively defaults missing `direction` to `"buy"` for the raw-dict path, and `/runs` adds it to the projection. Sell-side runs persist with `direction="sell"` explicitly.
-- Indexes: `(run_date desc)`, `(run_date_ist, run_type)`, `(status)`
-
-#### `suggestion_outcomes`
-- One doc per top-K candidate per run; tracks actual stock + benchmark over 30/60/90/180-day windows
-- Key fields: `isin`, `symbol`, `suggestion_run_id`, `suggested_at`, `suggested_at_price`, `suggested_rank`, `suggested_composite_score`, `tracking_status` (open/acted/passed/rejected/expired), `direction` (`"buy"`|`"sell"`, default `"buy"`), `price_at_30d/60d/90d/180d`, `nifty_at_30d/60d/90d/180d` (these are RETURN PERCENTAGES vs benchmark, not prices — equal-weighted NIFTY 100), `excess_return_30d/60d/90d/180d`, `user_action_at`, `user_action_note`, `created_at`, `updated_at`
-- INVARIANT (changed in Commit A.5): snapshot eligibility is `tracking_status != "expired"`, NOT `tracking_status == "open"`. The user's label (acted/passed/rejected) is metadata; data collection continues regardless so per-bucket performance is measurable.
-- INVARIANT: outcomes only auto-flip to `"expired"` if still labeled `"open"` at day 180. User-set labels are never overwritten.
-- INVARIANT (F2 / Chat 4): `direction` defaults to `"buy"` for pre-F2 outcomes via the Pydantic default. `compute_system_performance(direction="sell")` sign-flips `excess_return` per outcome before aggregating so "higher is better" framing is preserved.
-- Indexes: `(isin, suggested_at desc)`, `(suggested_at desc)`, `(tracking_status)`, `(suggestion_run_id)`
-- Writer: `outcome_tracker.create_outcomes_for_run` at run time (stamps direction), `snapshot_open_outcomes` daily (direction-agnostic; same snapshot serves both directions)
-
-#### `tavily_quota`
-- One doc per UTC day; counters incremented atomically
-- Key fields: `date` (YYYY-MM-DD string), `total_calls`, `total_credits`, `per_use_case.<name>.calls`, `per_use_case.<name>.credits`
-- Indexes: `date` unique
-- Writer: `tavily_client.py` `$inc` updates with upsert
-- INVARIANT: `TAVILY_DAILY_CALL_LIMIT` (default 200) enforced; raises `TavilyQuotaExceeded` when hit
-
-#### `digest_deliveries`
-- Audit log of weekly digest emails + ntfy pushes
-- Key fields: `run_id`, `run_date_ist`, `sent_at`, `top_count`, `subject`, `email_ok`, `email_id`, `email_error`, `ntfy_ok`, `ntfy_status`, `ntfy_error`
-- F2 (Chat 4): for combined-digest sends (`--direction=both` cron path), the row attaches to the BUY run id so one row per delivery is preserved. `top_count = buy_top + sell_top`.
-- Indexes: `(sent_at desc)`, `(run_id)`
-- Writer: `digest_delivery.send_weekly_digest` (single-direction) or `digest_delivery.send_combined_digest` (both)
-
-#### `cron_heartbeats` (F4 — shipped Chat 2)
-- One doc per cron run with start/finish/status/error/metadata. Written by every cron script via the `cron_run()` context manager in `app/services/cron_heartbeat_service.py`.
-- Key fields: `cron_name`, `started_at`, `finished_at`, `status` (`"success"|"failure"|"skipped"`), `error`, `metadata` (dict, per-cron stats), `_schema_version`
-- INVARIANT: append-only. Wrapper writes exactly one doc per run on exit; on exception the heartbeat is recorded with `status="failure"` and the exception re-raised so the script's own exit-code path is preserved.
-- INVARIANT: heartbeat write is best-effort — if Mongo is unreachable the write is swallowed rather than masking the underlying cron error. The missing heartbeat itself is what the next day's health check catches.
-- INVARIANT (Chat 4): the context manager yields a `_Heartbeat` object that exposes `.meta` as an ATTRIBUTE. Set via `ctx.meta = {...}` (full replace) or `ctx.meta[key] = value`. `ctx["meta"] = ...` raises TypeError. (Three call sites in `run_weekly_suggestions.py` had this bug in Chat 4; fixed in chunk 6.2.)
-- `"skipped"` status is for "nothing to do" runs (e.g., intraday refresh when market is closed). Counts as healthy in the daily check.
-- Indexes: `(cron_name, started_at desc)`, `(started_at desc)`, TTL on `started_at` (60 days)
-- Consumer: `GET /cron/heartbeats` router; `scripts/cron_health_check.py` (daily 21:00 IST)
-- Writer: `app.services.cron_heartbeat_service.cron_run()` context manager — used by all registered cron scripts including `cron_health_check` itself
-- The expected cron schedule lives in code as `CRON_REGISTRY` (a list of `CronSpec` entries) in `cron_heartbeat_service.py` — NOT in Mongo. Keep `CRON_REGISTRY` and `crontab -l` in sync whenever a cron is added or rescheduled.
-
-### `digests` / `alerts_log` / `conversations` / `macro_signals`
-Scaffolds; not actively written by current code.
-`conversations` will be used for chat features (F1, F3).
-Reserved; do not delete.
-
-### Future collections (planned, not yet created)
-- None pending in the current plan after F14 shipped. F11 (capital gains pack) is a read-only reformatter on existing collections.
-
-## Section 8: API endpoints (exhaustive)
-
-All routes are under the FastAPI app, served on port 8000 (EC2) or 8001 (Mac local).
-All return JSON.
-ISIN path params are validated 12-char.
-
-### Phase 1
-
-```
-GET    /health
-GET    /portfolio/holdings                           Holding[]
-GET    /portfolio/holdings/{isin}                    Holding
-POST   /portfolio/holdings                           Holding (BUY)
-PATCH  /portfolio/holdings/{isin}                    Holding (notes/thesis/stop_loss/target_price/tags only)
-POST   /portfolio/holdings/{isin}/sell               Holding OR {message, realized_total}
-POST   /portfolio/holdings/{isin}/preview-sell       SellPreview
-GET    /portfolio/holdings/{isin}/history?days=N     PriceBar[]
-GET    /portfolio/holdings/{isin}/transactions       Transaction[]
-GET    /portfolio/summary                            PortfolioSummary
-GET    /transactions/search?symbol&type&from_date&to_date&skip&limit
-                                                     {results, total}
-GET    /transactions/{id}                            Transaction
-PATCH  /transactions/{id}                            Transaction (requires reason)
-DELETE /transactions/{id}                            {deleted: true} (requires reason)
-GET    /transactions/audit/recent?limit=N            AuditEntry[]
-GET    /transactions/{id}/audit                      AuditEntry[]
-POST   /reconciliation/snapshot                      ReconciliationSnapshot (manual)
-GET    /reconciliation/snapshots                     ReconciliationSnapshot[]
-POST   /reconciliation/auto-snapshot                 ReconciliationSnapshot (cron)
-GET    /cost-basis/adjustments                       CostBasisAdjustment[]
-GET    /instruments                                  symbol_overrides list
-POST   /instruments                                  symbol_overrides upsert
-DELETE /instruments/{exchange}/{symbol}              delete override
-```
-
-### Phase 2 (Suggestions)
-
-```
-GET    /suggestions/latest?direction=buy|sell        SuggestionRun + enrichment
-                                                     F2: ?direction defaults to "buy"
-                                                     for back-compat; pre-F2 docs without
-                                                     the field match the buy filter via
-                                                     $or {direction:"buy"} OR
-                                                        {direction:{$exists:false}}.
-GET    /suggestions/runs?direction=buy|sell&limit=N&skip=N
-                                                     {runs, total, limit, skip}
-                                                     F2: same direction semantics
-GET    /suggestions/runs/{run_id}                    SuggestionRun + enrichment
-                                                     direction is implicit in the doc
-GET    /suggestions/performance?direction=buy|sell   SuggestionPerformance with by_bucket
-                                                     F2: direction optional. None =
-                                                     cross-direction (legacy; semantically
-                                                     muddy). "sell" sign-flips
-                                                     excess_return at aggregation time.
-POST   /suggestions/{isin}/feedback                  {isin, action, status, previous_status}
-                                                     Body: {action: "acted"|"passed"|"rejected", note?: string}
-                                                     NOTE: direction-agnostic; see
-                                                     monitored_stocks tech debt
-GET    /suggestions/{isin}/audit?limit=N             MonitoredStocksAuditEntry[]   (F10)
-GET    /suggestions/feedback/audit/recent?limit=N    MonitoredStocksAuditEntry[]   (F10)
-GET    /cron/heartbeats?limit=N                      {heartbeats, health_summary}
-                                                     (F4 — shipped Chat 2)
-                                                     F2: registry now includes
-                                                     weekly_suggestions_sell
-```
-
-`/cron/heartbeats` response shape:
-- `heartbeats`: newest-first list of recent cron run docs (default limit 200, capped at 1000)
-- `health_summary`: one entry per registered cron with `cron_name`, `description`, `schedule`, `expected_today`, `min_runs_per_day`, `last_run_at`, `last_status`, `last_error`, `today_total`, `today_success`, `today_failure`, `today_skipped`, `healthy`
-- `healthy = true` when either (a) cron is not expected today, or (b) `today_success + today_skipped >= min_runs_per_day` AND `today_failure == 0`
-
-F10 feedback-audit endpoint shape (shipped Chat 3):
-- Each row: `{_id, isin, action, previous_status, new_status, note, performed_at, _schema_version}`
-- `/suggestions/{isin}/audit` is backed by the `(isin, performed_at desc)` compound index; mirrors `GET /transactions/{id}/audit`
-- `/suggestions/feedback/audit/recent` is backed by the `(performed_at desc)` index; mirrors `GET /transactions/audit/recent`
-- The static-path `/feedback/audit/recent` route is declared BEFORE the dynamic `/{isin}/audit` route in `routers/suggestions.py` to avoid any route-ordering ambiguity
-
-### Future endpoints (planned)
-
-```
-POST   /watchlist/{isin}                             add to watchlist (F13)
-DELETE /watchlist/{isin}                             remove from watchlist (F13)
-GET    /watchlist                                    list watchlist (F13)
-GET    /portfolio/risk-summary                       concentration & risk alerts (F12)
-GET    /portfolio/by-tag?tag=X                       holdings grouped/filtered by tag (F15)
-POST   /chat/suggestions                             ad-hoc chat about suggestions (F1)
-POST   /chat/holdings/{isin}                         ad-hoc chat about a holding (F3)
-GET    /tax/capital-gains?fy=YYYY-YY                 capital gains pack (F11)
-```
-
-### Sell endpoint response shape (critical, often confused)
-`POST /portfolio/holdings/{isin}/sell` returns one of:
-- The full updated `Holding` doc (partial sell, position still active)
-- `{message: "Position fully exited", realized_total: "<string Decimal>"}` (full exit)
-
-The frontend discriminates via type guard on the `_id` field, NOT a status field.
-The original `SellSheet` was written this way; do not change it.
-
-## Section 9: Cron registry on EC2
-
-Run `crontab -l` to see current state.
-As of Chat 4, every script below is heartbeat-instrumented via `app.services.cron_heartbeat_service.cron_run()` and writes a doc to `cron_heartbeats` on completion (success, failure, or skipped).
-The daily `cron_health_check` at 21:00 IST consumes those heartbeats and fires `push_public("errors", ...)` on anomalies.
-`CRON_REGISTRY` in `cron_heartbeat_service.py` is the in-code mirror of this schedule — keep both in sync.
-
-Registered entries on EC2:
-
-```cron
-# Phase 1 crons (heartbeat-instrumented Chat 2)
-# Daily instrument refresh — 03:00 IST
-0 3 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_instruments.py >> /home/ubuntu/cron-instruments.log 2>&1
-# Weekday EOD price refresh — 19:00 IST
-0 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices.py >> /home/ubuntu/cron-prices.log 2>&1
-# Intraday price refresh — every 15 min during market hours (09:15-15:45 IST), weekdays
-*/15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
-# Daily reconciliation auto-snapshot — 19:30 IST (after price refresh)
-30 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/take_reconciliation_snapshot.py >> /home/ubuntu/cron-reconciliation.log 2>&1
-
-# Phase 2 crons (registered Chat 2 via F5a — all heartbeat-instrumented)
-# Sunday 06:00 IST — refresh fundamentals + earnings calendar for NIFTY 100 ∪ held (F14 expansion)
-0 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_fundamentals.py >> /home/ubuntu/cron-fundamentals.log 2>&1
-# Sunday 06:30 IST — fetch + classify news for the universe
-30 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/fetch_news_for_universe.py >> /home/ubuntu/cron-news.log 2>&1
-# Sunday 07:00 IST — run weekly suggestions
-# PENDING: line still uses default (--direction=buy implicit). Chat 4 added
-# --direction=buy|sell|both. To get combined buy+sell digest, swap this line
-# to use --direction=both. Until swapped, sell-side will NOT run on Sunday cron.
-0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --notify --run-type scheduled >> /home/ubuntu/cron-suggestions.log 2>&1
-# Weekdays 19:45 IST — outcome tracking snapshot (after 19:00 EOD refresh + 19:30 reconciliation)
-45 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/track_suggestion_outcomes.py >> /home/ubuntu/cron-outcomes.log 2>&1
-
-# F4 cron health monitoring (added Chat 2)
-# Daily 21:00 IST — health check; fires ntfy on anomalies
-0 21 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/cron_health_check.py >> /home/ubuntu/cron-health.log 2>&1
-
-# Maintenance
-# Weekly log truncation — keep last ~10K lines on logs > 10MB
-0 0 * * 0 find /home/ubuntu -maxdepth 1 -name "cron-*.log" -size +10M -exec sh -c 'tail -10000 "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
-```
-
-PENDING ONE-TIME EC2 STEPS (Chat 4 follow-up — manual, not committable):
-- Swap the Sunday 07:00 IST line to `... run_weekly_suggestions.py --direction=both --notify --run-type scheduled ...` so the combined buy+sell digest path is exercised by cron. Until done, sell-side suggestions only run from manual `--direction=sell` invocations.
-- Stop + disable the self-hosted private ntfy service (F2b moved digests to public ntfy.sh; the private service is no longer used). One-time: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`.
-
-`CRON_REGISTRY` (in code) now also contains:
-- `weekly_suggestions_sell` — `CronSpec(cron_name="weekly_suggestions_sell", description="Weekly sell-side suggestions: profit-booking candidates from active holdings.", schedule_human="Sun 07:30 IST", expected_weekdays={6})`
-  - The standalone `weekly_suggestions_sell` cron line is NOT yet registered on EC2. The recommended production path is `--direction=both` under the existing `weekly_suggestions` umbrella heartbeat. The standalone registry entry exists so a future deployment topology that wants two separate runs can install the matching crontab line without code changes.
-
-No silent failures: every cron registration must include log file paths AND be heartbeat-instrumented via `cron_run()` AND have a corresponding `CronSpec` entry in `CRON_REGISTRY`.
-Adding a cron without all three breaks the F4 contract.
-
-## Section 10: Settings and environment variables
-
-Configured in `app/config/settings.py` via pydantic-settings reading `/etc/portfolio-advisor/secrets.env` (EC2) or `<repo>/.env` (Mac).
-All required unless marked default.
-
-### Anthropic
-- `ANTHROPIC_API_KEY` (required)
-- `ANTHROPIC_MODEL_PRIMARY` (default `"claude-sonnet-4-5"`) — used by `dossier_service`, chat features
-- `ANTHROPIC_MODEL_FAST` (default `"claude-haiku-4-5"`) — used by `news_classifier`
-
-### MongoDB
-- `MONGODB_URL` (required)
-- `MONGODB_DB_NAME` (required)
-
-### Tavily
-- `TAVILY_API_KEY` (required)
-- `TAVILY_DAILY_CALL_LIMIT` (default 200) — hard ceiling enforced before API call
-- `TAVILY_SEARCH_DEPTH` (default `"basic"`)
-- `TAVILY_MAX_RESULTS_PER_QUERY` (default 5)
-
-### Email (Resend)
-- `RESEND_API_KEY` (required)
-- `RESEND_FROM` (e.g., `"advisor@your-domain.com"`)
-- `DIGEST_TO` (your email)
-
-### ntfy
-- `NTFY_URL` (was: private self-hosted, behind Tailscale Funnel). F2b: no longer used by digest_delivery. Pending decommission. `push_private` still exists in `notify.py` for any future genuinely-sensitive content path.
-- `NTFY_USER`, `NTFY_PASS` (basic auth for private — same as above)
-- `NTFY_PUBLIC_URL` (default `"https://ntfy.sh"`)
-- `NTFY_PUBLIC_TOPIC_PRICE`, `NTFY_PUBLIC_TOPIC_NEWS`, `NTFY_PUBLIC_TOPIC_ERRORS` (public ntfy.sh topics; unguessable strings act as bearer tokens; full content delivered instantly to iOS)
-- `NTFY_PUBLIC_TOPIC_DIGESTS` (F2b — REQUIRED, no default. Used by `digest_delivery._send_ntfy` for weekly digest pushes. Must be subscribed on the iPhone ntfy app.)
-- `NTFY_PUBLIC_TOPIC_ERRORS` specifically is used by F4 `cron_health_check` — if you change the topic value, also update the subscription on the iPhone ntfy app
-- All `NTFY_PUBLIC_TOPIC_*` values must be IDENTICAL on EC2 and Mac so dev-testing of alert paths reaches the same subscribed device
-- `push_public(channel)` signature: `channel: Literal["price", "news", "errors", "digests"]`; defined in `app/services/notify.py`. F4 cron alerts use `push_public("errors", ...)` for instant iOS delivery; content is "script name + error message", no portfolio/PII data. F2b digests use `push_public("digests", ...)`; content includes top symbols and composite scores, no PII.
-
-## Section 11: Phase 1 INVARIANTS — never violate
-
-These come straight from `docs/data_flow.md`.
-They are hard rules.
-
-- Transactions are immutable except through the audited PATCH/DELETE flow. Every PATCH/DELETE writes a `transactions_audit` entry BEFORE applying the change. The `reason` field is required.
-- `recompute_holding(isin)` is the only authoritative writer to `holdings`. It is idempotent and recomputes from `transactions` from scratch using FIFO. Never write directly to `holdings`. Call `recompute_holding` after any transaction change.
-- `validate_replay(isin, simulated_transactions)` simulates a transaction set and rejects any timeline that produces negative quantity at any point. Both PATCH and DELETE on `/transactions/{id}` call this before applying.
-- `holdings.deleted_at = None` filter is universal. Every read of active holdings must include this filter. Deleted holdings preserve replay correctness.
-- Cost basis is IT-Act-correct, not broker-nominal. `holdings.invested_amount` reflects the tax-correct cost basis (which for TMPV/TMCV reflects the 68.85/31.15 cost basis split per Tata Motors official Section 49(2C) disclosure). The broker-nominal view is recoverable as `holdings.invested_amount + total_cost_basis_adjustment` and surfaced via `summary.totals.broker_invested`.
-- `prices_intraday` writes are append-only within a day (inserted, not upserted) so we keep intraday history.
-- ICICI portfolio display shows TMPV at ~813 and TMCV at ~253 (sums to ~1,06,673), which is ~25k higher than our correct ~81,337. Our numbers reflect tax-correct cost basis; ICICI display is cosmetically wrong but does not affect actual money or tax filing.
-
-## Section 12: Phase 2 INVARIANTS
-
-- `suggestion_runs` are append-only. Re-running creates a new doc; never UPDATEd.
-- `tavily_quota` is one doc per UTC day with `$inc` counters. Hard ceiling enforced.
-- Confidence score is deterministic (computed from data freshness and signal availability), NOT LLM-generated. Composite score answers "is this stock attractive?"; confidence answers "should I trust the answer?"
-- The dossier prompt requires narrative-only output. Numbers come from our data. The prompt forbids "buy" or "sell" imperatives. The prompt also forbids inventing facts not in the input.
-- `gate_meta`, `group_meta`, `signal_meta`, `confidence_meta`, `feedback_meta`, `page_intro`, and `user_action` are PRESENTATION metadata, added by `routers/suggestions._serialize_run` via `enrich_run`. They are NOT in the persistent model. The router calls `enrich_run` after JSON conversion; the underlying `suggestion_runs` doc is never mutated. (`user_action` was added in Chat 3 via F6; see Section 14 for the two-mechanism rationale.)
-- Snapshot eligibility for `outcome_tracker.snapshot_open_outcomes` is `tracking_status != "expired"`, NOT `tracking_status == "open"`. User-set labels (acted/passed/rejected) do not gate data collection. (Changed in Commit A.5.)
-- Auto-expiry only flips outcomes that are still labeled `"open"` at day 180. A user-set label is never auto-overwritten. (Changed in Commit A.5.)
-- Feedback re-labels the MOST RECENT non-expired outcome for the ISIN, regardless of its current `tracking_status`. (Fixed in Commit A.5.1.)
-- `suggestion_engine.get_excluded_isins()` (renamed from `get_rejected_isins` in Chat 3 / F6) returns three buckets used to exclude ISINs at run-build time:
-  - `rejected` — `monitored_stocks.status == "rejected"` AND `rejected_at >= now - 90d`. Auto-expires after 90 days. The 90-day window is intentionally NOT env-configurable; change the constant in `suggestion_engine.py` in one place if it ever needs to move.
-  - `passed` — `monitored_stocks.status == "passed"`. THIS run only — naturally resurfaces on the next run because the bucket is recomputed every time.
-  - `acted` — `monitored_stocks.status == "tracking"` AND `acted_at >= now - 30d` (F5b). Soft-exclude for 30 days; naturally suppressed thereafter by the held filter if the trade landed, or resurfaces if it didn't. There is no manual-clear mechanism and we deliberately did not build one.
-- F10 write-before-apply: every `POST /suggestions/{isin}/feedback` writes the `monitored_stocks_audit` row via `monitored_stocks_audit_service.log_change(...)` BEFORE the corresponding `monitored_stocks.update_one` apply. Same invariant as `transactions_audit` — intent survives even if the apply step crashes.
-- Per `monitored_stocks` schema-vs-writer drift: the model says `Literal["tracking", "promoted_to_holding", "dropped"]` but the writer writes `"tracking"`, `"passed"`, `"rejected"`. The writer uses raw `update_one` so Pydantic is bypassed. If you ever load a `monitored_stocks` doc through `MonitoredStock(**doc)` it will throw. See tech debt (F5c).
-- The `notes` field on a `SuggestionRun` is a JSON string containing `{dossiers: [...]}`. The router parses it and exposes `dossiers` at the top level of the response, then strips `notes`. The router also strips `all_candidates` from the response to keep payloads small. The persisted doc still has it.
-
-### F2 / F14 invariants (Chat 4)
-
 - `SuggestionDirection` literal = `"buy" | "sell"`. Both `SuggestionRun.direction` and `SuggestionOutcome.direction` default to `"buy"` so pre-F2 persisted docs coerce cleanly via `model_validate`.
 - The router serializer (`_serialize_run`) and the `/runs` projection BOTH defensively default missing `direction` to `"buy"` on the raw-dict path. Pydantic defaults fire on `model_validate`; the router serializes raw dicts and needs its own default. (Bug fixed in chunk 3.1.)
 - `compute_system_performance(direction="sell")` SIGN-FLIPS `excess_return` per outcome before aggregating, so "higher avg_excess_return_pct = engine helpful" framing is consistent regardless of side. Cross-direction (`direction=None`) is supported but semantically muddy and discouraged.
@@ -1786,7 +913,7 @@ They are hard rules.
 - `_sanitize_for_bson` is applied to `Ticker.calendar` BEFORE inserting into `earnings_calendar` because yfinance puts `datetime.date` values in `Ex-Dividend Date` (BSON can't encode `date`, only `datetime`). Recursively walks dicts/lists; coerces date → datetime, tz-aware → naive, Timestamp/numpy → native, unknown → `str()`. Future-proofs against new yfinance fields.
 - F14 earnings-proximity gate is SHARED between buy and sell via `evaluate_earnings_proximity_gate`. Both directions skip trades within 5 days of a known earnings event. When `next_earnings` is None the gate reports `skipped=True, passed=True` (absence of data is not evidence of imminence).
 - Sell-side scoring uses different groups (`booking_opportunity`/`valuation_stretch`/`risk`/`tax_concentration`) and different gates (`in_profit`/`min_position_age`/`earnings_proximity`). `high_severity_negative_news` is NOT a sell gate — it's a SIGNAL in the sell `risk` group (we WANT to surface bad-news stocks as sell candidates, not hide them).
-- `CandidateScore` has FIXED buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`). Sell-side rows leave them at 0.0; the actual sell-side group scores live in the signals list and are surfaced via `group_meta` from `explainability.py`. KNOWN DISPLAY BUG: `digest_delivery` renders Q=V=M=N=0 in sell-side email/ntfy sections because the template doesn't branch on direction — see Section 18.
+- `CandidateScore` has FIXED buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`). Sell-side rows leave them at 0.0; the actual sell-side group scores live in the signals list and are surfaced via `group_meta` from `explainability.py`. The display layer must branch on direction: `digest_delivery._format_score_breakdown` does this since F2b (2026-05-20); `suggestion-card.tsx` does this via `isSellSide = Boolean(groupMeta?.booking_opportunity)`.
 - `monitored_stocks` is currently DIRECTION-AGNOSTIC. A user rejecting a SELL suggestion for INFY also suppresses next BUY for INFY for 90 days, and vice versa. Acceptable for v1; add a `direction` column if it bites in practice (tech debt).
 - F2 combined-digest delivery: when `scripts/run_weekly_suggestions.py --direction=both` runs, `send_combined_digest(buy_run, sell_run)` emits ONE email + ONE ntfy push covering both sides. The `digest_deliveries` row attaches to the buy run id so chronological history (one row per delivery) is preserved.
 
@@ -1822,10 +949,10 @@ Phase 2 Suggestions Engine:
 
 Chat 2 (F4 + F5a) — Cron observability shipped:
 - F4: `cron_heartbeats` collection with 60-day TTL; `cron_run()` context manager wrapping every cron script (success/failure/skipped); `CRON_REGISTRY` in code mirroring `crontab -l`; `GET /cron/heartbeats` endpoint returning recent heartbeats + per-cron health summary; `scripts/cron_health_check.py` runs daily 21:00 IST and fires `push_public("errors", ...)` on missed runs / failures; `ntfy.PublicChannel` extended with `"errors"`; `NTFY_PUBLIC_TOPIC_ERRORS` added to settings.
-- F5a: all four Phase 2 crons registered on EC2 with log files and heartbeat instrumentation — `refresh_fundamentals` (Sun 06:00 IST), `fetch_news_for_universe` (Sun 06:30 IST), `run_weekly_suggestions --notify --run-type scheduled` (Sun 07:00 IST, buy-side), `track_suggestion_outcomes` (weekdays 19:45 IST).
+- F5a: all four Phase 2 crons registered on EC2 with log files and heartbeat instrumentation — `refresh_fundamentals` (Sun 06:00 IST), `fetch_news_for_universe` (Sun 06:30 IST), `run_weekly_suggestions --notify --run-type scheduled` (Sun 07:00 IST, buy-side initially), `track_suggestion_outcomes` (weekdays 19:45 IST).
 - All eight historic Phase 1 + Phase 2 crons now write heartbeats from the same wrapper.
 
-Chat 3 (F6 + F5b + F10) — Stateful feedback shipped:
+Chat 3 (F6 + F5b + F10) — Stateful feedback shipped 2026-05-17:
 - F6 (stateful suggestion feedback): replaces the session-scoped vanish-on-click from Commit B with persistent backend exclusion. Two mechanisms (both required, see Section 14):
   - `suggestion_engine.get_excluded_isins()` (renamed from `get_rejected_isins`) runs at run-build time and returns `{rejected, passed, acted}` buckets. `filter_universe` consumes the dict; saves Tavily + Sonnet cost by not scoring excluded ISINs.
   - `explainability._build_user_action()` runs at serialization time. Each enriched candidate carries a `user_action` field (null | "acted" | "passed" | "rejected") plus the relevant timestamp, so a stale cached run (e.g. Sunday run viewed Tuesday after Monday's feedback) renders correctly. Lookup is one bulk `monitored_stocks.find({"isin": {"$in": [...]}})` per run-serialization, dict lookup per candidate (mirrors `bulk_get_latest_prices`).
@@ -1835,7 +962,7 @@ Chat 3 (F6 + F5b + F10) — Stateful feedback shipped:
 - F5b (acted-but-not-held trap fix): `get_excluded_isins` includes the `acted` bucket (`status="tracking"` AND `acted_at >= now - 30d`) with `ACTED_EXCLUDE_WINDOW_DAYS = 30`. Naturally suppressed thereafter by the held filter if the trade landed, or resurfaces if it didn't. No manual-clear mechanism by design.
 - F10 (monitored_stocks_audit append-only audit collection): new `monitored_stocks_audit` collection with `(performed_at desc)` + `(isin, performed_at desc)` indexes; `Collections.monitored_stocks_audit()` accessor; `app/services/monitored_stocks_audit_service.py`; `submit_feedback` writes audit row BEFORE the `update_one` apply, then applies, then re-labels the latest non-expired outcome; response now includes `previous_status`. New endpoints `GET /suggestions/{isin}/audit` and `GET /suggestions/feedback/audit/recent?limit=N`.
 
-Chat 4 (F2b + F14 + F2 backend) — Sell-side foundation + plumbing shipped:
+Chat 4 (F2b + F14 + F2 backend + F2 frontend) — Sell-side fully shipped 2026-05-17 / 2026-05-18 / 2026-05-20:
 - F2b (ntfy public migration for digests): `digest_delivery._send_ntfy` switched from self-hosted private path (poll-based on iOS — silently dropped digests) to `push_public("digests", ...)` on public ntfy.sh. `notify.PublicChannel` extended with `"digests"`. `NTFY_PUBLIC_TOPIC_DIGESTS` added to settings (required, no default). Verified end-to-end: server emits message, iPhone receives push instantly via APNs.
 - F14 (earnings calendar foundation): NEW `earnings_calendar` collection with `(isin, earnings_date)` unique + 3 supporting indexes; NEW `EarningsEvent` Pydantic model; `Collections.earnings_calendar()` accessor; `fundamentals_service.fetch_earnings_calendar_yfinance`, `refresh_earnings_for` (replace-future semantics), `refresh_earnings_universe`, `get_next_earnings_for_isin`, `get_next_earnings_bulk`; `_sanitize_for_bson` to coerce `datetime.date` from yfinance Ex-Dividend before BSON insert; `scripts/refresh_fundamentals.py` default universe expanded to NIFTY 100 ∪ active holdings and now refreshes earnings in the same Sunday cron; F14 earnings-proximity gate shared between buy and sell via `evaluate_earnings_proximity_gate`.
 - F2 (sell-side backend): `SuggestionDirection` Literal; `direction` field on `SuggestionRun` + `SuggestionOutcome` (default "buy"); router defensive defaulting in `_serialize_run` + `/runs` projection for pre-F2 docs; `DEFAULT_SELL_CONFIG`, `GROUP_SIGNALS_SELL`, `extract_sell_signals`, `evaluate_sell_gates`, `score_sell_candidates` in `scoring_service.py`; `score_group` + `composite_for_candidate` refactored to accept optional `group_signals_def` for sharing buy/sell normalization pipeline; `suggestion_engine.run_suggestions(direction=...)` dispatches to `_run_buy_pipeline` (now also activates F14 gate via `next_earnings_by_isin`) or `_run_sell_pipeline` (universe = active holdings, `portfolio_value` computed once via `bulk_get_latest_prices`); `dossier_service._SYSTEM_PROMPT_SELL` with `tax_consideration` + `concentration_note` fields, direction-aware `_parse_dossier` validation, per-candidate POSITION CONTEXT block; `outcome_tracker.create_outcomes_for_run` stamps `direction`; `compute_system_performance(direction=...)` with sign-flip for sell.
@@ -1845,32 +972,59 @@ Chat 4 (F2b + F14 + F2 backend) — Sell-side foundation + plumbing shipped:
   - "both" runs buy then sell under ONE heartbeat and emits ONE combined digest via `digest_delivery.send_combined_digest`.
   - `CRON_REGISTRY` includes `weekly_suggestions_sell` (cron_name, description, schedule_human="Sun 07:30 IST", expected_weekdays={6}).
   - `send_combined_digest(buy_run, sell_run)`: composes subject with severity from max composite across both sides, blue-accent buy section and red-accent sell section in HTML email, parallel plain-text body, compact ntfy push with === BUY-SIDE === / === SELL-SIDE === headers. Delivery row attaches to the buy run id.
+- F2 frontend (chunk 7, SHIPPED — verified at frontend SHA `e34e126`):
+  - `lib/api.ts`: `SuggestionDirection` type; `direction` query param on `getLatestSuggestionRun` / `listSuggestionRuns` / `getSuggestionPerformance`; `direction` field on `SuggestionRun` / `SuggestionOutcome` / `SuggestionDossier`; `BucketKey` type; `by_bucket` breakdown on `SuggestionPerformance` windows.
+  - `app/suggestions/page.tsx`: `useState<SuggestionDirection>("buy")`; direction-row card with shadcn Tabs "buy"/"sell" triggers; per-direction TanStack query keys; direction-aware page subtitle ("AI-ranked NIFTY 100 buy-side..." vs "AI-ranked sell-side trim / book-profit..."); direction-aware empty-state copy; direction-aware toast description on feedback ("Soft-excluded for 30 days while the trade settles. Tracking continues.").
+  - `components/suggestion-card.tsx`: `isSellSide = Boolean(groupMeta?.booking_opportunity)` infers direction from the presence of the sell-side group entry (correct because buy never emits `booking_opportunity`); when true, group bars switch to `Booking Opportunity` / `Valuation Stretch` / `Risk` / `Tax & Concentration` populated from `group_meta`; dossier section renders `tax_consideration` + `concentration_note` for sell (or `portfolio_fit` as fallback for buy).
+- F2b (sell digest cosmetic + direction-aware copy) — SHIPPED 2026-05-20, commit `cea8eee`:
+  - `digest_delivery._format_score_breakdown(candidate, group_meta_lookup)` is now DIRECTION-AWARE. Sell rows render `Book={...} Stretch={...} Risk={...} Tax-Conc={...}` from a `group_meta_lookup` dict instead of the previous hard-coded `Q=0 V=0 M=0 N=0`. Both `_format_email_html` (single-direction) and the sell section of `send_combined_digest` consume the new helper. Closes the user-confirmed bug from the email of 2026-05-18 15:56 IST.
+  - Direction-aware intro copy in single-direction sell digests.
 
 ### Open items (final scope, prioritized)
 
-#### Chat 4 continuation (NEW CHAT — start here)
+#### Chat 5 — Audit + cleanup (IN PROGRESS, 2026-05-20)
+The Chat 5 audit re-read every file in both repos at SHAs `cea8eee` / `e34e126` and verified each PROJECT_STATE claim against actual code. Findings consolidated below; full detail in Section 18.
 
-Remaining work to close F2 fully:
+Order of operations (decided 2026-05-20):
+1. Fix all bugs found in the audit, test on EC2, deploy.
+2. Rewrite `docs/data_flow.md` end-to-end to cover Phase 2 (currently dated 2026-05-09 and Phase-1-only).
+3. Re-verify and rewrite both READMEs (backend + frontend) — drift confirmed in audit.
+4. Final PROJECT_STATE refresh at chat close.
 
-1. F2 frontend (chunk 7 in Chat 4 plan):
-   - `lib/api.ts`: add `SuggestionDirection` type, add `direction` query param to `getLatestRun` / `listRuns` / `getPerformance`, add `direction` field to `SuggestionRun` / `SuggestionOutcome` / `Dossier` types.
-   - `app/suggestions/page.tsx`: Buy/Sell toggle (segmented control or shadcn Tabs — match existing tab pattern), direction-aware data fetch, persist last-selected side in URL or localStorage.
-   - `components/suggestion-card.tsx`: branch on `dossier.direction` to render `tax_consideration` + `concentration_note` blocks instead of `portfolio_fit`; render sell-side group bars (booking_opportunity/valuation_stretch/risk/tax_concentration) from `group_meta` instead of Q/V/M/N; sell-side gate badges (in_profit, min_position_age, earnings_proximity); sell-side feedback buttons phrasing ("Sold", "Watched", "Disagree" or similar — defer copy to user).
-   - Performance tab: optional direction filter (or hide direction selector and show buy by default).
+Bug fix scope (priority order, each with its own commit):
 
-2. KNOWN BUG to fix as part of frontend chunk OR a tiny backend-only patch (one or the other, your call):
-   - `digest_delivery._format_email_html`, `_format_email_text`, and `_format_section_html` / `_format_section_text` all hard-code `Q={...} V={...} M={...} N={...}` in the per-candidate block. For sell-side runs and sell-side sections of combined digests, this prints `Q=0 V=0 M=0 N=0` because `CandidateScore` has fixed buy-side group fields and sell-side group scores live separately. Email + ntfy both display wrong scores for sell.
-   - Quick fix: branch on `run.direction` (or on candidate-side direction from the parent run) and either (a) omit the Q/V/M/N line for sell-side, or (b) render sell-side group scores from a passed-in `group_meta` lookup. (a) is the smaller patch and sufficient because the email already has `composite | confidence` — the bar chart breakdown is icing.
-   - User confirmed this bug from a real email received at 15:56 IST on 2026-05-18.
+| # | Item | File(s) | Section 18 ref |
+|---|---|---|---|
+| A1 | `MonitoredStock` model lies about schema. Update `Literal` to `["tracking", "passed", "rejected", "watchlist"]` (already adding watchlist for F13); add the fields the writer actually uses (`acted_at`, `passed_at`, `rejected_at`, `last_feedback_action`, `last_feedback_at`, `last_feedback_note`). Decide: does the writer keep using raw `update_one` or switch to `model_dump()`? — see open question Q1. | `app/models/monitored_stock.py`; possibly `app/services/monitored_stocks_audit_service.py` | A1, A14 |
+| A2 | `digest_delivery._send_email` re-implements Resend. Extend `notify.email()` to accept an optional plain-text body for multipart, then refactor `_send_email` to delegate. Mirrors what F2b did for ntfy. | `app/services/notify.py`, `app/services/digest_delivery.py` | A2 |
+| A3 | `SignalScore.raw_value` is written with the normalized score (`f"{score:.2f}"`) instead of the raw fundamental input. Decision needed on shape: rename field to `normalized_value` and add a real `raw_value`, vs keep name and fix the writer to store raw. — see open question Q2. | `app/services/scoring_service.py`, possibly `app/models/suggestion.py` | A3, A4 |
+| A4 | News signal raw values (`net_sentiment`, `story_velocity`, `story_count`) not persisted post-run. Frontend shows normalized only. Bundled with A3. | `app/services/scoring_service.py`, `app/services/news_signals.py` | A4 |
+| A5 | Outdated comment in `DEFAULT_CONFIG.gates` saying earnings_proximity is "always 'skipped' in buy-side responses ... until then" — F14 chunk 5 already wires it. Delete comment. | `app/services/scoring_service.py` | A5 |
+| A6 | `CRON_REGISTRY` `weekly_suggestions` `schedule_human` says "Sunday 06:00 IST" but actual cron is 07:00. Fix to "Sunday 07:00 IST". | `app/services/cron_heartbeat_service.py` | A6 |
+| A7 | `SATURDAY = {5}` weekday-set constant unused. Remove. | `app/services/cron_heartbeat_service.py` | A7 |
+| A8 | Dead `app/models/news_article.py` — verify no imports, delete. | `app/models/news_article.py` | A8 |
+| A13 | `refresh_instruments.py` docstring + comments say "from Zerodha Kite" but implementation is NSE EQUITY_L.csv. Fix doc. | `scripts/refresh_instruments.py` | A13 |
+| A16 | Verify EC2 cron line for `fetch_news_for_universe.py` passes `--include-held`. If not, swap the line. Manual EC2 step. | EC2 `crontab -l` | A16 |
+| A17 | Stale pre-chunk-6 comment in `_run_sell_pipeline` warning about "TWO digests if both run with notify=True". Delete comment. | `app/services/suggestion_engine.py` | A17 |
+| A18 | `enrich_run` page_intro is still buy-centric for sell runs (intro text only; gates/signals/group_meta populate correctly). Add `PAGE_INTRO_SELL` literal + branch. Small additive backend patch. | `app/services/explainability.py` | (formerly in Section 18 — restored as A18) |
 
-3. PROJECT_STATE.md rewrite (chunk 8 in Chat 4 plan):
-   - This document IS that rewrite (partial — produced at the close of Chat 4 due to context loss). Next chat may further consolidate.
+Manual EC2 steps (not committable; one-time):
+- Confirm Sunday 07:00 IST cron line uses `--direction=both --notify --run-type scheduled`.
+- Confirm Sunday 06:30 IST `fetch_news_for_universe.py` line uses `--include-held` (A16).
+- Stop + disable self-hosted private ntfy service: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`. Confirm no remaining consumers first: `grep -r "push_private" app/`.
 
-4. ONE-TIME EC2 STEPS (manual, not committable):
-   - Update Sunday crontab line to use `--direction=both` (see Section 9).
-   - Stop + disable self-hosted private ntfy service: `sudo systemctl stop ntfy && sudo systemctl disable ntfy` (F2b leftover).
+Open questions blocking Chat 5 execution:
+- Q1: When fixing A1, should the writer be migrated to `MonitoredStock(**doc).model_dump()` or stay on raw `update_one`?
+- Q2: Shape for A3 — (a) rename `raw_value` → `normalized_value` and add a new `raw_value` carrying the raw input, or (b) keep field name and just fix the writer to store raw?
+- Q3: `holdings.stop_loss` is unconsumed (orphan). `target_price` got wired into F2 sell-side scoring during Chat 4; should `stop_loss` be wired similarly (e.g., to a new intraday-price-watcher cron that pushes ntfy alerts when crossed), or removed from the model?
 
-#### F1. Ad-hoc chat about suggestions (Chat 5)
+Doc deliverables (after all code commits):
+- `docs/data_flow.md` — full rewrite covering Phase 2 collections, crons, invariants, ntfy channel split with `"digests"`, F4 cron observability, F6/F5b/F10 stateful feedback, F14 earnings refresh semantics, F2 direction semantics, F2b digest delivery.
+- `README.md` (backend) — rewrite to reflect what actually shipped (currently calls Phase 2 "what's next" with stale ordering); document all current endpoints, collections, crons.
+- `README.md` (frontend) — add `/suggestions` to routes table, document Suggestions header button, refresh "what's next" section.
+
+#### Chat 6 — Chat features (F1 + F3)
+F1 — Ad-hoc chat about suggestions:
 - A chat surface accessible from the Suggestions page where the user can ask the configured AI models questions about the current suggestions
 - Purpose: improve suggestions for personal use by interrogating the model
 - Uses Sonnet via Anthropic SDK
@@ -1878,13 +1032,14 @@ Remaining work to close F2 fully:
 - System prompt seeded with the current SuggestionRun JSON so the model has context
 - Same conversational infrastructure as F3 — ship together
 
-#### F3. Ad-hoc chat about a specific holding (Chat 5)
+F3 — Ad-hoc chat about a specific holding:
 - A chat surface accessible from each holding's detail page
 - User pastes a tip from family/friend; the model analyzes it in context (cost basis, current price, recent news, sector, position size) and gives a non-prescriptive view
 - Shares conversational infrastructure with F1
 - System prompt seeded with the holding's full state + recent news + portfolio context
 
-#### F12. Concentration & risk dashboard (Chat 6)
+#### Chat 7 — Portfolio intelligence (F12 + F15)
+F12 — Concentration & risk dashboard:
 - New endpoint `/portfolio/risk-summary` that returns alerts:
   - Single-stock concentration > 15%
   - Sector concentration > 30%
@@ -1893,17 +1048,17 @@ Remaining work to close F2 fully:
 - Maps to "avoid mistakes" lever — over-concentration is how most retail loses money
 - Bundled with F15
 
-#### F15. Tag-based portfolio views (Chat 6)
+F15 — Tag-based portfolio views:
 - The `holdings.tags` field already exists and is editable; nothing consumes it
 - Add: backend filtering + aggregation by tag, frontend filter chips on dashboard
 - Aggregate performance by tag (are "high-conviction" picks actually beating "tactical" picks?)
 - F2 sell-side respects tags: "long-term-compounder" only suggests sell on extreme overvaluation
 - Bundled with F12
 
-#### F13. Watchlist (extends suggestions universe) (Chat 7)
+#### Chat 8 — Watchlist (F13)
 - Ability to put any NSE/BSE stock on a watchlist
-- New `status="watchlist"` value in `monitored_stocks`
-- `build_universe` becomes: NIFTY 100 ∪ watchlist − held − excluded
+- New `status="watchlist"` value in `monitored_stocks` (already covered by A1 model update if A1 includes it)
+- `build_universe` becomes: NIFTY 100 ∪ watchlist ∪ held − excluded
 - Watchlist stocks go through same scoring, same gates, same dossiers — no special-case logic
 - IMPORTANT: `refresh_fundamentals.py` must be extended to include watchlist ISINs (currently NIFTY 100 + held only after F14)
 - IMPORTANT: `fetch_news_for_universe.py` must be extended similarly
@@ -1911,7 +1066,8 @@ Remaining work to close F2 fully:
 - Future chat features (F1/F3) can reference watchlist stocks
 - Shipped after F2 so the universe-extension pattern is established
 
-#### F11. Capital gains pack (re-scoped from FY tax pack) (Chat 8)
+#### Chat 9 — Pre-launch cleanup (F11 + realized P&L hide)
+F11 — Capital gains pack (re-scoped from FY tax pack):
 - Small reformatter on top of existing transactions + `recompute_holding` data
 - Surfaces STCG/LTCG by FY, with per-trade breakdown
 - New endpoint `GET /tax/capital-gains?fy=YYYY-YY`
@@ -1919,32 +1075,15 @@ Remaining work to close F2 fully:
 - No new computation — everything is already produced by FIFO
 - Useful for CA at year end
 
-#### Realized P&L UI hiding (small cleanup, bundled in Chat 8)
+Realized P&L UI hiding (small cleanup):
 - Remove `realized_pnl` stat card from dashboard
 - Remove `realized_pnl` row from holding detail
 - Remove "Exited holdings" surface from main nav (still accessible via transactions search)
 - KEEP `realized_pnl` on reconciliation page (debugging aid for drift alerts)
 - KEEP all backend computation untouched (structural; FIFO produces it as a side-effect)
 
-#### F5c. Tech debt commit (Chat 8)
-- `monitored_stocks.status` Literal vs actual writes mismatch: update model to `Literal["tracking", "passed", "rejected", "watchlist"]` and add the fields the writer actually uses
-- ADD direction column to `monitored_stocks` if direction-agnostic feedback bites in practice (see Section 18)
-- Delete dead `app/models/news_article.py` after confirming no imports
-- Update `docs/data_flow.md` to document Phase 2 collections and invariants (including F6/F5b/F10 from Chat 3 and F2/F2b/F14 from Chat 4)
-- Reconcile two-paths drift: `digest_delivery.py` has its own copy of Resend + ntfy code rather than using `notify.py` wrappers — pick one path
-- Fix the digest sell-side Q/V/M/N=0 cosmetic bug if not fixed earlier in Chat 4 continuation
-- Bundled with F5d in Chat 8
-
-#### F5d. README updates (Chat 8)
-- Backend README still says Phase 2 is "what's next" with the old 2.1/2.2/2.3/2.4 ordering — rewrite to reflect what actually shipped
-- Frontend README review
-
-#### F7. One-time real data import — DONE LAST (Chat 9)
-
-This is intentionally the final chat.
-Reason: every preceding chat will create test artifacts (test feedback rows, test SELL transactions, test conversations, test heartbeats, etc.).
-If we load real data first, every test session corrupts production state.
-Loading last means F7 becomes the natural reset button — every test artifact gets wiped clean as part of going live.
+#### Chat 10 — GO LIVE (F7 one-time real data import)
+This is intentionally the final chat. Reason: every preceding chat will create test artifacts (test feedback rows, test SELL transactions, test conversations, test heartbeats, etc.). If we load real data first, every test session corrupts production state. Loading last means F7 becomes the natural reset button — every test artifact gets wiped clean as part of going live.
 
 Design:
 - Backend-only wrapper script `refresh_from_icici.py` (no UI — agreed overkill for one-time use)
@@ -1955,7 +1094,7 @@ Design:
 - Other collections (`monitored_stocks`, `monitored_stocks_audit`, `conversations`, `cost_basis_adjustments`, `user_profile`, `instruments_fundamentals`, `earnings_calendar`, `prices_daily`, `prices_intraday`, etc.) are NOT wiped — they're either re-seeded automatically (cost basis) or contain valid history we want to keep
 - After go-live, ALL future trades go through the Buy/Sell UI (which writes through `validate_replay`, audit, and `recompute_holding`). Never re-run this script except for a deliberate full reset.
 
-Chat 9 is really a checklist, not a feature build:
+Chat 10 is really a checklist, not a feature build:
 1. Pull latest ICICI Order Book CSVs (one per FY)
 2. Pull current ICICI Demat Holdings snapshot (for reconciliation target numbers)
 3. Run wrapper script (wipes by default)
@@ -1965,7 +1104,7 @@ Chat 9 is really a checklist, not a feature build:
 7. Confirm dashboard, holdings, drill-down, suggestions all show real data
 8. Run first real `run_weekly_suggestions.py --direction=both` and verify email arrives
 
-The wrapper script itself is ~50 lines of glue; can be written at the start of Chat 9.
+The wrapper script itself is ~50 lines of glue; can be written at the start of Chat 10.
 
 ### Final chat split plan
 
@@ -1973,25 +1112,24 @@ The wrapper script itself is ~50 lines of glue; can be written at the start of C
 |---|---|---|---|
 | 2 | Cron observability | F4 + F5a | SHIPPED 2026-05-16 |
 | 3 | Stateful suggestions | F6 + F5b + F10 | SHIPPED 2026-05-17 |
-| 4 | Sell-side suggestions | F2 + F2b + F14 | BACKEND SHIPPED 2026-05-18 (partial); frontend + digest bug + EC2 crontab swap + private ntfy decommission pending in CONTINUATION CHAT |
-| 4.5 | Sell-side frontend | F2 frontend + digest sell-side bug fix + EC2 crontab swap + private ntfy decommission | NEXT |
-| 5 | Chat features | F1 + F3 | open |
-| 6 | Portfolio intelligence | F12 + F15 | open |
-| 7 | Watchlist | F13 | open |
-| 8 | Pre-launch cleanup | F11 + realized P&L hide + F5c + F5d | open |
-| 9 | GO LIVE | F7 one-time real data import | open |
+| 4 | Sell-side suggestions | F2 + F2b + F14 + F2 frontend + F2b digest cosmetic fix | SHIPPED 2026-05-17/18/20 |
+| 5 | Audit + cleanup | A1-A18 bug fixes, data_flow.md rewrite, README refresh, PROJECT_STATE refresh | IN PROGRESS 2026-05-20 |
+| 6 | Chat features | F1 + F3 | open |
+| 7 | Portfolio intelligence | F12 + F15 | open |
+| 8 | Watchlist | F13 | open |
+| 9 | Pre-launch cleanup | F11 + realized P&L hide | open |
+| 10 | GO LIVE | F7 one-time real data import | open |
 
-After Chat 4 (partial), Chat 4.5 + 5 working chats + 1 import chat remain.
+After Chat 5, 4 feature chats + 1 import chat remain.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
-The assistant has confused these multiple times in past chats.
-Memorize them.
+The assistant has confused these multiple times in past chats. Memorize them.
 
 - Port 8001 (Mac local), port 8000 (EC2). Always specify which.
 - SSH-first for tests: every test block in chat MUST begin with `ssh ubuntu@100.112.20.41` and run curls against `localhost:8000` from inside the box. Do not give curls against the Tailscale IP from the Mac. Standing convention from Chat 3.
-- Commit-block-after-code: every code/file delivery in chat MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block, written in the project's existing commit-message style (subject ≤72 chars, optional body bullets). Standing convention from Chat 3.
-- PROJECT_STATE.md is ALWAYS delivered as a complete full-file replacement, never as a patch, find-and-replace, or "rest unchanged", no matter how small the edit. This is non-negotiable and overrides any default preference for find-and-replace tooling. Standing convention from Chat 3.
+- Commit-block-after-code: every code/file delivery in chat MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block, written in the project's existing commit-message style (subject 72 chars, optional body bullets). Standing convention from Chat 3.
+- Project_State.md is ALWAYS delivered as a complete full-file replacement, never as a patch, find-and-replace, or "rest unchanged", no matter how small the edit. This is non-negotiable and overrides any default preference for find-and-replace tooling. Standing convention from Chat 3.
 - F6 two-mechanism feedback exclusion is intentional and both are required:
   - `get_excluded_isins` runs at **run-build time** — saves Tavily + Sonnet cost by not scoring excluded ISINs in the first place.
   - `user_action` stamping in `enrich_candidate` (via `_build_user_action`) runs at **serialization time** — handles the stale-cached-run case (Sunday run viewed Tuesday after Monday's feedback) where the persisted `top_candidates` already includes ISINs the user has since acted on.
@@ -2007,13 +1145,13 @@ Memorize them.
 - Datetimes: UTC-naive in Mongo. IST in UI. `utcnow()` from `app/models/_common.py`. Watch for naive-vs-aware errors — the codebase has hit this multiple times.
 - Heredoc for multi-line Python in shell: use `<<'EOF'` form, NOT nested `bash -c "..."`.
 - Original `SuggestionCard` takes parent-owned mutation via `onFeedback` callback and `feedbackPending` prop. Mutation lives in parent. Do not redesign.
-- `/suggestions` page uses shadcn Tabs. Do not replace with custom button toggles. Existing card structure: top bar with back link, header with refresh, error/empty/loading states, then Tabs with three values: `"latest"` / `"performance"` / `"history"`. Performance and history tabs use `enabled: activeTab === "..."`.
+- `/suggestions` page uses shadcn Tabs. Do not replace with custom button toggles. Existing card structure: top bar with back link, header with refresh, error/empty/loading states, direction-row card with buy/sell Tabs (F2 frontend chunk 7), then activeTab Tabs with three values: `"latest"` / `"performance"` / `"history"`. Performance and history tabs use `enabled: activeTab === "..."`.
 - Original `SuggestionCard` has helpers `Section`, `DossierSection`, `GroupBar`, etc. inline at the bottom of the same file. Keep them or evolve them; don't extract or rename without reason.
 - Tailwind v4 + shadcn `.dark` class pickup is automatic — don't add explicit `useTheme` calls just to flip colors.
 - Every cron script registered on EC2 must be wrapped in `cron_run("<name>")` from `app.services.cron_heartbeat_service` AND have a matching `CronSpec` in `CRON_REGISTRY` AND have a crontab entry with log file redirection. All three. (F4 contract.)
+- Direction-aware display layer: when the same data shape carries both buy and sell rows, branch on direction at the display layer rather than forking the model. Examples shipped in F2/F2b: `digest_delivery._format_score_breakdown(candidate, group_meta_lookup)` (branches on which group fields are present), `suggestion-card.tsx` `isSellSide = Boolean(groupMeta?.booking_opportunity)`. Do NOT add a parallel `SellCandidateScore` model with first-class sell fields — that's the parallel-pattern trap.
 
 ### Chat 4 additions
-
 - **DO NOT trust Glean snippets or memory for dataclass / Pydantic model field names.** BEFORE writing any patch that constructs `Foo(field=...)`, run `grep -B 2 -A 20 "class Foo" <file_path>` on the actual file on disk (EC2 or local repo). Three drifts in Chat 4 for `CronSpec` (`job_name` → `name` → `cron_name`, all wrong before the fourth attempt). Glean snippets often surface call sites or docstrings that LOOK like field definitions; only the `@dataclass` body is authoritative. Same rule for `_Heartbeat`, `CandidateScore`, `EarningsEvent`, etc.
 - **`cron_run()` yields a `_Heartbeat` object that exposes `.meta` as an ATTRIBUTE, not `__setitem__`.** Use `ctx.meta = {...}` (full replace) or `ctx.meta[key] = value` (per-key set). `ctx["meta"] = ...` raises `TypeError: '_Heartbeat' object does not support item assignment`. Three call sites in `run_weekly_suggestions.py` had this bug; fixed in chunk 6.2.
 - **The `/cron/heartbeats` endpoint returns `{heartbeats, health_summary}`, not `{registry, recent}` or `{jobs}`.** Each `health_summary` row has `cron_name`, `description`, `schedule`, `expected_today`, `min_runs_per_day`, `last_run_at`, `last_status`, `last_error`, `today_total`, `today_success`, `today_failure`, `today_skipped`, `healthy`. Each `heartbeats` row has `cron_name`, `started_at`, `finished_at`, `status`, `error`, `metadata`. The assistant wrote tests using three different wrong key names in Chat 4 before getting it right.
@@ -2022,8 +1160,7 @@ Memorize them.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
-These have caused real rework.
-Avoid.
+These have caused real rework. Avoid.
 
 - Full-file rewrites instead of additive patches. Once file is long, rewrite invites drift and inflates diff. For `lib/api.ts` specifically: always patch additively unless explicitly asked. EXCEPTION: PROJECT_STATE.md is always full-file (Section 14 standing convention).
 - Inventing parallel patterns. If page uses shadcn Tabs, don't introduce a custom Toggle. If card uses parent-owned mutations, don't switch to internal mutations.
@@ -2044,10 +1181,12 @@ Avoid.
 - Confusing the two F6 mechanisms (`get_excluded_isins` at run-build vs `_build_user_action` at serialization) or treating one as redundant. Both are required.
 
 ### Chat 4 additions
-
 - **Guessing dataclass / model field names from Glean snippets without `grep`ing the file on disk first.** Three `CronSpec` drifts in Chat 4 (`job_name`, `name`, then correct `cron_name`) plus one `_Heartbeat` drift (`ctx["meta"]` vs correct `ctx.meta`). Each rebound consumed user context. THE FIX IS: BEFORE writing `Foo(field=value)`, run `grep -B 2 -A 20 "class Foo" <file>` on the actual on-disk file. No exceptions for "small" patches.
 - **Writing multi-chunk plans that span >3 chunks without re-reading every touched file at HEAD before each chunk.** Chat 4 had a 6-chunk plan; chunks 2 / 3.1 / 4 / 6 all required mid-chunk recovery patches because the assistant wrote from memory of files read at the start. Pattern: re-read EVERY touched file at HEAD at the start of each chunk, even if read earlier in the chat.
 - **Writing the same test block with three different wrong API response shapes for `/cron/heartbeats`.** The endpoint returns `{heartbeats, health_summary}` — verifiable in one `code_search` call. The assistant called it `{registry, recent}`, `{jobs}`, then finally checked. Test shapes are part of the API contract; don't guess.
+
+### Chat 5 additions
+- **Trusting PROJECT_STATE.md as the source of truth for "what's open" without verifying against code.** Chat 5's first action was to re-read every file in both repos at the pinned SHAs. Five items PROJECT_STATE listed as open were already shipped (F2 frontend chunk 7, Q/V/M/N digest bug, target_price wiring, track_suggestion_outcomes docstring time, top_k CLI doc). PROJECT_STATE is updated end-of-chat; if the previous chat truncated before writing it, claims drift. RULE: when starting a chat, after reading PROJECT_STATE, do a code audit of every "open" item against the actual on-disk code at HEAD before estimating work.
 
 ## Section 16: "I am losing context" — escalation protocol
 
@@ -2057,14 +1196,13 @@ When the assistant notices ANY of the following symptoms, it must say verbatim:
 I AM LOSING CONTEXT
 ```
 
-so the user can switch to a new chat.
-Better to escalate early than ship a broken commit.
+so the user can switch to a new chat. Better to escalate early than ship a broken commit.
 
 ### Triggers (any one is sufficient)
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4) shipped which feature (F4, F5a, F6, F5b, F10, F2, F2b, F14)
+- Forgetting which Chat (2, 3, 4, 5) shipped which feature (F4, F5a, F6, F5b, F10, F2, F2b, F14)
 - Producing a file significantly larger than the original (>1.5x line count) without an explicit reason
 - Starting to use generic patterns (e.g., shadcn defaults) instead of project conventions (e.g., the project's existing Section, GroupBar, DossierSection)
 - Forgetting the port difference between Mac and EC2
@@ -2075,15 +1213,12 @@ Better to escalate early than ship a broken commit.
 - The assistant has called glean_document_reader or code_search more than ~15 times in a single chat without converging
 - The "Truncation Notice" appears in the assistant's context (the system tells the assistant earlier messages were dropped)
 - The assistant is about to produce a third large code artifact and is unsure whether prior decisions still apply
-- Chat 4 trigger added: the assistant has shipped two or more patches with WRONG field names in the same chat (e.g., guessing dataclass fields without grepping)
-- Chat 4 trigger added: the assistant has shipped a test block with a WRONG API response shape and had to revise it
+- Chat 4 trigger: the assistant has shipped two or more patches with WRONG field names in the same chat (e.g., guessing dataclass fields without grepping)
+- Chat 4 trigger: the assistant has shipped a test block with a WRONG API response shape and had to revise it
+- Chat 5 trigger: the assistant has claimed an "open" item is open without re-reading the on-disk code, when the user could verify in one shell command
 
 ### What "switching chats" means
-The user copies the bootstrap prompt from Section 0 into a fresh chat.
-The new chat reads PROJECT_STATE.md first, then both repos at HEAD, then `docs/data_flow.md`, then READMEs.
-The user states the scope.
-The assistant summarizes back.
-Only then does coding start.
+The user copies the bootstrap prompt from Section 0 into a fresh chat. The new chat reads PROJECT_STATE.md first, then both repos at HEAD, then `docs/data_flow.md`, then READMEs. The user states the scope. The assistant summarizes back. Only then does coding start.
 
 The new chat is responsible for updating PROJECT_STATE.md at the end of its work, as the last commit, so the next chat is bootstrapped from current state.
 
@@ -2094,9 +1229,7 @@ The new chat is responsible for updating PROJECT_STATE.md at the end of its work
 
 ## Section 17: "Am I hallucinating?" diagnostic questions
 
-If the user suspects the assistant has drifted, the user can ask any of these.
-The assistant should be able to answer all correctly without re-reading.
-If any wrong, switch chats.
+If the user suspects the assistant has drifted, the user can ask any of these. The assistant should be able to answer all correctly without re-reading. If any wrong, switch chats.
 
 - "What's the backend port on Mac local?" → 8001
 - "What's the backend port on EC2?" → 8000
@@ -2115,7 +1248,7 @@ If any wrong, switch chats.
 - "What does the user prefer: `refetchQueries` or `invalidateQueries`?" → `refetchQueries` (synchronous)
 - "What is the sell endpoint's response shape?" → Either full updated `Holding` doc (partial sell) or `{message, realized_total}` (full exit). Discriminated via type guard on `_id`.
 - "Is dividend tracking part of this project?" → No. Dropped. Dividends settle to user's bank account; this tool is not an accounting system.
-- "When does F7 (real data import) run in the chat sequence?" → Last. Chat 9. After all features are built and tested, so test pollution gets wiped on go-live.
+- "When does F7 (real data import) run in the chat sequence?" → Last. Chat 10. After all features are built and tested, so test pollution gets wiped on go-live.
 - "How does a cron register itself with the F4 health system?" → Wrap `main()` body in `with cron_run("<cron_name>") as hb:` from `app.services.cron_heartbeat_service`, AND add a `CronSpec` entry to `CRON_REGISTRY` in the same file, AND add the crontab line on EC2 with log file redirection. All three are required.
 - "Where do F4 cron failure alerts go?" → `push_public("errors", ...)` on public ntfy.sh, topic = `NTFY_PUBLIC_TOPIC_ERRORS`. Same topic value on Mac and EC2 so dev tests reach the phone.
 - "What is the heartbeat schema?" → `{cron_name, started_at, finished_at, status ("success"|"failure"|"skipped"), error, metadata, _schema_version: 1}`. TTL 60 days on `started_at`.
@@ -2125,7 +1258,6 @@ If any wrong, switch chats.
 - "How do test blocks start?" → With `ssh ubuntu@100.112.20.41`, followed by curls against `localhost:8000`.
 
 ### Chat 4 additions
-
 - "What are the fields on `CronSpec`?" → `cron_name`, `description`, `schedule_human`, `expected_weekdays` (set of IST weekday numbers Mon=0..Sun=6), `min_runs_per_day` (default 1). NOT `name`, NOT `job_name`, NOT `schedule_cron`, NOT `crontab`, NOT `max_age_hours`.
 - "How do you set metadata on a `_Heartbeat`?" → `ctx.meta = {...}` (full replace) or `ctx.meta[key] = value`. `_Heartbeat` is the object yielded by `cron_run()`. It exposes `.meta` as an ATTRIBUTE, not `__setitem__`. `ctx["meta"] = ...` raises TypeError.
 - "What's the response shape of `/cron/heartbeats`?" → `{heartbeats: [...], health_summary: [...]}`. NOT `{registry, recent}`. NOT `{jobs}`.
@@ -2136,62 +1268,76 @@ If any wrong, switch chats.
 - "What's the sell-side gate set?" → `in_profit` (unrealized P&L >= 0%), `min_position_age` (held >= 30 days), `earnings_proximity` (> 5 days from next earnings). NOT `high_severity_negative_news` — that's a SIGNAL in the sell `risk` group, not a gate.
 - "How does `compute_system_performance(direction='sell')` handle excess_return?" → It SIGN-FLIPS `excess_return` per outcome before aggregating, so "higher avg_excess_return_pct = engine helpful" framing is consistent regardless of side.
 
+### Chat 5 additions
+- "Is F2 frontend (Buy/Sell tabs + sell-side dossier rendering) shipped?" → Yes, verified at frontend SHA `e34e126`. Buy/Sell tabs in `app/suggestions/page.tsx`, `isSellSide` branch in `suggestion-card.tsx` for group bars and dossier fields.
+- "Is the Q/V/M/N=0 sell-digest cosmetic bug fixed?" → Yes, fixed 2026-05-20 in commit `cea8eee` via direction-aware `digest_delivery._format_score_breakdown`. Sell rows now render `Book / Stretch / Risk / Tax-Conc` from `group_meta` lookup.
+- "Is `target_price` consumed anywhere?" → Yes, F2 Chat 4 wired it into sell-side scoring as `target_price_proximity` signal in the `booking_opportunity` group, weight 0.15. `stop_loss` is still orphan (open question Q3).
+- "Has `digest_delivery._send_email` been reconciled with `notify.email()` like the ntfy path was in F2b?" → No, still has inline `import resend; resend.api_key = ...`. Open as Chat 5 fix A2. The reconciliation requires extending `notify.email()` to accept an optional plain-text body for multipart.
+- "Is the on-disk filename `PROJECT_STATE.md` or `Project_State.md`?" → `Project_State.md` (title case). GitHub paths are case-sensitive; the all-caps form 404s.
+
 ## Section 18: Tech debt registry (filed, not fixed)
 
-Tracked here so nothing gets lost.
-Cleared as part of Chat 8 (F5c + F5d) unless explicitly fixed earlier.
+Tracked here so nothing gets lost. Chat 5 audit refresh — items reclassified, marked FIXED where applicable, new items added.
 
-- `app/models/monitored_stock.py` — `status: Literal["tracking", "promoted_to_holding", "dropped"]` does not match writer reality. Writer uses raw `update_one` so Pydantic is bypassed. After F13 ships, will also need `"watchlist"` value.
-- `monitored_stocks` is DIRECTION-AGNOSTIC (F2 / Chat 4). A user rejecting a SELL suggestion for INFY also suppresses the next BUY suggestion for INFY for 90 days, and vice versa. Acceptable for v1 (both interpretations are defensible). Add a `direction` column to `monitored_stocks` if it bites in practice — at which point F6 needs a partial rewrite to look up per-direction state.
-- `app/models/news_article.py` — Older parallel model. Live model is `app/models/news.py`. Pick one and delete the other.
-- `docs/data_flow.md` — Dated 2026-05-09. Missing Phase 2 collections and invariants (including F6/F5b/F10 from Chat 3 and F2/F2b/F14 from Chat 4). Update during F5c.
-- `digest_delivery.py` has its own inline copies of Resend + ntfy code instead of using `notify.py` wrappers. Two paths. Pick one.
-- `dossier_service.py` `valuation_verdict` is a single string with both label and rationale. To color-code labels, split into `valuation_label` and `valuation_rationale`. Defer until UI needs it.
-- `SignalScore.raw_value` is misnamed — stores normalized 0-100 score, not raw fundamental value. `explainability.py` fetches raw values from `instruments_fundamentals` at API enrichment time as workaround.
-- News signal raw values (`net_sentiment`, `story_velocity`, `story_count`) not persisted post-run. Frontend shows normalized only. Fix would require persisting `news_signals_by_isin` in SuggestionRun.
-- Backend `README.md` stale (Phase 2 "what's next" with old ordering).
-- `top_k` default in `scoring_service.DEFAULT_CONFIG` is 10 (correct). CLI script docstring example shows `--top-k 5` which is misleading.
-- `holdings.stop_loss` field is editable in UI but nothing consumes it. (`target_price` is now consumed by sell-side as of F2 / Chat 4.) Either wire `stop_loss` to ntfy alerts (intraday price refresh comparison) or remove. Decide during cleanup.
-- `app/services/cron_heartbeat_service.py` has an unused `SATURDAY` weekday-set constant (kept in case fundamentals ever move back to Saturday). Trivial — remove during F5c if still unused.
-- `scripts/track_suggestion_outcomes.py` docstring header still says "Daily 18:30 IST" inside a parenthetical, even though the cron actually runs at 19:45 IST. Cosmetic — fix during F5c.
+| ID | Item | Status | Chat target |
+|---|---|---|---|
+| A1 | `app/models/monitored_stock.py` — `status: Literal["tracking", "promoted_to_holding", "dropped"]` does not match writer reality. Writer uses raw `update_one` so Pydantic is bypassed. After F13 ships, will also need `"watchlist"` value. Model also lacks `acted_at`, `passed_at`, `rejected_at`, `last_feedback_action`, `last_feedback_at`, `last_feedback_note` fields that the writer adds. Now actively load-bearing for F6/F5b filters via raw projection. | OPEN | Chat 5 |
+| A2 | `digest_delivery._send_email` has inline `import resend; resend.api_key = ...; resend.Emails.send(...)` instead of calling `notify.email()`. The ntfy path was reconciled in F2b (now calls `push_public("digests", ...)`). `notify.email()` currently only accepts `subject/html/to` — fix needs to extend it to accept an optional plain-text body for multipart. | OPEN | Chat 5 |
+| A3 | `SignalScore.raw_value` stores normalized 0-100 score (`f"{score:.2f}"` from `composite_for_candidate`) instead of raw fundamental input. Model has both `raw_value` AND `normalized_score` fields; bug is that scoring writes the normalized value into both. `explainability.py` fetches raw values from `instruments_fundamentals` at API enrichment time as workaround. | OPEN | Chat 5 |
+| A4 | News signal raw values (`net_sentiment`, `story_velocity`, `story_count`) not persisted post-run. Frontend shows normalized only. Fix would require persisting `news_signals_by_isin` in SuggestionRun. Related to A3 — same writer location. | OPEN | Chat 5 |
+| A5 | Outdated comment in `scoring_service.DEFAULT_CONFIG.gates` says earnings_proximity is "always 'skipped' in buy-side responses ... until then" — F14 chunk 5 already wires it. Delete comment. | OPEN | Chat 5 |
+| A6 | `CRON_REGISTRY` `weekly_suggestions` `schedule_human="Sunday 06:00 IST"` but actual cron line is `0 7 * * 0` (07:00 IST). Cosmetic (field is human-readable metadata, not parsed) but feeds `/cron/heartbeats` display. | OPEN | Chat 5 |
+| A7 | `app/services/cron_heartbeat_service.py` `SATURDAY = {5}` weekday-set constant unused. Remove. | OPEN | Chat 5 |
+| A8 | `app/models/news_article.py` — older parallel model. Live model is `app/models/news.py`. Pick one and delete the other. Nothing imports the dead file. | OPEN | Chat 5 |
+| A13 | `scripts/refresh_instruments.py` docstring and some comments say "refreshes from Zerodha Kite" but actual implementation is `refresh_from_nse()` reading NSE's official `EQUITY_L.csv`. Backend README also wrong on this. | OPEN | Chat 5 |
+| A14 | `monitored_stocks` partial unique index `partialFilterExpression={"status": "tracking"}` is load-bearing on the writer drift in A1 — the index only works because the writer flips status away from `"tracking"` on passed/rejected. When A1 is fixed, decide whether this index semantics should change. | OPEN | Chat 5 (paired with A1) |
+| A16 | `scripts/fetch_news_for_universe.py` default universe excludes held stocks (`get_universe_for_news` filters them out unless `--include-held` is passed). Sell-side news scoring needs them. Verify EC2 cron line. | OPEN | Chat 5 (verify on EC2) |
+| A17 | Pre-chunk-6 comment in `_run_sell_pipeline` saying "if both buy and sell are run with notify=True ... the user gets TWO digests" is stale — chunk 6 `--direction=both` umbrella combines into one digest. | OPEN | Chat 5 |
+| A18 | `enrich_run` page_intro is buy-centric even when `run.direction == "sell"`. The page renders correctly otherwise (gates, signals, group_meta all populate from the catalogs), but the introductory text talks about buying. | OPEN | Chat 5 (small additive backend patch: PAGE_INTRO_SELL literal + branch) |
+| TD1 | `monitored_stocks` is DIRECTION-AGNOSTIC (F2 / Chat 4). A user rejecting a SELL suggestion for INFY also suppresses the next BUY suggestion for INFY for 90 days, and vice versa. Acceptable for v1 (both interpretations are defensible). Add a `direction` column to `monitored_stocks` if it bites in practice — at which point F6 needs a partial rewrite to look up per-direction state. | DEFERRED | Decide post-launch |
+| TD2 | `docs/data_flow.md` — Dated 2026-05-09. Missing Phase 2 collections and invariants (including F6/F5b/F10 from Chat 3 and F2/F2b/F14 from Chat 4). | OPEN | Chat 5 (after bug fixes) |
+| TD3 | `dossier_service.py` `valuation_verdict` is a single string with both label and rationale. To color-code labels, split into `valuation_label` and `valuation_rationale`. Defer until UI needs it. | DEFERRED | Future UI work |
+| TD4 | Backend `README.md` stale (Phase 2 "what's next" with old ordering, omits all Phase 2 collections + endpoints + crons, says "Zerodha Kite" per A13). | OPEN | Chat 5 (after bug fixes) |
+| TD5 | Frontend `README.md` missing `/suggestions` route from routes table, missing the "Suggestions" header button. | OPEN | Chat 5 (after bug fixes) |
+| TD6 | `holdings.stop_loss` field is editable in UI but nothing consumes it. (`target_price` is now consumed by sell-side as of F2 / Chat 4.) Either wire `stop_loss` to ntfy alerts (intraday price refresh comparison) or remove. | OPEN | Chat 5 (decision Q3) |
+| TD7 | `CandidateScore` has fixed buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`). For first-class sell-side group score fields (`booking_opportunity_score`, etc.) we'd need a model schema bump. Currently handled via display-layer branching (Section 14). Defer to F5c or until the digest+UI need them rendered as colored bars rather than text. | DEFERRED | Post-launch |
+| TD8 | EC2 self-hosted private ntfy service still running but no longer used by `digest_delivery` after F2b. Pending one-time decommission: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`. Confirm no other consumers first (`grep -r "push_private" app/`). | OPEN | Chat 5 (manual EC2 step) |
 
-### Chat 4 additions
-
-- **DIGEST SELL-SIDE Q/V/M/N BUG (real, user-confirmed):** `digest_delivery._format_email_html` (single-direction sell digest) and `_format_section_html`/`_format_section_text` (sell section of combined digest) hard-code per-candidate `Q={c.quality_score:.0f} V={c.valuation_score:.0f} M={c.momentum_score:.0f} N={c.news_score:.0f}`. For sell-side rows, `CandidateScore` has those fields at 0.0 because sell-side group scores live separately (booking_opportunity/valuation_stretch/risk/tax_concentration). User received email at 2026-05-18 15:56 IST showing `Q=0 V=0 M=0 N=0` for every LT/TATASTEEL/NTPC/... entry. Quick fix: branch on direction and either (a) omit the Q/V/M/N line for sell (composite + confidence already display), or (b) render sell-side group scores from a passed-in `group_meta`. Same fix applies to `_format_email_text` plain-text path. Suggested for early Chat 4.5 (cheaper than waiting for F5c).
-- **CandidateScore has fixed buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`).** For first-class sell-side group score fields (`booking_opportunity_score`, etc.) we'd need a model schema bump. Defer to F5c or until the digest+UI need them rendered as colored bars rather than text.
-- **EC2 crontab Sunday line still uses default `--direction=buy` implicit** (the `--direction` flag was added in Chat 4 but the crontab line was not updated). Until updated, sell-side does NOT run on Sunday cron — only manual `--direction=sell` invocations exercise it. Recommended Chat 4.5 step: update the line to `--direction=both`.
-- **EC2 self-hosted private ntfy service still running** but no longer used by `digest_delivery` after F2b. Pending one-time decommission: `sudo systemctl stop ntfy && sudo systemctl disable ntfy`. Confirm no other consumers first (`grep -r "push_private" app/`).
-- **`enrich_run` page_intro is still buy-centric** even when `run.direction == "sell"`. The page renders correctly otherwise (gates, signals, group_meta all populate from the catalogs), but the introductory text talks about buying. Defer to Chat 4.5 frontend chunk or do a tiny additive backend patch (`PAGE_INTRO_SELL` literal + branch in `enrich_run`).
+### Fixed in earlier chats (kept here for posterity)
+- **DIGEST SELL-SIDE Q/V/M/N BUG** — FIXED 2026-05-20 in commit `cea8eee` via direction-aware `digest_delivery._format_score_breakdown`. Closed.
+- **`scripts/track_suggestion_outcomes.py` docstring "Daily 18:30 IST"** — FIXED. Docstring is now just "Daily cron — snapshot prices for open suggestion outcomes." (no stale time string). Closed.
+- **`top_k` default in `scoring_service.DEFAULT_CONFIG` CLI docstring "--top-k 5" misleading example** — FIXED. `scripts/run_weekly_suggestions.py` was fully rewritten in F2 chunk 6; new docstring has no `--top-k` example at all. Closed.
+- **`holdings.target_price` unused** — half-FIXED. `target_price` is now consumed by F2 sell-side as `target_price_proximity` signal in `booking_opportunity` group, weight 0.15. `stop_loss` is still orphan (TD6).
+- **EC2 crontab Sunday line still uses default `--direction=buy` implicit** — NEEDS VERIFICATION on EC2 during Chat 5 manual steps. The fix is documented (swap line to `--direction=both`) but may already be done.
 
 ## Section 19: How to update this document
 
-This file is updated at the end of every chat as the LAST commit.
-ALWAYS delivered as a complete full-file canvas artifact, never as a patch, diff, or find-and-replace.
-Standing convention from Chat 3; see Section 14.
+This file is updated at the end of every chat as the LAST commit. ALWAYS delivered as a complete full-file canvas artifact, never as a patch, diff, or find-and-replace. Standing convention from Chat 3; see Section 14.
 
 What to update:
-- Section 13 → move shipped items from "open" to "shipped"; add any new open items discovered; advance the chat split plan pointer
-- Section 9 → update cron registry if cron entries were added/changed; document any pending manual EC2 steps
-- Section 14 → add any new convention the assistant drifted on
-- Section 15 → add any new anti-pattern that caused rework
-- Section 16 → add any new triggers that should signal context loss
-- Section 17 → add new diagnostic Q&A if a new fact category emerges
-- Section 18 → add/remove tech debt items
-- Section 12 → add any new Phase 2 invariant introduced
-- Section 11 → add any new Phase 1 invariant introduced (rare; Phase 1 is locked)
-- Section 7 → add new collections; update field lists when models change
-- Section 8 → add new endpoints; update existing endpoint shapes
-- Section 5/6 → add new files; remove deleted files
+- Section 13 — move shipped items from "open" to "shipped"; add any new open items discovered; advance the chat split plan pointer
+- Section 9 — update cron registry if cron entries were added/changed; document any pending manual EC2 steps
+- Section 14 — add any new convention the assistant drifted on
+- Section 15 — add any new anti-pattern that caused rework
+- Section 16 — add any new triggers that should signal context loss
+- Section 17 — add new diagnostic Q&A if a new fact category emerges
+- Section 18 — add/remove tech debt items; reclassify FIXED items into the "Fixed in earlier chats" appendix
+- Section 12 — add any new Phase 2 invariant introduced
+- Section 11 — add any new Phase 1 invariant introduced (rare; Phase 1 is locked)
+- Section 7 — add new collections; update field lists when models change
+- Section 8 — add new endpoints; update existing endpoint shapes
+- Section 5/6 — add new files; remove deleted files
 
 Commit message convention for PROJECT_STATE.md updates:
-
 ```
 docs: update PROJECT_STATE.md after <chat scope>
+
 - <bullet list of sections changed>
 ```
 
-If the chat ended due to context loss (per Section 16), the LAST thing the assistant does before stopping is propose the PROJECT_STATE.md update.
-The user applies it manually since the assistant is no longer reliable.
+If the chat ended due to context loss (per Section 16), the LAST thing the assistant does before stopping is propose the PROJECT_STATE.md update. The user applies it manually since the assistant is no longer reliable.
+
+Chat 5 added rule: when starting a new chat, after reading PROJECT_STATE.md, do a code audit of every "open" item against the actual on-disk code at HEAD before estimating work. PROJECT_STATE is updated end-of-chat; if a previous chat truncated before writing it, claims drift. Chat 5's audit found five claims drifted this way.
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -2199,15 +1345,15 @@ For future-you (or a future assistant) who asks "why is this like this":
 
 - yfinance over Tijori / Screener Pro: yfinance is free and works. Tijori is a future upgrade. Screener.in does NOT have a public Pro API (verified). Apify scraper rejected as TOS-gray and brittle. The `FundamentalsProvider` protocol in `fundamentals_service.py` is designed for swap-in replacement.
 - Confidence is numeric 0-100 with deterministic deductions, not band-only: Bands hide information. Deductions are stored as plain English strings so they render directly.
-- Suggestions run Sunday 06:00 IST (buy) and 07:00 IST (sell after F2): Sunday because Indian market is closed. Morning so user reads with coffee.
+- Suggestions run Sunday 07:00 IST (or 07:30 for sell-only standalone): Sunday because Indian market is closed. Morning so user reads with coffee. Fundamentals and news refresh first (06:00, 06:30) so the suggestion engine reads fresh data.
 - Top-K = 10: Five was initial; user requested 10 mid-build. Engine default and CLI default are both 10.
 - 90-day rejection cooldown for "rejected": Long enough to not nag. Short enough that material change can resurface. Intentionally NOT env-configurable — change the constant in `suggestion_engine.py` in one place if it ever needs to move.
 - Zero cooldown for "passed" (F6): Per user — market conditions change, the same stock can become more relevant next week. "Passed" is "saw it, no opinion right now." Manual mid-week reruns also resurface it — that's intentional (if you're manually rerunning, you want fresh context).
 - "Acted" soft-excludes for 30 days (F5b, F6): This is the ENTIRE acted rule, not a sub-mechanism of a permanent rule. After 30 days, the suggestion can resurface — intentional, because the underlying thesis may have strengthened (system may want to suggest buy-more for a position doing well, or sell-more for one about to give back gains). If the trade actually landed in holdings, the existing held filter in `build_universe` keeps it from resurfacing as a buy suggestion regardless — no special-case needed. The 30-day cap is what closes the acted-but-not-held trap. There is no manual-clear mechanism and we deliberately did not build one (mongosh is the escape hatch if operationally needed).
 - Outcome snapshot ignores `tracking_status` for data collection (Commit A.5): Was filtering on `"open"` only, which silently broke performance measurement.
 - Session-scoped vanish-on-click (Commit B) replaced by persistent backend state (Chat 3 / F6 + F5b + F10): Initial implementation was simple. Chat 3 makes it correct — feedback is durable, audit-trailed, and survives across browser sessions.
-- `digest_delivery.py` having its own Resend/ntfy path: Defer to tech debt commit.
-- Schema drift on `monitored_stocks.status`: Defer to tech debt commit (F5c); rename ripples.
+- `digest_delivery.py` having its own Resend path (after ntfy was reconciled in F2b): Open as A2. The ntfy path was easy because `notify.push_public()` already accepts arbitrary content. The Resend path needs `notify.email()` extended to accept an optional plain-text body for multipart. Deferred until Chat 5.
+- Schema drift on `monitored_stocks.status`: Open as A1 in Chat 5. The decision is whether to also update the writer to use `MonitoredStock(**doc).model_dump()` or stay on raw `update_one` (Q1).
 - `enrich_run` mutates dict in-place AND returns it: Looks weird, works. Input is already a copy.
 - Two-mechanism F6 exclusion (run-build `get_excluded_isins` + serialization-time `_build_user_action`): They do different jobs. Run-build exclusion saves Tavily + Sonnet cost by not scoring excluded ISINs. Serialization-time stamping handles the stale-cached-run case (Sunday run viewed Tuesday after Monday's feedback) where the persisted `top_candidates` already includes ISINs the user has since acted on. Both are needed.
 - F10 read endpoints (`GET /suggestions/{isin}/audit` + `GET /suggestions/feedback/audit/recent`) shipped alongside the write path: Without them the audit is invisible without going to Mongo directly, which defeats F10's motivation.
@@ -2215,8 +1361,8 @@ For future-you (or a future assistant) who asks "why is this like this":
 - Why `valuation_verdict` is one string, not `{label, rationale}`: Sonnet finds it easier per JSON schema. Defer until UI needs color-coding.
 - Why keep `all_candidates` persisted but strip from API: Replay-ability for future re-ranking with new weights. Keep payload light.
 - Dividend tracking dropped (F8): User direction. Dividends settle to bank. This tool is for investment decisions, not accounting.
-- Realized P&L hidden in UI but kept in backend (Chat 8 cleanup): User direction. The math is structural (FIFO produces it for free); the UI was clutter. Reconciliation page keeps it as debug aid for drift alerts.
-- F7 sequenced last (Chat 9): Building features first means lots of test data pollution. F7's wipe-by-default behavior becomes the natural reset to clean state on go-live.
+- Realized P&L hidden in UI but kept in backend (Chat 9 cleanup): User direction. The math is structural (FIFO produces it for free); the UI was clutter. Reconciliation page keeps it as debug aid for drift alerts.
+- F7 sequenced last (Chat 10): Building features first means lots of test data pollution. F7's wipe-by-default behavior becomes the natural reset to clean state on go-live.
 - F8 dropped instead of "do it later": Sahil framed his goal as "grow my money." Dividends auto-arrive in bank; tracking them adds zero decision value. Maintaining a feature that doesn't drive decisions is decoration.
 - F14 folded into F2 instead of standalone: Earnings proximity matters most for sell decisions (timing) and as a small gate on buys (skip near-earnings noise). Doesn't justify its own surface.
 - Watchlist (F13) extends the engine universe, not a separate scoring path: Watchlisted stocks go through the same gates, scoring, and dossiers. Special-casing would create two parallel pipelines to maintain.
@@ -2227,15 +1373,18 @@ For future-you (or a future assistant) who asks "why is this like this":
 - F5a kept user's Sunday cron chain (06:00 fundamentals → 06:30 news → 07:00 suggestions) instead of the originally-proposed Saturday-evening fundamentals + daily-05:00 news + Sunday-06:00 suggestions: User's existing schedule was already well-designed (fundamentals + news ready before the suggestion engine reads them on the same morning). `CRON_REGISTRY` was adjusted to match the existing schedule, not the other way around.
 
 ### Chat 4 additions
-
 - F2b (digests on public ntfy.sh): the self-hosted ntfy on Tailscale Funnel was poll-based on iOS and silently dropped digests for days at a stretch. Public ntfy.sh delivers via APNs in ~1 sec. Digest content (top symbols, composite scores, broad valuation hints) has no PII and no broker credentials, so the public path's content-exposure trade-off is acceptable. Same logic that justified F4's `push_public("errors", ...)` extended to digests. The private path remains available in `notify.push_private` for any future genuinely-sensitive content.
 - F14 (earnings calendar) shipped as a foundation collection + gate rather than as a UI feature: the consumer is the suggestion engine, not a `/calendar` page. Adding a calendar UI would be decoration for a single-user tool — the value is in the gating, not the consumption.
 - F14 `refresh-future` semantics (delete >= today + reinsert) rather than per-event versioning: yfinance occasionally shifts confirmed earnings dates. The consumer only asks "next earnings >= today" — never "what date did we previously think Q2 was?". Versioning would be defensive without consumer demand. If we ever want to track date-shifts as an audit signal (e.g., companies that repeatedly shift dates), add a `supersedes` field then.
 - F14 + F2 sell-side scoring: `score_group` and `composite_for_candidate` were refactored to accept an optional `group_signals_def` parameter (defaults to `GROUP_SIGNALS` for buy-side back-compat) so buy and sell can share the normalization pipeline without parallel copies. The alternative — two separate near-identical scoring entry points — would have created exactly the "parallel patterns" trap Section 14 warns against.
-- F2 `CandidateScore` keeps fixed buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`) at 0.0 for sell-side rows rather than getting first-class sell-side group fields: would require a model schema bump and migration; the actual sell-side group scores flow through `normalized_by_group` and `composite_for_candidate` to compute the composite correctly, and the frontend can read group scores from `group_meta` in `enrich_run`. The trade-off is the digest cosmetic bug documented in Section 18.
+- F2 `CandidateScore` keeps fixed buy-side group fields (`quality_score`, `valuation_score`, `momentum_score`, `news_score`) at 0.0 for sell-side rows rather than getting first-class sell-side group fields: would require a model schema bump and migration; the actual sell-side group scores flow through `normalized_by_group` and `composite_for_candidate` to compute the composite correctly, and the frontend can read group scores from `group_meta` in `enrich_run`. The trade-off is the digest cosmetic bug that was fixed direction-aware in cea8eee, and the lingering need for the display layer to branch on direction.
 - F2 `--direction=both` as the production cron path (instead of two separate crontab lines): one Python process, one heartbeat row, one combined digest, one notification on the iPhone. The user explicitly didn't want two emails 30 minutes apart. The `weekly_suggestions_sell` `CronSpec` is kept in the registry for the alternative deployment topology, but the recommended production setup is the `--direction=both` umbrella.
 - F2 `compute_system_performance(direction='sell')` sign-flips `excess_return` at read time, not at write time: snapshots are raw data and direction-agnostic by design (one `snapshot_open_outcomes` daily run serves both directions). Interpretation belongs at the consumer boundary. Same division-of-concerns principle as gate evaluation vs scoring (gates filter eligibility, scores rank within eligibility).
 - F2 sell-side outcome direction stamping (vs inferring direction from `suggestion_run_id`): denormalization is intentional for query efficiency. Without the stamped field, every read of outcomes would need a `$lookup` to `suggestion_runs` to filter by direction. The field is 4 bytes and immutable (set at outcome creation, never updated). Worth the storage.
+
+### Chat 5 additions
+- F2b display-layer direction branching (cea8eee, 2026-05-20): `digest_delivery._format_score_breakdown(candidate, group_meta_lookup)` branches on direction by inspecting which group fields are present in `group_meta_lookup`, not by reading `run.direction`. This mirrors the frontend pattern (`isSellSide = Boolean(groupMeta?.booking_opportunity)`). Both layers infer direction from data shape rather than passing it as a separate parameter. Consistency across boundaries.
+- Audit-then-fix Chat 5 ordering (vs fix-then-doc): User explicitly chose to rewrite PROJECT_STATE.md FIRST (handoff insurance) before applying bug fixes. The rationale: if Chat 5 itself loses context partway through, the next chat needs an accurate map of what's open. Doing the doc rewrite first means the bug fix list is captured durably even if Chat 5 dies before commits land.
 
 ## Section 21: What is intentionally NOT included in this project
 
@@ -2272,7 +1421,7 @@ So future chats don't accidentally try to add these:
 - NSE: National Stock Exchange of India.
 - NIFTY 100: Index of top 100 NSE stocks by market cap. The Suggestions universe.
 - FIFO: First-in-first-out cost basis. Required by Indian Income Tax Act.
-- LTCG / STCG: Long-Term / Short-Term Capital Gains. >1 year holding = LTCG, ≤1 year = STCG. Tax rates differ (LTCG 12.5% above ₹1.25L exemption post Budget 2024; STCG 20%).
+- LTCG / STCG: Long-Term / Short-Term Capital Gains. >1 year holding = LTCG, ≤1 year = STCG. Tax rates differ (LTCG 12.5% above 1.25L exemption post Budget 2024; STCG 20%).
 - Section 49(2C): IT Act clause governing cost basis allocation in demergers.
 - ICICI Direct: The user's broker.
 - ICICI ZIP: CSV exports from ICICI's "Order Book" download.
@@ -2289,5 +1438,7 @@ So future chats don't accidentally try to add these:
 - `monitored_stocks_audit`: Append-only audit collection for feedback writes (F10). One doc per `POST /suggestions/{isin}/feedback`, written BEFORE the corresponding `monitored_stocks.update_one` apply.
 - `earnings_calendar` (F14 / Chat 4): Cached upcoming + historical earnings events per ISIN. Source = yfinance `Ticker.calendar`. Consumer = F2 buy + sell scoring (gates skip trades within 5 days of an event).
 - Combined digest (F2 / Chat 4): ONE email + ONE ntfy push sent by `send_combined_digest(buy_run, sell_run)` when the cron uses `--direction=both`. Avoids two notifications 30 minutes apart.
+- `isSellSide` (F2 / Chat 4): Frontend boolean inferred via `Boolean(groupMeta?.booking_opportunity)` in `suggestion-card.tsx`. Switches group bar labels and dossier section content. Correct because the buy pipeline never emits a `booking_opportunity` group.
+- `_format_score_breakdown` (F2b / Chat 4, cea8eee): Direction-aware helper in `digest_delivery.py`. Renders Q/V/M/N for buy rows, Book/Stretch/Risk/Tax-Conc for sell rows. Closed the 2026-05-18 Q=0 V=0 M=0 N=0 cosmetic bug.
 
 End of PROJECT_STATE.md.
