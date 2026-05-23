@@ -263,14 +263,22 @@ def _send_drift_alerts(snapshot: dict) -> list[str]:
     except Exception as exc:
         log.error("ntfy alert failed: %s", exc)
 
-    try:
-        email(
-            subject="Portfolio reconciliation drift detected",
-            html=body_html,
-        )
+    # A2 part 2 (Chat 5): notify.email() swallows Resend exceptions and
+    # returns {"ok": bool, "id": str|None, "error": str|None}. The old
+    # raise-based try/except never fires after A2 part 1, so we must
+    # branch on result["ok"] before appending to `sent`.
+    # body_text (defined above for ntfy) doubles as the multipart/alternative
+    # plain-text body so non-HTML mail clients render the alert too.
+    result = email(
+        subject="Portfolio reconciliation drift detected",
+        html=body_html,
+        text=body_text,
+    )
+    if result.get("ok"):
         sent.append("email")
-    except Exception as exc:
-        log.error("email alert failed: %s", exc)
+        log.info("reconciliation drift email sent: id=%s", result.get("id"))
+    else:
+        log.error("email alert failed: %s", result.get("error"))
 
     return sent
 
