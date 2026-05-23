@@ -29,7 +29,7 @@ from app.config.settings import settings
 from app.db.client import Collections
 from app.models._common import utcnow
 from app.models.suggestion import SuggestionRun
-from app.services.notify import push_public
+from app.services.notify import email as notify_email, push_public
 
 log = logging.getLogger(__name__)
 
@@ -394,24 +394,19 @@ def _format_combined_ntfy_body(buy_run: SuggestionRun, sell_run: SuggestionRun) 
 
 
 def _send_email(subject: str, html: str, text: str) -> dict:
-    try:
-        import resend
+    """Send the digest email via the notify.email() wrapper.
 
-        resend.api_key = settings.RESEND_API_KEY
-        response = resend.Emails.send(
-            {
-                "from": settings.RESEND_FROM,
-                "to": settings.RESEND_TO,
-                "subject": subject,
-                "html": html,
-                "text": text,
-            }
-        )
-        log.info("Resend email sent: id=%s", response.get("id"))
-        return {"ok": True, "id": response.get("id")}
-    except Exception as exc:
-        log.error("Resend email failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
+    A2 (Chat 5): delegates to notify.email() so all Resend traffic
+    flows through a single wrapper. The wrapper returns the same
+    {ok, id, error} dict shape this function used to return inline,
+    so _log_delivery's existing field reads continue to work.
+    """
+    result = notify_email(subject=subject, html=html, text=text)
+    if result.get("ok"):
+        log.info("Resend email sent: id=%s", result.get("id"))
+    else:
+        log.error("Resend email failed: %s", result.get("error"))
+    return result
 
 
 def _send_ntfy(title: str, body: str, priority: str = "default") -> dict:

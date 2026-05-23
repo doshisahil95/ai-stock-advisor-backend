@@ -109,13 +109,48 @@ def push_public(
     )
 
 
-def email(subject: str, html: str, to: str | None = None) -> dict:
-    """Send an email via Resend."""
-    return resend.Emails.send(
-        {
+def email(
+    subject: str,
+    html: str,
+    to: str | None = None,
+    text: str | None = None,
+) -> dict:
+    """Send an email via Resend.
+
+    Args:
+        subject: Email subject line.
+        html: HTML body. Required.
+        to: Recipient address. Defaults to settings.RESEND_TO.
+        text: Optional plain-text body. When provided, Resend sends
+            multipart/alternative so non-HTML clients render correctly.
+
+    Returns:
+        dict shaped {"ok": bool, "id": str | None, "error": str | None}.
+        On success, "id" is the Resend message id and "error" is None.
+        On failure, "ok" is False, "id" is None, "error" carries the
+        exception message. Callers should not raise on email failure —
+        digest delivery is best-effort and the delivery audit row
+        records the outcome.
+
+    A2 (Chat 5): consolidates Resend traffic so digest_delivery._send_email
+    can delegate here instead of reimplementing the resend.Emails.send
+    call inline. Return shape mirrors what _send_email used to return
+    so the digest_deliveries audit row schema is preserved.
+    """
+    try:
+        payload: dict[str, object] = {
             "from": settings.RESEND_FROM,
             "to": to or settings.RESEND_TO,
             "subject": subject,
             "html": html,
         }
-    )
+        if text is not None:
+            payload["text"] = text
+        response = resend.Emails.send(payload)
+        return {
+            "ok": True,
+            "id": response.get("id") if isinstance(response, dict) else None,
+            "error": None,
+        }
+    except Exception as exc:
+        return {"ok": False, "id": None, "error": str(exc)}
