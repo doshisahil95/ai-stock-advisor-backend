@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.client import Collections
 from app.models._common import utcnow
+from app.models.monitored_stock import MonitoredStockFeedbackPatch
 from app.services import monitored_stocks_audit_service
 from app.services.explainability import enrich_run
 from app.services.outcome_tracker import compute_system_performance
@@ -310,26 +311,36 @@ def submit_feedback(
     )
 
     # 4. Apply the monitored_stocks update.
-    set_doc: dict[str, Any] = {
-        "isin": isin,
-        "status": new_status,
-        "last_feedback_at": now,
-        "last_feedback_action": payload.action,
-        "last_feedback_note": payload.note,
-        "updated_at": now,
-    }
-    if payload.action == "acted":
-        set_doc["acted_at"] = now
-    elif payload.action == "passed":
-        set_doc["passed_at"] = now
-    elif payload.action == "rejected":
-        set_doc["rejected_at"] = now
-
+    #    A1 (Chat 5): construct MonitoredStockFeedbackPatch so the model
+    #    catches Literal drift (status, action) at write time. The
+    #    patch's field set MUST stay in sync with what we $set here.
+    #    exclude_none=True keeps acted_at / passed_at / rejected_at
+    #    timestamps that belong to PRIOR feedback actions untouched on
+    #    existing docs (only the current action's *_at gets stamped).
+    #    $setOnInsert seeds the identity fields the MonitoredStock model
+    #    requires so freshly-upserted docs satisfy the schema contract.
+    patch = MonitoredStockFeedbackPatch(
+        isin=isin,
+        status=new_status,
+        last_feedback_action=payload.action,
+        last_feedback_at=now,
+        last_feedback_note=payload.note,
+        updated_at=now,
+        acted_at=now if payload.action == "acted" else None,
+        passed_at=now if payload.action == "passed" else None,
+        rejected_at=now if payload.action == "rejected" else None,
+    )
+    set_doc = patch.model_dump(exclude_none=True)
     result = Collections.monitored_stocks().update_one(
         {"isin": isin},
         {
             "$set": set_doc,
-            "$setOnInsert": {"created_at": now},
+            "$setOnInsert": {
+                "created_at": now,
+                "added_by": "user_explicit",
+                "added_reason": "feedback action",
+                "_schema_version": 1,
+            },
         },
         upsert=True,
     )
