@@ -756,10 +756,11 @@ def _run_sell_pipeline(
                 except Exception as exc:
                     log.error("create_outcomes_for_run (sell) failed: %s", exc)
 
-                # NOTE (chunk 6): if both buy and sell are run with notify=True
-                # back-to-back, the user gets TWO digests. The cron orchestrator
-                # in chunk 6 will combine them — until then, sell-side runs
-                # default to notify=False from any caller that doesn't want this.
+                # The production --direction=both cron path emits ONE combined
+                # email + ntfy push via the shared digest delivery flow (see
+                # scripts/run_weekly_suggestions.py and digest_delivery).
+                # This send_weekly_digest call is the standalone --direction=sell
+                # path used by manual reruns and ad-hoc testing only.
                 try:
                     delivery = send_weekly_digest(run)
                     log.info("Digest delivery (sell) result: %s", delivery)
