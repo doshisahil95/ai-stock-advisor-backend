@@ -101,6 +101,13 @@ def _parse_response(raw_text: str) -> list[dict] | None:
 
 
 def _validate_classification(c: dict, expected_id: str) -> dict | None:
+    """Validate one LLM-returned classification.
+
+    F27 fix (Chat 5.5+): caller no longer pre-merges id into the dict before
+    calling, so the strict id-match check below actually fires — if the LLM
+    returned the wrong id (hallucinated, mis-ordered) we drop the item and
+    the retry pass will re-classify the article in a tiny batch.
+    """
     if str(c.get("id", "")) != expected_id:
         return None
 
@@ -188,21 +195,32 @@ def _classify_batch(articles: list[dict]) -> dict[str, dict]:
         log.error("Classifier returned unparseable output after retry")
         return {}
 
+        # F27 fix (Chat 5.5+): drop the positional fallback and stop pre-merging
+    # the id before validation. Pre-fix:
+    #   - If LLM omitted 'id', we used article_ids_in_order[i] (positional).
+    #     But the LLM is only best-effort about preserving input order, so a
+    #     reorder/insert/omit by the model silently assigned one article's
+    #     classification to another article (same INDEX, different actual id).
+    #   - The validator's id-equality check was structurally a no-op because
+    #     we then merged {**item, "id": item_id} before passing it in, which
+    #     overrode item['id'] with item_id (making str(c.get('id'))==expected_id
+    #     true by construction).
+    # Now: only items where LLM-returned 'id' exists AND matches the article's
+    # actual _id are accepted. Items the LLM omitted or mislabeled get dropped
+    # and the existing retry pass (lines further down) re-classifies them in
+    # tiny RETRY_PASS_BATCH_SIZE=3 batches.
+    article_ids_in_batch = {str(a["_id"]) for a in articles}
     results: dict[str, dict] = {}
-    article_ids_in_order = [str(a["_id"]) for a in articles]
-
-    for i, item in enumerate(parsed):
+    for item in parsed:
         if not isinstance(item, dict):
             continue
-        item_id = str(item.get("id", "")) or (
-            article_ids_in_order[i] if i < len(article_ids_in_order) else ""
-        )
-        if not item_id:
+        item_id = str(item.get("id", ""))
+        if not item_id or item_id not in article_ids_in_batch:
+            # LLM hallucinated id or returned an id not in this batch — drop.
             continue
-        cleaned = _validate_classification({**item, "id": item_id}, item_id)
+        cleaned = _validate_classification(item, item_id)
         if cleaned:
             results[item_id] = cleaned
-
     return results
 
 
