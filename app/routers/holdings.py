@@ -276,10 +276,13 @@ def preview_sell_endpoint(isin: str, payload: SellRequest) -> dict:
 
     Same payload shape as the real /sell endpoint, but doesn't write anything.
     """
+    # F5 fix (Chat 5.5+): pass total_fees through so preview math matches
+    # the persisted realized_pnl on submit (both sides do fee normalization).
     result = preview_sell(
         isin=isin,
         sell_quantity=payload.quantity,
         sell_price=payload.price,
+        sell_fees=payload.total_fees,
     )
     return _serialize_for_response(result)
 

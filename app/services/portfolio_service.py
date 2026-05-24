@@ -204,15 +204,26 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         else 0.0
     )
 
-    # Realized P&L lifetime (across all soft-deleted exits)
+    # Realized P&L lifetime — sum across ALL holdings (active + soft-deleted).
+    #
+    # F2 companion fix (Chat 5.5+): Pre-F2, this iterated soft-deleted only,
+    # which UNDERCOUNTED lifetime realized for any active position that had
+    # prior partial sells. Post-F2 (holdings reactivate on multi-cycle re-entry
+    # rather than spawning parallel docs), the active doc carries cumulative
+    # realized_pnl from FIFO replay across all cycles — so summing only
+    # soft-deleted misses that. Sum across all docs to capture both.
+    #
+    # fully_exited_count stays soft-deleted-only because it semantically
+    # counts positions no longer held.
     realized_lifetime = Decimal("0")
     fully_exited_count = 0
     for h in Collections.holdings().find(
-        {"deleted_at": {"$ne": None}},
-        {"realized_pnl": 1, "_id": 0},
+        {},
+        {"realized_pnl": 1, "deleted_at": 1, "_id": 0},
     ):
         realized_lifetime += _to_dec(h.get("realized_pnl", 0))
-        fully_exited_count += 1
+        if h.get("deleted_at") is not None:
+            fully_exited_count += 1
 
     totals = {
         "invested": total_invested.quantize(Decimal("0.01")),

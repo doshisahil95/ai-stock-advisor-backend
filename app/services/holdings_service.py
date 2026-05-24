@@ -1,12 +1,18 @@
 """Holding computation service.
 
-Holdings are derived state — never written to directly. After any change to
+Holdings are derived state — never written to directly.
+
+After any change to
 `transactions` for a stock, call recompute_holding(isin) to rebuild the holding
 from scratch using FIFO accounting.
 
 This is intentionally simple (replay all transactions every time) rather than
-incremental (apply just the new transaction). A typical stock has <1000
-transactions in its lifetime; replay takes <50ms. Simplicity > micro-optimization.
+incremental (apply just the new transaction).
+
+A typical stock has <1000
+transactions in its lifetime; replay takes <50ms.
+
+Simplicity > micro-optimization.
 """
 
 from __future__ import annotations
@@ -53,6 +59,57 @@ def _to_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _apply_split_or_bonus_to_dict_lots(
+    lots: list[dict],
+    ttype: str,
+    ca: dict | None,
+) -> None:
+    """Mutate lot dicts in-place to apply a SPLIT or BONUS corporate action.
+
+    Lot dict shape: requires "qty" key. "price" key is optional (preview_sell
+    has it; validate_replay does not need to track price).
+    Fees on lots are unaffected by corporate actions.
+
+    SPLIT semantics (mirrors _fifo_replay):
+        ratio_to / ratio_from multiplies qty; same ratio inversely scales price.
+        E.g. 1:2 split (ratio_from=1, ratio_to=2): 100 sh @ ₹10 → 200 sh @ ₹5.
+
+    BONUS semantics (mirrors _fifo_replay):
+        ratio_to bonus shares for every ratio_from held.
+        E.g. 1:1 bonus (ratio_from=1, ratio_to=1): 100 sh @ ₹10 → 200 sh @ ₹5
+        (avg cost dilutes proportionally).
+
+    F3/F4 fix (Chat 5.5+): preview_sell and validate_replay previously skipped
+    SPLIT/BONUS entirely. preview_sell showed wrong preview math for any stock
+    with a split/bonus in its history; validate_replay rejected legitimate
+    post-split SELLs as oversells. _fifo_replay itself was correct all along
+    (it uses _Lot dataclass and inline logic) — this helper mirrors that logic
+    onto the dict-shaped lots used by preview/validate.
+    """
+    if not ca:
+        return
+    ratio_from = Decimal(str(ca.get("ratio_from", 0)))
+    ratio_to = Decimal(str(ca.get("ratio_to", 0)))
+    if ratio_from <= 0 or ratio_to <= 0:
+        return
+    if ttype == "SPLIT":
+        for lot in lots:
+            lot["qty"] = lot["qty"] * ratio_to / ratio_from
+            if "price" in lot:
+                lot["price"] = lot["price"] * ratio_from / ratio_to
+    elif ttype == "BONUS":
+        # First add bonus qty across all lots
+        for lot in lots:
+            bonus_qty = lot["qty"] * ratio_to / ratio_from
+            lot["qty"] += bonus_qty
+        # Then dilute price (formula uses event-level ratio, not per-lot qty)
+        if any("price" in lot for lot in lots):
+            dilution = ratio_from / (ratio_from + ratio_to)
+            for lot in lots:
+                if lot["qty"] > 0 and "price" in lot:
+                    lot["price"] = lot["price"] * dilution
+
+
 def _fifo_replay(transactions: Iterable[dict]) -> dict:
     """Replay transactions chronologically with FIFO depletion.
 
@@ -84,7 +141,6 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                     trade_date=trade_date,
                 )
             )
-
         elif ttype == "SELL":
             remaining_to_sell = qty
             sell_proceeds_per_share = price - (fees / qty if qty > 0 else Decimal("0"))
@@ -109,12 +165,10 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                     tx.get("_id"),
                     remaining_to_sell,
                 )
-
         elif ttype == "DIVIDEND":
             # price = per-share payout
             current_qty = sum((lot.quantity for lot in lots), Decimal("0"))
             total_dividends += current_qty * price
-
         elif ttype == "BONUS":
             # corporate_action.ratio_to bonus shares for every ratio_from held
             ca = tx.get("corporate_action") or {}
@@ -126,13 +180,12 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                 for lot in lots:
                     bonus_qty = lot.quantity * ratio_to / ratio_from
                     lot.quantity += bonus_qty
-                    # avg cost dilutes: same total cost, more shares
-                    # (lot.price stays in absolute terms; we'll compute avg later)
+                # avg cost dilutes: same total cost, more shares
+                # (lot.price stays in absolute terms; we'll compute avg later)
                 # Recompute lot prices to reflect dilution
                 for lot in lots:
                     if lot.quantity > 0:
                         lot.price = lot.price * (ratio_from / (ratio_from + ratio_to))
-
         elif ttype == "SPLIT":
             ca = tx.get("corporate_action") or {}
             ratio_from = Decimal(str(ca.get("ratio_from", 1)))
@@ -182,7 +235,8 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
 def recompute_holding(isin: str) -> Holding | None:
     """Rebuild the holding for `isin` from its transactions.
 
-    Returns the recomputed Holding (after upsert). If no transactions exist,
+    Returns the recomputed Holding (after upsert).
+    If no transactions exist,
     soft-deletes any existing holding and returns None.
     """
     txs_coll = Collections.transactions()
@@ -240,13 +294,11 @@ def recompute_holding(isin: str) -> Holding | None:
         first_tx = transactions[0]
         symbol = first_tx["symbol"]
         exchange = first_tx.get("exchange", "NSE")
-
         nse_doc = Collections.instruments().find_one(
             {"exchange": exchange, "symbol": symbol},
             {"name": 1, "_id": 0},
         )
         yf_meta = fetch_metadata(symbol, exchange)
-
         meta = {
             "name": (nse_doc and nse_doc.get("name")) or yf_meta.get("name", ""),
             "sector": yf_meta.get("sector", ""),
@@ -289,11 +341,49 @@ def recompute_holding(isin: str) -> Holding | None:
         )
         return None
 
-    # Upsert active holding
+    # ── Active branch (F2 fix, Chat 5.5+) ────────────────────────────────────
+    # Two changes vs. pre-fix behavior:
+    #
+    # 1. Filter is {"isin": isin} (no deleted_at constraint) instead of
+    #    {"isin": isin, "deleted_at": None}. This lets a soft-deleted doc
+    #    reactivate cleanly via $set "deleted_at": None instead of leaving
+    #    the stale soft-deleted doc orphaned and inserting a parallel
+    #    active doc (the pre-fix behavior — F2 root bug).
+    #
+    # 2. Pre-fetch user-editable fields from the most-recently-updated doc
+    #    BEFORE the cleanup delete_many, so multi-cycle re-entries preserve
+    #    user_notes / thesis / tags / stop_loss / target_price / alert_on.
+    #
+    # 3. delete_many of stale soft-deleted docs (legacy F2 bug state where
+    #    a previous re-entry created a parallel active doc). The active
+    #    doc now carries cumulative realized_pnl across all cycles via
+    #    FIFO replay, so soft-deleted snapshots are redundant.
+
+    existing_for_user_fields = (
+        holdings_coll.find_one(
+            {"isin": isin},
+            sort=[("updated_at", -1)],
+            projection={
+                "user_notes": 1,
+                "thesis": 1,
+                "tags": 1,
+                "stop_loss": 1,
+                "target_price": 1,
+                "alert_on": 1,
+                "created_at": 1,
+                "_id": 0,
+            },
+        )
+        or {}
+    )
+
+    holdings_coll.delete_many({"isin": isin, "deleted_at": {"$ne": None}})
+
     update_doc = _convert_decimals_to_decimal128(
         {
             **computed,
             **meta,
+            "deleted_at": None,
             "last_recomputed_at": utcnow(),
             "updated_at": utcnow(),
         }
@@ -302,97 +392,118 @@ def recompute_holding(isin: str) -> Holding | None:
         {
             "isin": isin,
             "_schema_version": 1,
-            "created_at": utcnow(),
-            "deleted_at": None,
-            "user_notes": "",
-            "thesis": "",
-            "tags": [],
-            "stop_loss": None,
-            "target_price": None,
-            "alert_on": ["stop_loss", "target", "earnings", "news", "52w_high"],
+            "created_at": existing_for_user_fields.get("created_at") or utcnow(),
+            "user_notes": existing_for_user_fields.get("user_notes", ""),
+            "thesis": existing_for_user_fields.get("thesis", ""),
+            "tags": existing_for_user_fields.get("tags", []),
+            "stop_loss": existing_for_user_fields.get("stop_loss"),
+            "target_price": existing_for_user_fields.get("target_price"),
+            "alert_on": existing_for_user_fields.get("alert_on")
+            or ["stop_loss", "target", "earnings", "news", "52w_high"],
         }
     )
-
     holdings_coll.update_one(
-        {"isin": isin, "deleted_at": None},
+        {"isin": isin},
         {"$set": update_doc, "$setOnInsert": set_on_insert},
         upsert=True,
     )
-
     doc = holdings_coll.find_one({"isin": isin, "deleted_at": None})
     return Holding(**doc) if doc else None
 
 
-def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict:
+def preview_sell(
+    isin: str,
+    sell_quantity: Decimal,
+    sell_price: Decimal,
+    sell_fees: Decimal = Decimal("0"),
+) -> dict:
     """Simulate a SELL transaction (no DB writes) and return what would happen.
 
     Used by the UI's Sell sheet to show "if you sell X at ₹Y, you'll realize ₹Z"
     before the user confirms.
 
-    Replays all transactions to derive current open lots (FIFO), then walks
-    those lots to compute what this hypothetical SELL would consume. No DB writes.
+    Replays all transactions to derive current open lots (FIFO + SPLIT + BONUS),
+    then walks those lots to compute what this hypothetical SELL would consume.
+    No DB writes.
+
+    F3 fix (Chat 5.5+): SPLIT/BONUS now mutate lot quantities/prices via
+        _apply_split_or_bonus_to_dict_lots (mirrors _fifo_replay semantics).
+        Pre-fix, splits/bonuses were silently skipped, producing wrong preview
+        numbers for any stock with a corporate action in its history.
+
+    F5 fix (Chat 5.5+): Per-lot realized P&L now includes fee normalization
+        on both the buy side (lot.fees / lot.qty) and the proposed sell side
+        (sell_fees / sell_qty), mirroring _fifo_replay. Pre-fix, preview
+        ignored fees entirely, producing a realized_pnl preview that didn't
+        match the value actually persisted on submit.
 
     Returns:
-      {
-        "valid": True,
-        "realized_pnl": Decimal,
-        "remaining_qty": Decimal,
-        "remaining_invested": Decimal,
-        "remaining_avg_cost": Decimal,
-        "fully_exits": bool,
-        "lots_consumed": list[dict],
-      }
-    Or:
-      {"valid": False, "error": "..."}
+        {
+          "valid": True,
+          "realized_pnl": Decimal,
+          "remaining_qty": Decimal,
+          "remaining_invested": Decimal,
+          "remaining_avg_cost": Decimal,
+          "fully_exits": bool,
+          "lots_consumed": list[dict],
+        }
+        Or:
+        {"valid": False, "error": "..."}
     """
     if sell_quantity <= 0:
         return {"valid": False, "error": "Quantity must be positive"}
     if sell_price <= 0:
         return {"valid": False, "error": "Price must be positive"}
+    if sell_fees < 0:
+        return {"valid": False, "error": "Fees cannot be negative"}
 
     transactions = list(
         Collections.transactions()
         .find({"isin": isin, "deleted_at": None})
         .sort("trade_date", ASCENDING)
     )
+
     if not transactions:
         return {"valid": False, "error": f"No transactions found for {isin}"}
 
-    # Reconstruct current open lots by replaying transactions FIFO
-    open_lots: list[dict] = []  # [{trade_date, qty, price}, ...] — chronological
-
+    # Reconstruct current open lots by replaying transactions FIFO.
+    # Lot dict carries qty, price, fees, trade_date — fees needed for F5 fix.
+    open_lots: list[dict] = []
     for tx in transactions:
         tx_type = tx.get("type")
         qty = _to_decimal(tx.get("quantity"))
         price = _to_decimal(tx.get("price"))
+        fees = _to_decimal(tx.get("total_fees", 0))
         trade_date = tx.get("trade_date")
-
         if tx_type == "BUY":
             open_lots.append(
                 {
                     "trade_date": trade_date,
                     "qty": qty,
                     "price": price,
+                    "fees": fees,
                 }
             )
         elif tx_type == "SELL":
-            # Consume from oldest lots first
+            # Consume from oldest lots first; deplete fees proportionally
             qty_to_consume = qty
             for lot in open_lots:
                 if qty_to_consume <= 0:
                     break
                 consumed = min(qty_to_consume, lot["qty"])
+                if lot["qty"] > 0:
+                    lot["fees"] -= lot["fees"] * consumed / lot["qty"]
                 lot["qty"] -= consumed
                 qty_to_consume -= consumed
             # Drop fully-consumed lots
             open_lots = [lot for lot in open_lots if lot["qty"] > 0]
-        # SPLIT/BONUS/etc. are corporate actions — outside this preview's scope.
-        # The actual record_sell handles them via _fifo_replay; we mirror that
-        # by ignoring non-BUY/SELL types here and assuming the existing lots
-        # already reflect any prior corporate actions in their adjusted prices.
+        elif tx_type in ("SPLIT", "BONUS"):
+            # F3 fix: apply corporate action to lot quantities/prices in place
+            _apply_split_or_bonus_to_dict_lots(
+                open_lots, tx_type, tx.get("corporate_action")
+            )
 
     available_qty = sum((lot["qty"] for lot in open_lots), start=Decimal("0"))
-
     if available_qty <= 0:
         return {"valid": False, "error": "Holding is already fully exited"}
 
@@ -402,14 +513,22 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
             "error": f"Not enough quantity. Available: {available_qty}, requested: {sell_quantity}",
         }
 
-    # Now simulate the new SELL: walk open lots FIFO
+    # Now simulate the new SELL: walk open lots FIFO with fee normalization (F5 fix).
+    sell_proceeds_per_share = sell_price - (
+        sell_fees / sell_quantity if sell_quantity > 0 else Decimal("0")
+    )
     qty_to_sell = sell_quantity
     realized_pnl = Decimal("0")
     lots_consumed: list[dict] = []
 
-    # Use a working copy so we can compute remaining invested afterwards
+    # Working copy so we can compute remaining invested afterwards
     working = [
-        {"trade_date": lot["trade_date"], "qty": lot["qty"], "price": lot["price"]}
+        {
+            "trade_date": lot["trade_date"],
+            "qty": lot["qty"],
+            "price": lot["price"],
+            "fees": lot["fees"],
+        }
         for lot in open_lots
     ]
 
@@ -419,9 +538,12 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
         if lot["qty"] <= 0:
             continue
         consumed = min(qty_to_sell, lot["qty"])
-        lot_realized = ((sell_price - lot["price"]) * consumed).quantize(
-            Decimal("0.01")
+        buy_cost_per_share = lot["price"] + (
+            lot["fees"] / lot["qty"] if lot["qty"] > 0 else Decimal("0")
         )
+        lot_realized = (
+            consumed * (sell_proceeds_per_share - buy_cost_per_share)
+        ).quantize(Decimal("0.01"))
         realized_pnl += lot_realized
         lots_consumed.append(
             {
@@ -435,13 +557,15 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
                 "realized_pnl": lot_realized,
             }
         )
+        # Deplete fees proportionally on the working lot too
+        if lot["qty"] > 0:
+            lot["fees"] -= lot["fees"] * consumed / lot["qty"]
         lot["qty"] -= consumed
         qty_to_sell -= consumed
 
     realized_pnl = realized_pnl.quantize(Decimal("0.01"))
     remaining_qty = (available_qty - sell_quantity).quantize(Decimal("0.0001"))
     fully_exits = remaining_qty == 0
-
     remaining_invested = sum(
         (
             (lot["qty"] * lot["price"]).quantize(Decimal("0.01"))
@@ -450,7 +574,6 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
         ),
         start=Decimal("0"),
     )
-
     remaining_avg_cost = (
         (remaining_invested / remaining_qty).quantize(Decimal("0.0001"))
         if remaining_qty > 0
@@ -470,12 +593,20 @@ def preview_sell(isin: str, sell_quantity: Decimal, sell_price: Decimal) -> dict
 
 def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
     """Run a FIFO simulation over the proposed transaction set and verify no
-    impossible state arises (i.e. SELL > available qty at any chronological point).
+    impossible state arises (i.e.
+
+    SELL > available qty at any chronological point).
 
     Returns (True, None) if valid; (False, "human-readable reason") if not.
 
     Used by the edit/delete endpoints to reject changes that would create a
     mathematically/legally invalid holding history (selling shares you don't own).
+
+    F4 fix (Chat 5.5+): SPLIT/BONUS now mutate lot quantities via
+        _apply_split_or_bonus_to_dict_lots (mirrors _fifo_replay semantics).
+        Pre-fix, splits/bonuses were silently skipped, so a post-split SELL
+        that legitimately uses split-adjusted quantities would be rejected
+        as an oversell.
     """
     from datetime import datetime as _dt
 
@@ -502,7 +633,6 @@ def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
         qty = _to_decimal(tx.get("quantity"))
         price = _to_decimal(tx.get("price"))
         trade_date = tx.get("trade_date")
-
         if tx_type == "BUY":
             open_lots.append({"qty": qty, "price": price})
         elif tx_type == "SELL":
@@ -527,7 +657,11 @@ def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
                 lot["qty"] -= consumed
                 qty_to_consume -= consumed
             open_lots = [lot for lot in open_lots if lot["qty"] > 0]
-        # SPLIT/BONUS/DIVIDEND: corporate actions; existing recompute_holding handles them.
-        # We don't validate them here — the user can't edit them via this endpoint anyway.
-
+        elif tx_type in ("SPLIT", "BONUS"):
+            # F4 fix: apply corporate action to lot quantities in place so
+            # post-CA SELLs validate against split-adjusted available qty.
+            _apply_split_or_bonus_to_dict_lots(
+                open_lots, tx_type, tx.get("corporate_action")
+            )
+        # DIVIDEND: payout, no lot mutation; ignore.
     return (True, None)
