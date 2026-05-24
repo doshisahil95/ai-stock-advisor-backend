@@ -39,11 +39,6 @@ class Settings(BaseSettings):
     MONGODB_URI: str
     MONGODB_DB_NAME: str = "portfolio"
 
-    # Self-hosted ntfy (for digests + errors — sensitive content)
-    NTFY_URL: str
-    NTFY_USER: str
-    NTFY_PASS: str
-
     # Public ntfy.sh (for time-critical alerts — instant push with full content)
     NTFY_PUBLIC_URL: str = "https://ntfy.sh"
     NTFY_PUBLIC_TOPIC_PRICE: str
