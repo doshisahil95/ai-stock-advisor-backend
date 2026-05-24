@@ -10,7 +10,27 @@ from app.models._common import BaseDoc, Money, PyObjectId, utcnow
 
 TransactionType = Literal["BUY", "SELL", "DIVIDEND", "BONUS", "SPLIT"]
 Exchange = Literal["NSE", "BSE"]
-Source = Literal["manual", "csv_import", "yfinance_corporate_action", "breeze_api"]
+# F80 fix (Chat 5.5+): added the three manual-prefixed source values that
+# already exist in production data (per `db.transactions.distinct('source')`):
+#   manual_corporate_action (5 rows): hand-recorded bonus/split events
+#   manual_ipo_allotment    (3 rows): hand-recorded IPO allotment BUYs
+#   manual_demerger         (2 rows): hand-recorded demerger receipt BUYs
+#                                     (cost-basis transfer; type=BUY at price=0
+#                                      or computed split-cost — see TMCV, JIOFIN)
+# Pre-fix Transaction.model_validate(...) on any of these rows would
+# raise on the Source literal. Read paths bypass via _serialize, so no
+# active code path was crashing, but the model was structurally broken
+# for any future model_validate consumer (and F29's validator test
+# surfaced the gap during Batch 1 closure).
+Source = Literal[
+    "manual",
+    "csv_import",
+    "manual_corporate_action",
+    "manual_ipo_allotment",
+    "manual_demerger",
+    "yfinance_corporate_action",
+    "breeze_api",
+]
 
 
 class CorporateAction(BaseModel):
@@ -40,9 +60,8 @@ class Transaction(BaseDoc):
     # field level because legitimate use cases exist:
     #   - BUY at price=0: bonus-share receipts (user's existing pattern; e.g.
     #     RELIANCE 1:1 bonus modeled as BUY qty=5 price=0)
-    #   - SPLIT/BONUS/DEMERGER with qty=0 + price=0: corporate-action rows
-    #     where meaning lives in `corporate_action.ratio_from/ratio_to`
-    #     (e.g. TATASTEEL 1:10 split)
+    #   - SPLIT/BONUS with qty=0 + price=0: corporate-action rows where meaning
+    #     lives in `corporate_action.ratio_from/ratio_to` (e.g. TATASTEEL 1:10).
     #   - DIVIDEND with qty=0: _fifo_replay ignores tx.quantity for DIVIDEND
     #     (per-share payout × current_qty derived from lots)
     # The type-aware validator below additionally requires qty > 0 on BUY/SELL
@@ -58,6 +77,24 @@ class Transaction(BaseDoc):
     # Provenance
     source: Source = "manual"
     source_ref: str = Field(default="")
+    # F82 fix (Chat 5.5+): legitimate ICICI/broker reference fields written by
+    # scripts/import_orderbooks.py but never declared on the model — caused
+    # Transaction.model_validate(mongo_doc) to fail with extra_forbidden on
+    # 72 / 108 historical csv_import rows. No live caller did model_validate
+    # (read paths use _serialize), so this was latent, not a crash. Declared
+    # here so model_validate now round-trips and API responses serialized via
+    # the model expose these audit fields.
+    settlement_ref: str = Field(
+        default="",
+        description="ICICI ZIP order/settlement reference (broker-side trace id)",
+    )
+    trade_value: Money | None = Field(
+        default=None,
+        ge=0,
+        description="Broker-reported trade value (audit cache; may differ from "
+        "qty*price by rounding/disclosure conventions). "
+        "Not authoritative — FIFO uses qty + price + fees.",
+    )
     notes: str = ""
     # FIFO accounting helper (only meaningful for BUY rows)
     remaining_quantity: Money | None = Field(
