@@ -14,8 +14,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable
-from bson import Decimal128
 
+from bson import Decimal128
+import pandas as pd
 import yfinance as yf
 from pymongo import ASCENDING, DESCENDING, UpdateOne
 
@@ -156,11 +157,13 @@ def _df_to_rows(ticker_df, yahoo_ticker: str, meta: dict) -> list[dict]:
             volume = row.get("Volume")
             adj_close = row.get("Adj Close")
 
-            # Skip if all OHLC are missing
-            if any(
-                p is None or (hasattr(p, "isnan") and p.isna())
-                for p in (open_p, high, low, close)
-            ):
+            # Skip if any OHLC is missing/NaN.
+            # F7 fix (Chat 5.5+): pre-fix this branch was dead — hasattr(p, "isnan")
+            # is False for numpy scalars (the method is "isnan" not "isna"), AND
+            # the second clause then called the wrong method name anyway. NaN
+            # values flowed through to Decimal('NaN') and poisoned downstream P&L.
+            # pd.isna handles None, NaN, NaT, pd.NA correctly.
+            if any(p is None or pd.isna(p) for p in (open_p, high, low, close)):
                 continue
 
             # Cast pandas Timestamp -> UTC datetime
@@ -525,12 +528,27 @@ def fetch_intraday_quotes(holdings_meta: list[dict]) -> list[dict]:
 def _intraday_row_from_df(
     ticker_df, yahoo_ticker: str, meta: dict, captured_at: datetime
 ) -> dict | None:
-    """Reduce an intraday OHLCV DF into a single 'latest quote' row."""
+    """Reduce an intraday OHLCV DF into a single 'latest quote' row.
+
+    F8 fix (Chat 5.5+): pre-fix only dropped NaN on Close, so Open/High/Low
+    could still be NaN on a partial 5m bar and flow through to Decimal('NaN'),
+    poisoning every downstream live P&L during market hours. We now drop NaN
+    across OHL+Close, and guard Volume sum against NaN since pandas .sum()
+    returns NaN when all values are NaN (then `NaN or 0` evaluates to NaN
+    because NaN is truthy in Python, breaking int() conversion).
+    """
     try:
-        clean = ticker_df.dropna(subset=["Close"])
+        clean = ticker_df.dropna(subset=["Open", "High", "Low", "Close"])
         if clean.empty:
             return None
         last = clean.iloc[-1]
+        # pandas .max()/.min() ignore NaN by default (skipna=True), but
+        # return NaN if EVERY value is NaN — defensive check.
+        high_max = clean["High"].max()
+        low_min = clean["Low"].min()
+        vol_sum = clean["Volume"].sum()
+        if pd.isna(high_max) or pd.isna(low_min):
+            return None
         return {
             "isin": meta["isin"],
             "symbol": meta["symbol"],
@@ -538,9 +556,9 @@ def _intraday_row_from_df(
             "captured_at": captured_at,
             "price": Decimal(str(round(float(last["Close"]), 4))),
             "open_today": Decimal(str(round(float(clean.iloc[0]["Open"]), 4))),
-            "day_high": Decimal(str(round(float(clean["High"].max()), 4))),
-            "day_low": Decimal(str(round(float(clean["Low"].min()), 4))),
-            "volume_today": int(clean["Volume"].sum() or 0),
+            "day_high": Decimal(str(round(float(high_max), 4))),
+            "day_low": Decimal(str(round(float(low_min), 4))),
+            "volume_today": int(vol_sum) if not pd.isna(vol_sum) else 0,
             "source": "yfinance_intraday",
             "_schema_version": 1,
         }
