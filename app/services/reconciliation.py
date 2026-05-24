@@ -23,7 +23,7 @@ from app.db.client import Collections
 from app.services.notify import push_public, email
 from app.services.portfolio_service import compute_summary
 from app.services.price_service import bulk_get_latest_prices
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -187,16 +187,27 @@ def take_manual_snapshot(
 
     # If user wants to bake in this delta as the new baseline
     if set_as_baseline:
+        # F23 fix (Chat 5.5+): pre-fix wrote float(delta_invested) into Mongo,
+        # baking in IEEE-754 precision loss permanently. Every subsequent
+        # reconciliation read it back via _to_dec(str(float)) and computed
+        # drift = abs(delta - expected) — always paise-off on a rupee field,
+        # producing spurious or suppressed drift alerts. Now wrap the whole
+        # payload in _convert_decimals_to_decimal128 so the Decimal precision
+        # round-trips exactly. Also switched datetime.now(timezone.utc) to
+        # the project utcnow() helper (post-F1 returns tz-naive UTC, matching
+        # the storage invariant).
         Collections.user_profile().update_one(
             {},
             {
-                "$set": {
-                    "reconciliation_baseline": {
-                        "expected_delta_invested": float(delta_invested),
-                        "explanation": notes or "Baseline accepted by user",
-                        "set_at": datetime.now(timezone.utc),
+                "$set": _convert_decimals_to_decimal128(
+                    {
+                        "reconciliation_baseline": {
+                            "expected_delta_invested": delta_invested,
+                            "explanation": notes or "Baseline accepted by user",
+                            "set_at": utcnow(),
+                        }
                     }
-                }
+                )
             },
             upsert=True,
         )
