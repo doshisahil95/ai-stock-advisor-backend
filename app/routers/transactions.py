@@ -50,25 +50,38 @@ def _serialize(value: Any) -> Any:
 
 
 class EditTransactionRequest(BaseModel):
-    """Editable fields on a transaction. All optional; missing fields are unchanged."""
+    """Editable fields on a transaction.
+    All optional; missing fields are unchanged.
+    Reason is required per audit invariant (Project_State §11)."""
 
     model_config = ConfigDict(extra="forbid")
-
     quantity: Money | None = None
     price: Money | None = None
     trade_date: datetime | None = None
     total_fees: Money | None = None
     notes: str | None = None
-    reason: str | None = Field(
-        default=None, description="Why this is being edited (audit)"
+    # F21 fix (Chat 5.5+): reason is REQUIRED. Pre-fix it was optional, so
+    # callers could mutate the immutable ledger with no audit justification,
+    # producing audit entries with reason=None and breaking the documented
+    # audit guarantee used for tax review. Frontend (transaction-edit-sheet.tsx
+    # zod schema and transactions page delete dialog) already enforces a 3-char
+    # minimum; backend now matches.
+    reason: str = Field(
+        ...,
+        min_length=3,
+        max_length=500,
+        description="Why this is being edited (audit). Required.",
     )
 
 
 class DeleteTransactionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    reason: str | None = Field(
-        default=None, description="Why this is being deleted (audit)"
+    # F21 fix (Chat 5.5+): reason is REQUIRED. See EditTransactionRequest.
+    reason: str = Field(
+        ...,
+        min_length=3,
+        max_length=500,
+        description="Why this is being deleted (audit). Required.",
     )
 
 
