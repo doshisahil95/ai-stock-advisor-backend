@@ -628,10 +628,36 @@ def _build_signal_meta(
     return out
 
 
-def _build_group_meta(candidate: dict) -> dict[str, dict]:
-    """Per-group interpretation for the four QVMN bars."""
+# Group names per direction. Keep in sync with _GROUP_TO_SIGNALS and
+# scoring_service.GROUP_SIGNALS.
+_BUY_GROUPS: tuple[str, ...] = ("quality", "valuation", "momentum", "news")
+_SELL_GROUPS: tuple[str, ...] = (
+    "booking_opportunity",
+    "valuation_stretch",
+    "risk",
+    "tax_concentration",
+)
+
+
+def _build_group_meta(candidate: dict, direction: str = "buy") -> dict[str, dict]:
+    """Per-group interpretation for the four QVMN (buy) or BVRT (sell) bars.
+
+    F28 fix (Chat 5.5+): pre-fix this iterated GROUP_META unconditionally, so
+    every candidate dict ended up with all 8 group keys populated — buy
+    candidates had None-scored sell-side keys (booking_opportunity etc.) with
+    band='unknown', and vice versa. The frontend's `isSellSide` discriminator
+    (Boolean(groupMeta?.booking_opportunity)) saw a truthy object on every
+    candidate regardless of direction, breaking direction-aware UI rendering.
+
+    Now: emit only the groups relevant to this candidate's direction. Buy
+    candidates get quality/valuation/momentum/news; sell candidates get
+    booking_opportunity/valuation_stretch/risk/tax_concentration. Frontend
+    discriminator becomes meaningful again.
+    """
+    relevant_groups = _SELL_GROUPS if direction == "sell" else _BUY_GROUPS
     out: dict[str, dict] = {}
-    for group_name, meta in GROUP_META.items():
+    for group_name in relevant_groups:
+        meta = GROUP_META[group_name]
         score = candidate.get(f"{group_name}_score")
         score_float = _to_float(score)
         band = _interpret_score(score_float)
@@ -719,13 +745,23 @@ def _build_confidence_meta(
     }
 
 
-def enrich_candidate(candidate: dict, fundamentals_doc: dict | None) -> dict:
-    """Mutate a serialized candidate dict in-place with the *_meta fields."""
+def enrich_candidate(
+    candidate: dict,
+    fundamentals_doc: dict | None,
+    direction: str = "buy",
+) -> dict:
+    """Mutate a serialized candidate dict in-place with the *_meta fields.
+
+    F28 fix (Chat 5.5+): accepts direction so _build_group_meta emits only
+    the groups relevant to this candidate's run direction (buy → QVMN;
+    sell → BVRT). Default 'buy' preserves backward-compat for any standalone
+    caller; enrich_run threads through the run's actual direction.
+    """
     candidate["signal_meta"] = _build_signal_meta(
         candidate.get("signals", []),
         fundamentals_doc,
     )
-    candidate["group_meta"] = _build_group_meta(candidate)
+    candidate["group_meta"] = _build_group_meta(candidate, direction=direction)
     candidate["gate_meta"] = _build_gate_meta(candidate.get("gates", []))
     candidate["confidence_meta"] = _build_confidence_meta(
         candidate.get("confidence_score"),
@@ -772,7 +808,9 @@ def enrich_run(run_dict: dict) -> dict:
     for c in top:
         isin = c.get("isin")
         f = fundamentals_by_isin.get(isin) if isin else None
-        enrich_candidate(c, f)
+        # F28 fix (Chat 5.5+): thread direction through so group_meta only
+        # contains the relevant 4 groups (not all 8).
+        enrich_candidate(c, f, direction=run_dict.get("direction", "buy"))
         # F6: stamp user_action separately so enrich_candidate's signature
         # stays stable. CandidateScore is extra="forbid"; user_action lives
         # on the enrichment path only (Phase 2 Invariant #5).
