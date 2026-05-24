@@ -7,7 +7,7 @@ from decimal import Decimal
 from pydoc import doc
 from typing import Annotated, Any
 
-from bson import ObjectId
+from bson import Decimal128, ObjectId
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,17 +36,19 @@ router = APIRouter(prefix="/portfolio/holdings", tags=["portfolio"])
 
 
 class AddBuyRequest(BaseModel):
-    """Record a buy. ISIN is auto-resolved via the `instruments` collection
+    """Record a buy.
+    ISIN is auto-resolved via the `instruments` collection
     (NSE master), or you can supply it explicitly to override."""
 
     model_config = ConfigDict(extra="forbid")
-
     symbol: str = Field(..., description="e.g., 'INFY'")
     exchange: str = Field(default="NSE", pattern=r"^(NSE|BSE)$")
-    quantity: Money
-    price: Money = Field(..., description="Per-share price in INR")
+    # F14 fix (Chat 5.5+): positivity validators so malformed payloads 422
+    # before writing a broken transaction to the immutable ledger.
+    quantity: Money = Field(..., gt=0)
+    price: Money = Field(..., gt=0, description="Per-share price in INR")
     trade_date: datetime
-    total_fees: Money = Field(default=Decimal("0"))
+    total_fees: Money = Field(default=Decimal("0"), ge=0)
     notes: str = ""
     isin: str | None = Field(
         default=None,
@@ -58,11 +60,11 @@ class AddBuyRequest(BaseModel):
 
 class SellRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    quantity: Money
-    price: Money
+    # F14 fix (Chat 5.5+): positivity validators.
+    quantity: Money = Field(..., gt=0)
+    price: Money = Field(..., gt=0)
     trade_date: datetime
-    total_fees: Money = Field(default=Decimal("0"))
+    total_fees: Money = Field(default=Decimal("0"), ge=0)
     notes: str = ""
 
 
@@ -320,8 +322,28 @@ def sell(isin: str, req: SellRequest) -> dict:
 
     new_holding = recompute_holding(isin)
     if not new_holding:
-        # Fully exited
-        return {"status": "exited", "isin": isin, "message": "Position fully closed"}
+        # Fully exited — F12 fix (Chat 5.5+): include realized_total so the
+        # frontend's SellSheet onSuccess toast can show 'realized ₹X'
+        # instead of 'realized undefined'. Realized total is the lifetime
+        # realized P&L on this ISIN (post-recompute), read off the now-
+        # soft-deleted doc. Pre-fix the response shape was
+        # {status, isin, message} — kept for any non-FE consumer; the
+        # frontend discriminator is the absence of '_id', so adding fields
+        # is non-breaking.
+        final_doc = Collections.holdings().find_one({"isin": isin})
+        realized_total = "0"
+        if final_doc is not None:
+            rv = final_doc.get("realized_pnl")
+            if isinstance(rv, Decimal128):
+                realized_total = str(rv.to_decimal())
+            elif rv is not None:
+                realized_total = str(rv)
+        return {
+            "status": "exited",
+            "isin": isin,
+            "message": "Position fully closed",
+            "realized_total": realized_total,
+        }
 
     doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
     latest = get_latest_price(isin)
