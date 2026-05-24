@@ -2,7 +2,7 @@
 
 Personal AI Stock Advisor — backend. FastAPI + Pydantic v2 + MongoDB Atlas. Single-user portfolio + research tool for NSE equities. **Strictly advisory; the system never trades.**
 
-> Last updated: 2026-05-23 (post-Chat-5 audit + cleanup).
+> Last updated: 2026-05-24 (post-Chat-5.5 small TD cleanup).
 > Companion docs: [`docs/data_flow.md`](docs/data_flow.md) for the per-collection / per-pipeline mental model; `docs/Project_State.md` for the full architectural spec, audit log, and open questions.
 
 ---
@@ -140,16 +140,6 @@ The full set of settings is defined in `app/config/settings.py` as a Pydantic v2
 | `NTFY_PUBLIC_TOPIC_ERRORS` | str | Random unguessable topic for F4 cron-health errors |
 | `NTFY_PUBLIC_TOPIC_DIGESTS` | str | Random unguessable topic for weekly digests |
 
-### Currently-orphan (post-TD8, slated for TD9 cleanup)
-
-| Var | Why it's still here |
-|---|---|
-| `NTFY_URL` | Pointed at self-hosted ntfy on Tailscale Funnel. Service decommissioned 2026-05-18 |
-| `NTFY_USER` | HTTP Basic auth for self-hosted ntfy. Unused |
-| `NTFY_PASS` | HTTP Basic auth for self-hosted ntfy. Unused |
-
-These can be deleted from `settings.py` + the secrets file in a follow-up commit (TD9). Don't remove them in isolation — touching `settings.py` risks masking a Pydantic v2 validation error on boot.
-
 ### Optional / tunable
 
 Anything else in `app/config/settings.py` has a sensible default. The most useful ones to know about: scoring weights (`WEIGHT_*` if exposed), gate thresholds (`MARKET_CAP_MIN_CR`, `EARNINGS_PROXIMITY_DAYS`, `MAX_HIGH_SEVERITY_NEGATIVE_NEWS_30D`), and any feature flags. Check `settings.py` for the current list — it's the source of truth.
@@ -232,7 +222,7 @@ Auto-reconciliation against the cached ICICI baseline in `user_profile.reconcili
 
 #### `refresh_fundamentals.py` (176 lines)
 
-Weekly fundamentals for the Phase 2 universe (top 250 NSE by market cap). Upserts one `instruments_fundamentals` doc per ISIN with ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp. Missing-data ISINs are skipped (not zeroed) so cross-sectional normalization isn't poisoned.
+Weekly fundamentals for the Phase 2 universe (NIFTY 100 ∪ active holdings).  Upserts one `instruments_fundamentals` doc per ISIN with ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp.  Missing-data ISINs are skipped (not zeroed) so cross-sectional normalization isn't poisoned.  Also folds in the F14 earnings calendar refresh for the same universe via `refresh_earnings_universe` (same yfinance round-trip).
 
 #### `fetch_news_for_universe.py` (175 lines)
 
@@ -308,12 +298,7 @@ Flags:
 - `--dry-run` — preview.
 
 #### `seed_nifty100.py` (161 lines)
-
-⚠️ **Misnamed — actually seeds the top 250 NSE stocks by market cap** as the Phase 2 buy-side universe. Writes to `instruments` with a universe tag. Idempotent. Rename pending (out of scope for Chat 5).
-
-Flags:
-- `--dry-run` — preview.
-- `--replace` — wipe and re-seed (use when the universe definition changes).
+Seeds the NIFTY 100 universe.  Fetches the official NSE constituent CSV (`https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv`), parses the ~100 symbols, marks each matched NSE instrument with `in_nifty100: true` + `nifty100_marked_at`, then backfills 5 years of EOD price history for the matched ISINs via `fetch_eod_prices` / `upsert_prices`.  Idempotent on re-run (bulk-write upserts; the price backfill is keyed `(isin, date)` unique).  No `--dry-run` or `--replace` flag at HEAD; rerunning simply re-confirms the marks and tops up any missing price rows.
 
 #### `smoke_test.py` (84 lines)
 
@@ -483,19 +468,18 @@ Check the Atlas console (M10 cluster `personal`). If the cluster is healthy but 
 
 ## 11. Known operational gotchas
 
-1. **`seed_nifty100.py` actually seeds the top 250.** The name lies. Don't read the file name as a spec.
-2. **`SignalScore.raw_value` shape changed 2026-05-23 (commit 2 of Chat 5).** Pre-commit-2 runs in `suggestion_runs` have `raw_value` = stringified normalized score. Post-commit-2 runs have `raw_value` = the actual raw input. The UI explainability layer derives display from a fresh fundamentals lookup, not from `raw_value`, so this is data-correctness only for now.
-3. **`notify.email` never raises post-A2-part-1.** It returns `{ok, id, error}`. Old try/except patterns silently believed every email succeeded. Audited and fixed in commit 1 (`_send_drift_alerts`). Any new email caller must branch on `result["ok"]`.
-4. **`notify.push_public` DOES raise on failure** (via `_publish` → `response.raise_for_status()`). The two transports are NOT symmetric. See `_send_drift_alerts` for the canonical pattern.
-5. **Suggestion direction defaults to `"buy"`.** Forgetting to pass `direction="sell"` from a new code path will silently produce a buy run.
-6. **Production digest is one combined email + push** via `send_combined_digest`, not two. The standalone `send_weekly_digest` inside `_run_sell_pipeline` is only the manual-rerun path. Don't replicate it elsewhere.
-7. **Tavily quota is monthly, not per-run.** A failed Sunday fetch eats its weekly budget. A re-trigger mid-week eats more. Watch `tavily_quota` if you re-run.
-8. **`prices_intraday` is append-only within a day.** Multiple rows per ISIN per day is expected. Always sort by `_id` desc (or timestamp) to get the latest.
-9. **Mongo dates are timezone-naive.** Strip tzinfo before comparing against `datetime.utcnow()`-derived values. See `_naive()` in `validate_replay`.
-10. **Decimal vs Decimal128.** Never write raw `Decimal` to Mongo — pymongo raises `bson.errors.InvalidDocument`. Use the `_convert_decimals_to_decimal128` helper.
-11. **Soft-delete filter is universal.** Always include `{"deleted_at": null}` when querying `holdings`. Many bugs traced to a missing filter showing exited holdings in "active" aggregations.
-12. **Self-hosted ntfy is gone (TD8, 2026-05-18).** `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` still exist as orphan env vars (TD9 cleanup pending). Don't assume their presence means private ntfy is back; the service is stopped + disabled.
-13. **GitHub raw URL cache can lag the actual repo HEAD.** When verifying file bytes before a code change (per Section 14 of Project_State.md), prefer `sed` against the on-disk file on EC2 over `curl` against `raw.githubusercontent.com`.
+1. **`SignalScore.raw_value` shape changed 2026-05-23 (commit 2 of Chat 5).** Pre-commit-2 runs in `suggestion_runs` have `raw_value` = stringified normalized score. Post-commit-2 runs have `raw_value` = the actual raw input. The UI explainability layer derives display from a fresh fundamentals lookup, not from `raw_value`, so this is data-correctness only for now.
+2. **`notify.email` never raises post-A2-part-1.** It returns `{ok, id, error}`. Old try/except patterns silently believed every email succeeded. Audited and fixed in commit 1 (`_send_drift_alerts`). Any new email caller must branch on `result["ok"]`.
+3. **`notify.push_public` DOES raise on failure** (via `_publish` → `response.raise_for_status()`). The two transports are NOT symmetric. See `_send_drift_alerts` for the canonical pattern.
+4. **Suggestion direction defaults to `"buy"`.** Forgetting to pass `direction="sell"` from a new code path will silently produce a buy run.
+5. **Production digest is one combined email + push** via `send_combined_digest`, not two. The standalone `send_weekly_digest` inside `_run_sell_pipeline` is only the manual-rerun path. Don't replicate it elsewhere.
+6. **Tavily quota is monthly, not per-run.** A failed Sunday fetch eats its weekly budget. A re-trigger mid-week eats more. Watch `tavily_quota` if you re-run.
+7. **`prices_intraday` is append-only within a day.** Multiple rows per ISIN per day is expected. Always sort by `_id` desc (or timestamp) to get the latest.
+8. **Mongo dates are timezone-naive.** Strip tzinfo before comparing against `datetime.utcnow()`-derived values. See `_naive()` in `validate_replay`.
+9. **Decimal vs Decimal128.** Never write raw `Decimal` to Mongo — pymongo raises `bson.errors.InvalidDocument`. Use the `_convert_decimals_to_decimal128` helper.
+10. **Soft-delete filter is universal.** Always include `{"deleted_at": null}` when querying `holdings`. Many bugs traced to a missing filter showing exited holdings in "active" aggregations.
+11.  **Self-hosted ntfy is gone (TD8, 2026-05-18; TD9 cleanup 2026-05-24).** `push_private` was removed Chat 5 commits 7a/7b; the orphan `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` keys were removed from `settings.py` + `/etc/portfolio-advisor/secrets.env` in Chat 5.5 TD9.  The systemd unit on EC2 stays disabled + inactive.
+12. **GitHub raw URL cache can lag the actual repo HEAD.** When verifying file bytes before a code change (per Section 14 of Project_State.md), prefer `sed` against the on-disk file on EC2 over `curl` against `raw.githubusercontent.com`.
 
 ---
 
@@ -508,7 +492,7 @@ Check the Atlas console (M10 cluster `personal`). If the cluster is healthy but 
 - **F6 / F10** — feedback UI + write-before-apply audit pattern.
 - **F14** — earnings-proximity gate, shared between buy and sell pipelines.
 - **TD8** — self-hosted ntfy decommission (shipped 2026-05-18, code cleanup 2026-05-23 in commits 7a/7b).
-- **TD9** — orphan `NTFY_*` env var cleanup (pending).
+- **TD9** — orphan `NTFY_*` env var cleanup.  SHIPPED Chat 5.5 2026-05-24.
 - **A1 / A2 / A3 / ... / A19** — Chat-5 audit findings. See `docs/Project_State.md` for the full registry. Commits 1-7b of Chat 5 cleared A2-part-2 through A19 plus TD8.
 - **Q3** — open question: `holdings.stop_loss` field exists but is never read or written. Deferred from Chat 5.
 - **Two-mechanism exclusion** — F5b guarantee that feedback'd ISINs are excluded BOTH at run-build (`get_excluded_isins`) AND at serialization (`_build_user_action`). Both must hold or stale state leaks into the UI.

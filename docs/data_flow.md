@@ -1,6 +1,6 @@
 # Portfolio Advisor — Data Flow Reference
 
-> Last updated: 2026-05-23. This is a "future-self" doc — open it when you need
+> Last updated: 2026-05-24 (post-Chat-5.5 small TD cleanup).  This is a "future-self" doc — open it when you need
 > to remember why something works the way it does.
 
 The system is split into two phases:
@@ -75,7 +75,7 @@ Manual reconciliation: user pastes the ICICI portfolio screen total into the UI 
 
 ### Universe + fundamentals refresh
 
-The buy-side universe is the top 250 NSE stocks by market cap (filtered by `instruments` collection metadata). `refresh_fundamentals.py` runs Sundays at 06:00 IST and upserts one `instruments_fundamentals` doc per universe ISIN: ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp. Missing-data ISINs are skipped (not zeroed) so normalization isn't poisoned.
+The buy-side universe is NIFTY 100 ∪ active holdings (held names outside NIFTY 100 still need fresh fundamentals + earnings for F2 sell-side scoring).  `scripts/seed_nifty100.py` is the one-time / occasional seeder — it fetches NSE's official `ind_nifty100list.csv`, marks matched instruments with `in_nifty100=True`, and backfills 5y of price history for the matched ISINs.  `refresh_fundamentals.py` then runs Sundays at 06:00 IST against `get_nifty100_union_holdings()` and upserts one `instruments_fundamentals` doc per ISIN: ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp.  Missing-data ISINs are skipped (not zeroed) so normalization isn't poisoned.
 
 ### News pipeline (Tavily + classifier + signals)
 
@@ -228,7 +228,7 @@ Two-mechanism exclusion (F5b) means a bug can hide in either layer. Diagnostic o
 
 5. **Frontend caching.** React Query caches aggressively. After mutations (buy/sell/edit/delete), use `refetchQueries` (synchronous) instead of `invalidateQueries` (lazy) to ensure UI reflects new state immediately.
 
-6. **`SignalScore.raw_value` shape changed in commit 2.** Anything reading historical `suggestion_runs` from before 2026-05-23 will see normalized 0-100 in `raw_value` instead of the raw input. The UI `explainability._build_signal_meta` reads `meta["fundamentals_field"]` so it's not currently affected — but a future commit that wires the UI to fall back to `sig["raw_value"]` for momentum/news will need to handle the legacy shape.
+6. **`SignalScore.raw_value` shape changed in commit 2.** Anything reading historical `suggestion_runs` from before 2026-05-23 will see normalized 0-100 in `raw_value` instead of the raw input.  Post-TD11 (Chat 5.5), `explainability._build_signal_meta` reads `sig["raw_value"]` for momentum / news signals (`fundamentals_field=None`) — legacy pre-commit-2 runs will render the stringified normalized score as if it were a raw value for those signals; current runs render correctly.
 
 7. **Suggestion direction defaults to `"buy"`.** Forgetting to pass `direction="sell"` when calling `run_suggestions` / `score_candidates` from a new code path will silently produce a buy run.
 
@@ -236,7 +236,7 @@ Two-mechanism exclusion (F5b) means a bug can hide in either layer. Diagnostic o
 
 9. **`notify.email` never raises post-A2.** Old call sites that wrapped `email(...)` in `try/except Exception` will silently land `sent.append("email")` even on Resend failure. Fixed in `_send_drift_alerts` (A2 part 2). Any new caller must branch on `result["ok"]`.
 
-10. **`/etc/portfolio-advisor/secrets.env` still has orphan `NTFY_URL`, `NTFY_USER`, `NTFY_PASS`** (post-TD8). They're harmless but the future TD9 cleanup will remove them from both `settings.py` and the secrets file. Until then, do not assume their presence means private ntfy is back.
+10.  **TD9 closed 2026-05-24 (Chat 5.5).** The orphan `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` keys were removed from `settings.py` + `/etc/portfolio-advisor/secrets.env` in one atomic commit so Pydantic v2 boot validation cannot drift between the model and the env file.  Public ntfy.sh (`NTFY_PUBLIC_TOPIC_*`) is the only live push transport.
 
 11. **Production cron uses `--direction=both`.** The standalone `--direction=sell` reach inside `_run_sell_pipeline._send_weekly_digest` is only hit by manual reruns / ad-hoc testing. Production path is `send_combined_digest`, not `send_weekly_digest`.
 
@@ -245,5 +245,5 @@ Two-mechanism exclusion (F5b) means a bug can hide in either layer. Diagnostic o
 ## Open questions (carried forward)
 
 - **Q3 (deferred from Chat 5)** — `holdings.stop_loss` field exists on the model but is never read or written by any code path. Two options: (a) wire to a new intraday-alerts surface, (b) remove. Punted out of Chat 5 to keep the audit pass focused.
-- **TD9 (new, from Chat 5 commit 7)** — `settings.NTFY_URL` / `NTFY_USER` / `NTFY_PASS` are orphan after TD8. Cleanup belongs in a dedicated chat that touches `app/config/settings.py` + `/etc/portfolio-advisor/secrets.env` together.
-- **Explainability raw_value plumbing (new, from Chat 5 commit 2)** — `_build_signal_meta` still derives `raw_value_formatted` from a fresh fundamentals lookup. Now that `SignalScore.raw_value` is correct, the UI could fall back to `sig["raw_value"]` for momentum/news signals (`fundamentals_field=None`) and display them. Out-of-scope for the data-correctness commit; deserves its own UI commit after the data path is verified in production.
+- **TD9 (SHIPPED Chat 5.5 2026-05-24)** — `settings.NTFY_URL` / `NTFY_USER` / `NTFY_PASS` removed from `settings.py` + `/etc/portfolio-advisor/secrets.env` in one atomic commit.
+- **TD11 (SHIPPED Chat 5.5 2026-05-24)** — `_build_signal_meta` now falls back to `sig["raw_value"]` for `fundamentals_field=None` signals (momentum + news) and renders via `meta["formatter_kind"]`.  Added `score_signed` + `count` formatters; reassigned `news_net_sentiment` / `news_story_velocity` / `news_story_count` / `high_severity_negative_count` away from `score_only`.  `is_ltcg_eligible` kept on `score_only` (binary semantic).
