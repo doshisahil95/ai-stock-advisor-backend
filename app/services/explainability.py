@@ -114,26 +114,27 @@ SIGNAL_META: dict[str, dict[str, str]] = {
         "formatter_kind": "percent_already",
         "fundamentals_field": None,
     },
-    # News signals (raw values not persisted post-run; we show normalized only)
+    # News signals — raw values are persisted in sig["raw_value"] post-A3+A4
+    # (Chat 5 commit 2). Rendered via the per-signal formatter_kind below.
     "news_net_sentiment": {
         "display_name": "News Net Sentiment",
         "short_description": "Average sentiment of recent classified news in the last 30 days.",
         "what_higher_means": "Higher means recent coverage skews positive.",
-        "formatter_kind": "score_only",
+        "formatter_kind": "score_signed",
         "fundamentals_field": None,
     },
     "news_story_velocity": {
         "display_name": "News Story Velocity",
         "short_description": "Whether news coverage is accelerating (recent week vs prior weeks).",
-        "what_higher_means": "Higher means coverage is picking up. This can be good (catalyst) or bad (controversy).",
-        "formatter_kind": "score_only",
+        "what_higher_means": "Higher means coverage is picking up.  This can be good (catalyst) or bad (controversy).",
+        "formatter_kind": "ratio",
         "fundamentals_field": None,
     },
     "news_story_count": {
         "display_name": "News Story Count",
         "short_description": "How many classified news stories exist for this stock in the last 30 days.",
-        "what_higher_means": "Higher means more analyst and media attention. Zero coverage is a signal too.",
-        "formatter_kind": "score_only",
+        "what_higher_means": "Higher means more analyst and media attention.  Zero coverage is a signal too.",
+        "formatter_kind": "count",
         "fundamentals_field": None,
     },
     # F2: sell-side-only signals (holding-specific).
@@ -168,8 +169,8 @@ SIGNAL_META: dict[str, dict[str, str]] = {
     "high_severity_negative_count": {
         "display_name": "High-severity Negative News Count",
         "short_description": "Number of confirmed high-severity NEGATIVE news stories in the last 30 days.",
-        "what_higher_means": "Higher means more recent bad news. For sell-side this is a contributor to the risk score, not an exclusion gate.",
-        "formatter_kind": "score_only",
+        "what_higher_means": "Higher means more recent bad news.  For sell-side this is a contributor to the risk score, not an exclusion gate.",
+        "formatter_kind": "count",
         "fundamentals_field": None,
     },
 }
@@ -528,6 +529,12 @@ def _format_raw(formatter_kind: str, raw: float | None) -> str:
         return f"{raw:.1f}x"
     if formatter_kind == "currency_inr_cr":
         return f"Rs {raw / 1_00_00_000:,.0f} Cr"
+    if formatter_kind == "score_signed":
+        # News net sentiment is scaled to roughly [-100, +100]; sign matters.
+        return f"{raw:+.1f}"
+    if formatter_kind == "count":
+        # News story count / high-severity negative count — whole-number tallies.
+        return f"{int(raw)}"
     if formatter_kind == "score_only":
         return "—"  # Raw value not available post-run for news signals
     return f"{raw}"
@@ -597,9 +604,13 @@ def _build_signal_meta(
             raw = _to_float(fundamentals_doc.get(meta["fundamentals_field"]))
             raw_formatted = _format_raw(meta["formatter_kind"], raw)
         elif meta.get("fundamentals_field") is None and sig.get("available"):
-            # Computed signal (price-momentum or news). We don't have raw.
-            # Show the normalized score as a hint, not the raw underlying value.
-            raw_formatted = "—"
+            # Computed signal (price-momentum or news). After A3+A4
+            # (Chat 5 commit 2) the raw input is persisted in
+            # sig["raw_value"] — render via the signal-specific
+            # formatter_kind. is_ltcg_eligible stays as score_only,
+            # which keeps its dash-render semantic intact.
+            raw = _to_float(sig.get("raw_value"))
+            raw_formatted = _format_raw(meta["formatter_kind"], raw)
 
         out.append(
             {
