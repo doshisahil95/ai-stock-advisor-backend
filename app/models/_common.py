@@ -69,4 +69,9 @@ def _convert_decimals_to_decimal128(obj: Any) -> Any:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """UTC-naive datetime. Project invariant: Mongo stores naive UTC; Python uses naive UTC.
+    pymongo strips tzinfo on write by default, so legacy callers that passed
+    tz-aware values silently got naive in storage — fixing here so in-memory
+    comparisons against Mongo reads (naive) don't TypeError.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
