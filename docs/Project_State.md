@@ -18,7 +18,7 @@ Before you do ANYTHING else, read the following in order:
    - https://github.com/doshisahil95/ai-stock-advisor-backend
    - https://github.com/doshisahil95/ai-stock-advisor-frontend
 3. https://github.com/doshisahil95/ai-stock-advisor-backend/blob/main/docs/data_flow.md
-4. Both repo READMEs
+4. Both repo READMEs.
 
 GitHub content may be cached. Whenever you read a file, capture the commit
 SHA you read at, and re-read if the user tells you they have pushed since.
@@ -27,7 +27,23 @@ Today's scope is: <DESCRIBE THE FEATURE OR FIX FOR THIS CHAT>
 
 Hard rules:
 - Do not invent parallel patterns. Evolve existing code, don't redesign.
-- Re-read files at HEAD before patching them. Do not trust memory.
+- Re-read files at HEAD before patching them. Do not trust memory. At no
+  point will you make code changes while relying on memory. You will
+  construct the github urls of the files you need and read them always
+  from source. For constructing the github url you need:
+    owner:      doshisahil95
+    repo:       ai-stock-advisor-backend OR ai-stock-advisor-frontend
+    commit SHA: the user will provide (asked for explicitly per the rule below)
+    file path:  obtained from the tree-listing command below
+  The user will run the tree-listing command immediately after pasting this
+  Section 0 bootstrap and BEFORE describing scope, so you always have an
+  accurate file inventory. Re-request the command at any point a SHA advances.
+  Tree-listing command (request this in your acknowledgement message):
+    cd ~/Projects/Personal/ai-stock-advisor
+    echo "===== BACKEND HEAD =====" && git -C ai-stock-advisor-backend rev-parse HEAD && \
+    echo "===== BACKEND TREE =====" && git -C ai-stock-advisor-backend ls-tree -r --name-only HEAD && \
+    echo "===== FRONTEND HEAD =====" && git -C ai-stock-advisor-frontend rev-parse HEAD && \
+    echo "===== FRONTEND TREE =====" && git -C ai-stock-advisor-frontend ls-tree -r --name-only HEAD
 - ASK ME FOR THE CURRENT BACKEND (and frontend if relevant) SHA BEFORE
   PROPOSING ANY CODE CHANGE. Re-read the actual file at that SHA before
   writing any find-and-replace block. Find-blocks written from snippet
@@ -75,15 +91,15 @@ Do not start coding until I confirm your summary is accurate.
 
 Note on filename casing: the file on disk is `docs/Project_State.md` (title case). GitHub paths are case-sensitive. Earlier copies of this bootstrap used `PROJECT_STATE.md` (all-caps) and `404`'d. The Section 0 prompt above uses the correct casing.
 
+Note on URL construction: prefer `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>` over the GitHub blob URL — the blob URL frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention from Chat 5.5; reinforced Chat 5.7 (see Section 19).
+
 ## Section 1: Project identity
 
 Personal AI Stock Advisor. Single-user portfolio + research tool for Indian NSE equities. Built for and by Sahil Doshi (Senior Consulting Engineer, MongoDB, India).
 
 Strict design constraint that overrides everything else: the system never executes trades. Sahil trades manually in ICICI Direct. The system records, analyzes, and advises only. Any feature that would auto-place an order is out of scope, permanently.
 
-The system is also not regulatory advice. Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because...". The user decides; the user trades.
-
-The goal of the system is to maximise the investments.
+The system is also not regulatory advice. Dossiers and suggestions must use phrasing like "the system flagged this because..." and "this is a good buy because..." or "this is a good sell because...". The user decides; the user trades. The goal of the system is to maximise the investments.
 
 Goal of the tool: grow money. Every feature is judged on whether it helps with one of:
 - Buy better (find opportunities you'd otherwise miss)
@@ -112,13 +128,14 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - Project_State.md is ALWAYS delivered as a complete full-file replacement, never a patch or diff or find-and-replace. No exceptions.
 - ASK FOR CURRENT BACKEND SHA BEFORE PROPOSING ANY CODE CHANGE. Re-read the file at that SHA before writing the patch. (Chat 5 standing convention; see Section 14.)
 - BEFORE documenting what a script does, read its body at HEAD; before documenting a cron line, verify the script's argparse accepts the flags. (Chat 5.5 standing conventions; see Section 14.)
+- AT NO POINT make code changes while relying on memory. Construct the GitHub URL of the file you need (owner=`doshisahil95`, repo, commit SHA the user supplied, file path from the Section-0 tree listing) and re-read from source. (Chat 5.7 standing convention; see Section 14.)
 
 ## Section 3: Tech stack
 
 ### Backend
 - Python 3.12
 - FastAPI
-- Pydantic v2
+- Pydantic v2 (every Query() in routers uses `pattern=` not `regex=` post Chat 5 A19; round-trip / `ge=0` validator hardening across models post Chat 5.6 — see Section 13)
 - MongoDB Atlas, M10 cluster, ap-south-1 region
 - uv (package manager — replaces pip/poetry)
 - yfinance (price + fundamentals + earnings calendar data; free tier)
@@ -155,12 +172,9 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - Backend port on Mac (local dev): `8001` (NOT 8000)
 - Frontend port on Mac (local dev): `3000`
 
-This Mac vs EC2 port difference is a real, recurring source of confusion for assistants. The assistant has gotten this wrong multiple times. Always specify which machine when giving test commands.
-
-For chat-supplied test blocks, the standing convention is "SSH into EC2 first, then curl localhost:8000" — see Section 14.
+This Mac vs EC2 port difference is a real, recurring source of confusion for assistants. The assistant has gotten this wrong multiple times. Always specify which machine when giving test commands. For chat-supplied test blocks, the standing convention is "SSH into EC2 first, then curl localhost:8000" — see Section 14.
 
 ### Repo paths
-
 Mac:
 - Backend: `~/Projects/Personal/ai-stock-advisor/ai-stock-advisor-backend`
 - Frontend: `~/Projects/Personal/ai-stock-advisor/ai-stock-advisor-frontend`
@@ -170,15 +184,12 @@ EC2:
 - Frontend: `/home/ubuntu/ai-stock-advisor-frontend` (alias `~/ai-stock-advisor-frontend`)
 
 ### Secrets paths
-
 The application resolves secrets via `app/config/settings.py`:
-
 ```python
 EC2_SECRETS = Path("/etc/portfolio-advisor/secrets.env")
 LOCAL_SECRETS = Path(__file__).resolve().parents[2] / ".env"
 SECRETS_FILE = EC2_SECRETS if EC2_SECRETS.exists() else LOCAL_SECRETS
 ```
-
 So:
 - On EC2 the file is `/etc/portfolio-advisor/secrets.env` (chmod 600, owned by root)
 - On Mac the file is `<repo>/.env` (chmod 600, gitignored)
@@ -194,19 +205,14 @@ Chat 5 reminder: when rotating the Atlas password, update BOTH `secrets.env` fil
 Chat 5.5 TD9 SHIPPED (commit 1, 2026-05-24): `NTFY_URL`, `NTFY_USER`, `NTFY_PASS` were orphan post-TD8. Both sides cleaned up in one atomic commit + restart: settings.py fields removed AND the four lines (`# ntfy` header + the three KEY=VALUE lines at lines 10-13) sed-deleted from `/etc/portfolio-advisor/secrets.env`. Backup written to `secrets.env.bak.<timestamp>` before sed. Verified: `/health` ok, no Pydantic validation error in journald, smoke_test all green.
 
 ### Deploy scripts
-
 On EC2:
 - `~/deploy.sh` — pulls backend, runs `uv sync`, restarts `portfolio-advisor.service`
 - `~/deploy-ui.sh` — pulls frontend, runs `npm install --legacy-peer-deps`, runs `npm run gen-api`, runs `npm run build`, restarts `portfolio-advisor-ui.service`
 
-The `gen-api` step in `deploy-ui.sh` regenerates `lib/api-types.ts` against the running backend's OpenAPI spec. That file is gitignored.
-
-On Mac, running `npm run gen-api` without overriding the URL will fail because Mac backend is on port 8001 and the default is 8000. Use:
-
+The `gen-api` step in `deploy-ui.sh` regenerates `lib/api-types.ts` against the running backend's OpenAPI spec. That file is gitignored. On Mac, running `npm run gen-api` without overriding the URL will fail because Mac backend is on port 8001 and the default is 8000. Use:
 ```
 API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 ```
-
 or just skip it — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
@@ -216,7 +222,6 @@ or just skip it — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is h
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
 
 ### Log rotation (Chat 5 SHIPPED 2026-05-24)
-
 `/etc/logrotate.d/portfolio-advisor` rotates all `/home/ubuntu/cron-*.log` weekly:
 - `rotate 4` — keep 4 weeks of history
 - `compress` + `delaycompress` — gzip rotated files (newest rotation stays uncompressed for grep-friendliness)
@@ -232,61 +237,77 @@ The pre-existing `0 0 * * 0 find ... -size +10M ... tail -10000 ...` crontab lin
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-GitHub is the source of truth for code. GitHub may serve cached content via Glean's reader. When in doubt, find the latest commit SHA and read at that SHA explicitly. Chat 5 lesson: when the raw URL also serves cached content, `ssh ubuntu@100.112.20.41 'sed -n "1,30p" <path>'` is the verification of last resort.
+GitHub is the source of truth for code. GitHub may serve cached content via Glean's reader. When in doubt, find the latest commit SHA and read at that SHA explicitly via `raw.githubusercontent.com`. Chat 5 lesson: when the raw URL also serves cached content, `ssh ubuntu@100.112.20.41 'sed -n "1,30p" <path>'` is the verification of last resort.
 
-Last verified SHAs (Chat 5.5 closed, 2026-05-24):
-- Backend: `b8228380e4236bdc947c419a09fd6a44e81f4d69` (post-Chat-5.5 commits 1-3: TD9 settings cleanup + TD11 explainability wire + TD12 doc correction; will advance after this PROJECT_STATE commit lands — pin in Chat 6's first read)
-- Frontend: `9edfc8f12a2071744c4d445d679811b1cde62058` (Chat 5 doc deliverable 3/4 — frontend README rewrite; per-page reference TD13 still OPEN)
+Last verified SHAs (Chat 5.7 closed, 2026-05-29):
+- Backend: `64d5ae383ffac6a7f39a081709559ad283b4aef0` (post-Chat-5.6 robustness pass and post-Chat-5.5 commits 1-3: TD9 settings cleanup + TD11 explainability wire + TD12 doc correction; advances after this Project_State.md commit lands — pin in next chat's first read).
+- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (per-page reference TD13 SHIPPED at this SHA — README §13 covers Dashboard, Holdings drill-down, Transactions, Audit, Reconciliation, Cost Basis, Suggestions, each with TanStack Query keys, mutations + fan-out, endpoints, primitives, dark-mode notes; reference content was generated at SHA `9edfc8f` and is unchanged at `4f31b49`).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/`:
-
+Directory layout under `app/` and top-level (verified against backend tree at SHA `64d5ae3`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
+  agents/__init__.py          empty package placeholder
+  scheduler/__init__.py       empty package placeholder
   config/
     settings.py               pydantic-settings, loads secrets file
                               F2b: NTFY_PUBLIC_TOPIC_DIGESTS (required)
                               Chat 5.5 TD9 SHIPPED (commit 1, 2026-05-24):
-                              NTFY_URL, NTFY_USER, NTFY_PASS field
-                              declarations removed in lockstep with the
-                              EC2 secrets-file cleanup. No remaining
-                              callers (push_private + PrivateTopic removed
-                              TD8 commits 7a/7b).
+                                NTFY_URL, NTFY_USER, NTFY_PASS field
+                                declarations removed in lockstep with the
+                                EC2 secrets-file cleanup. No remaining
+                                callers (push_private + PrivateTopic removed
+                                TD8 commits 7a/7b).
   db/
     client.py                 Mongo client, get_db(), Collections accessor class
-                                (incl. Collections.monitored_stocks_audit() — F10)
-                                (incl. Collections.earnings_calendar() — F14)
+                              (incl. Collections.monitored_stocks_audit() — F10)
+                              (incl. Collections.earnings_calendar() — F14)
     indexes.py                ensure_indexes() called on startup
-                                (incl. monitored_stocks_audit indexes — F10)
-                                (incl. earnings_calendar indexes — F14)
+                              (incl. monitored_stocks_audit indexes — F10)
+                              (incl. earnings_calendar indexes — F14)
   models/
     _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
     instrument.py             Instrument (NSE master record)
     holding.py                Holding (active position)
     transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER)
+                              Chat 5.6: ge=0 validators on quantity / price /
+                                total_fees hardened; SPLIT/BONUS preview FIFO
+                                path tightened (see Section 13 Chat 5.6).
     fundamentals.py           InstrumentFundamentals (per-ISIN, per-refresh)
     earnings_event.py         F14: EarningsEvent (one doc per ISIN per earnings_date)
     suggestion.py             SuggestionRun, SuggestionOutcome, CandidateScore,
                               SignalScore, GateResult
                               F2: SuggestionDirection literal; direction field
-                              on SuggestionRun and SuggestionOutcome (default
-                              "buy" so pre-F2 docs coerce cleanly)
+                                on SuggestionRun and SuggestionOutcome (default
+                                "buy" so pre-F2 docs coerce cleanly)
+                              Chat 5.6: Pydantic round-trip hardening on
+                                SuggestionRun / SuggestionOutcome so legacy
+                                persisted docs without newer optional fields
+                                load cleanly (see Section 13 Chat 5.6).
     news.py                   NewsArticle (live model — the only news model)
     monitored_stock.py        MonitoredStock + MonitoredStockFeedbackPatch
                               Chat 5 A1 SHIPPED — MonitoringStatus Literal now
-                              matches writer reality: ["tracking","passed",
-                              "rejected","watchlist"]; feedback fields
-                              (acted_at/passed_at/rejected_at/last_feedback_*)
-                              declared on the model; MonitoredStockFeedbackPatch
-                              is the typed wrapper the writer uses to build
-                              the $set patch (catches Literal drift at write
-                              time via pydantic ValidationError). See Section 12.
+                                matches writer reality: ["tracking","passed",
+                                "rejected","watchlist"]; feedback fields
+                                (acted_at/passed_at/rejected_at/last_feedback_*)
+                                declared on the model; MonitoredStockFeedbackPatch
+                                is the typed wrapper the writer uses to build
+                                the $set patch (catches Literal drift at write
+                                time via pydantic ValidationError). See Section 12.
     macro_signal.py           placeholder
     conversation.py           placeholder (will be used for chat features F1/F3)
     reconciliation.py         ReconciliationSnapshot
     cost_basis_adjustment.py  CostBasisAdjustment
+    alert_log.py              placeholder (reserved; not currently written)
+    digest.py                 placeholder (reserved; digest delivery audit lives
+                                in `digest_deliveries` collection, not this model)
+    price_daily.py            placeholder reflection of `prices_daily` collection
+                                (collection writers use raw dicts; model exists
+                                for future read-side typing)
+    symbol_override.py        SymbolOverride (manual ISIN aliases)
+    user_profile.py           UserProfile (singleton, _id="sahil")
   routers/
     holdings.py               /portfolio/holdings, /portfolio/holdings/{isin},
                               /sell, /preview-sell, /history, /transactions
@@ -300,48 +321,57 @@ app/
                               /performance, /{isin}/feedback,
                               /{isin}/audit, /feedback/audit/recent (F10)
                               F2: ?direction=buy|sell on /latest, /runs,
-                              /performance. /runs/{id} unchanged (direction
-                              is implicit in the stored doc).
+                                /performance. /runs/{id} unchanged (direction
+                                is implicit in the stored doc).
                               Chat 5 A1: /{isin}/feedback now constructs
-                              MonitoredStockFeedbackPatch and $set-s
-                              patch.model_dump(exclude_none=True) so prior-
-                              action *_at timestamps survive across status
-                              flips. $setOnInsert seeds added_by,
-                              added_reason, _schema_version.
+                                MonitoredStockFeedbackPatch and $set-s
+                                patch.model_dump(exclude_none=True) so prior-
+                                action *_at timestamps survive across status
+                                flips. $setOnInsert seeds added_by,
+                                added_reason, _schema_version.
                               Chat 5 A19 SHIPPED (commit 6, 2026-05-23) —
-                              three Query() calls migrated from regex=
-                              to pattern= (Pydantic v2 deprecation).
-                              Behaviour unchanged.
+                                three Query() calls migrated from regex=
+                                to pattern= (Pydantic v2 deprecation).
+                                Behaviour unchanged.
     cron.py                   /cron/heartbeats (F4 — health summary +
                               recent heartbeats; mirrors reconciliation.py
                               local _serialize helper)
   services/
     instrument_service.py     lookup_isin, bulk_lookup_isins, refresh
+    yfinance_lookup.py        thin yfinance Ticker wrapper used by
+                              instrument_service for sector / industry /
+                              long-name enrichment when NSE master is sparse.
+                              Not previously enumerated in this file map; added
+                              Chat 5.7 doc-reconciliation.
     price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
                               annotate_with_current_price, get_previous_close
     holdings_service.py       recompute_holding, validate_replay, preview_sell,
                               _to_decimal helper
+                              Chat 5.6: preview_sell FIFO path now correctly
+                                folds SPLIT / BONUS adjustments into the lot
+                                walk so previews of post-action sells match
+                                the post-recompute Holding (see Section 13).
     portfolio_service.py      compute_summary
     transactions_audit_service.py  log_change, get_audit_for_transaction
     monitored_stocks_audit_service.py  F10: log_change (write-before-apply),
-                                       get_audit_for_isin, get_recent_audit
+                              get_audit_for_isin, get_recent_audit
     reconciliation.py         take_auto_snapshot, drift detection,
                               _send_drift_alerts (helper sends ntfy + email)
                               Chat 5 A2 part 2 SHIPPED (commit 1, 2026-05-23):
-                              _send_drift_alerts now branches on
-                              notify.email() result["ok"] before
-                              sent.append("email"). The dead try/except
-                              around the now-non-raising wrapper is gone.
-                              Also passes text=body_text for proper
-                              multipart/alternative.
+                                _send_drift_alerts now branches on
+                                notify.email() result["ok"] before
+                                sent.append("email"). The dead try/except
+                                around the now-non-raising wrapper is gone.
+                                Also passes text=body_text for proper
+                                multipart/alternative.
     cost_basis_service.py     get_active_adjustments, total_adjustment_amount
     fundamentals_service.py   yfinance provider, refresh_one, refresh_universe,
                               get_latest_for_isin, get_latest_bulk, is_fresh,
                               _normalize_debt_to_equity, _normalize_dividend_yield
                               F14: fetch_earnings_calendar_yfinance,
-                              refresh_earnings_for, refresh_earnings_universe,
-                              get_next_earnings_for_isin, get_next_earnings_bulk,
-                              _sanitize_for_bson (yfinance dates coerce)
+                                refresh_earnings_for, refresh_earnings_universe,
+                                get_next_earnings_for_isin, get_next_earnings_bulk,
+                                _sanitize_for_bson (yfinance dates coerce)
     tavily_client.py          quota-tracked wrapper, TavilyQuotaExceeded
     news_fetcher.py           fetch_for_instrument, fetch_for_universe
     news_classifier.py        Haiku batch classifier, retry pass
@@ -349,156 +379,157 @@ app/
     scoring_service.py        extract_signals, score_candidates,
                               Q/V/M/N weights, gates, version "1.0.0-unit2"
                               F14: evaluate_earnings_proximity_gate (shared);
-                              evaluate_gates accepts optional next_earnings;
-                              score_candidates accepts optional
-                              next_earnings_by_isin (buy-side wires it in
-                              suggestion_engine).
+                                evaluate_gates accepts optional next_earnings;
+                                score_candidates accepts optional
+                                next_earnings_by_isin (buy-side wires it in
+                                suggestion_engine).
                               F2: DEFAULT_SELL_CONFIG, GROUP_SIGNALS_SELL,
-                              extract_sell_signals, evaluate_sell_gates
-                              (in_profit, min_position_age, earnings_proximity),
-                              score_sell_candidates.
-                              score_group + composite_for_candidate refactored
-                              to accept optional group_signals_def (back-compat
-                              with GROUP_SIGNALS default).
+                                extract_sell_signals, evaluate_sell_gates
+                                (in_profit, min_position_age, earnings_proximity),
+                                score_sell_candidates.
+                                score_group + composite_for_candidate refactored
+                                to accept optional group_signals_def (back-compat
+                                with GROUP_SIGNALS default).
                               Chat 5 A3+A4 SHIPPED (commit 2, 2026-05-23):
-                              composite_for_candidate now accepts optional
-                              candidate_signals_for_isin and writes the RAW
-                              input from extract_signals into
-                              SignalScore.raw_value. Both buy
-                              (score_candidates) and sell
-                              (score_sell_candidates) call sites updated
-                              in the same commit. News raw values
-                              (net_sentiment*100, story_velocity,
-                              story_count) now land in SignalScore.raw_value
-                              as a side effect — closes A4. Back-compat
-                              fallback preserves historic (incorrect)
-                              behaviour when no raw_signals dict is passed.
+                                composite_for_candidate now accepts optional
+                                candidate_signals_for_isin and writes the RAW
+                                input from extract_signals into
+                                SignalScore.raw_value. Both buy
+                                (score_candidates) and sell
+                                (score_sell_candidates) call sites updated
+                                in the same commit. News raw values
+                                (net_sentiment*100, story_velocity,
+                                story_count) now land in SignalScore.raw_value
+                                as a side effect — closes A4. Back-compat
+                                fallback preserves historic (incorrect)
+                                behaviour when no raw_signals dict is passed.
                               Chat 5 A5 SHIPPED (commit 2, 2026-05-23):
-                              stale DEFAULT_CONFIG.gates comment refreshed
-                              to describe current shared buy+sell behaviour.
+                                stale DEFAULT_CONFIG.gates comment refreshed
+                                to describe current shared buy+sell behaviour.
     dossier_service.py        generate_dossiers_for_top_k, Sonnet,
                               plain_english_summary in schema
                               F2: _SYSTEM_PROMPT_SELL with tax_consideration +
-                              concentration_note; _parse_dossier required
-                              fields switch on direction; per-candidate
-                              POSITION CONTEXT block (cost basis, unrealized
-                              gain %, tax window, portfolio weight, next
-                              earnings) appended for sell-side.
+                                concentration_note; _parse_dossier required
+                                fields switch on direction; per-candidate
+                                POSITION CONTEXT block (cost basis, unrealized
+                                gain %, tax window, portfolio weight, next
+                                earnings) appended for sell-side.
     suggestion_engine.py      run_suggestions (full pipeline);
                               get_excluded_isins (F6+F5b: rejected 90d,
                               passed this-run, acted 30d)
                               F2: run_suggestions(direction="buy"|"sell")
-                              dispatches to _run_buy_pipeline (F14 gate now
-                              activated) or _run_sell_pipeline (universe =
-                              active holdings, portfolio_value computed via
-                              bulk_get_latest_prices, sell-side scoring +
-                              dossier).
+                                dispatches to _run_buy_pipeline (F14 gate now
+                                activated) or _run_sell_pipeline (universe =
+                                active holdings, portfolio_value computed via
+                                bulk_get_latest_prices, sell-side scoring +
+                                dossier).
                               Chat 5 A17 SHIPPED (commit 5, 2026-05-23):
-                              stale pre-chunk-6 NOTE in _run_sell_pipeline
-                              refreshed to describe current --direction=both
-                              vs standalone --direction=sell behaviour.
+                                stale pre-chunk-6 NOTE in _run_sell_pipeline
+                                refreshed to describe current --direction=both
+                                vs standalone --direction=sell behaviour.
     outcome_tracker.py        create_outcomes_for_run, snapshot_open_outcomes,
                               compute_system_performance
                               F2: create_outcomes_for_run stamps direction;
-                              compute_system_performance accepts optional
-                              direction filter and sign-flips excess_return
-                              for sell-side at read time.
+                                compute_system_performance accepts optional
+                                direction filter and sign-flips excess_return
+                                for sell-side at read time.
     digest_delivery.py        send_weekly_digest (Resend + ntfy),
                               send_combined_digest (F2 Chat 4 — both directions)
                               F2b: ntfy via push_public("digests", ...) on
-                              public ntfy.sh; private path retired here.
+                                public ntfy.sh; private path retired here.
                               F2b (2026-05-20 / cea8eee): _format_score_breakdown
-                              is DIRECTION-AWARE — sell rows render
-                              Book/Stretch/Risk/Tax-Conc from group_meta lookup
-                              instead of Q/V/M/N=0. Closes 2026-05-18 bug.
+                                is DIRECTION-AWARE — sell rows render
+                                Book/Stretch/Risk/Tax-Conc from group_meta lookup
+                                instead of Q/V/M/N=0. Closes 2026-05-18 bug.
                               Chat 5 A2 part 1 SHIPPED: _send_email now
-                              delegates to notify.email() which returns
-                              {ok,id,error}. No more inline `import resend`.
-                              Verified end-to-end on EC2: real digest email
-                              arrived in inbox, email_ok=True, email_id
-                              populated, multipart/alternative working.
+                                delegates to notify.email() which returns
+                                {ok,id,error}. No more inline `import resend`.
+                                Verified end-to-end on EC2: real digest email
+                                arrived in inbox, email_ok=True, email_id
+                                populated, multipart/alternative working.
                               Chat 5 TD8 follow-up (commit 7a, 2026-05-23):
-                              F2b docstring updated to reflect that
-                              push_private was removed from notify.py (was:
-                              "push_private remains for future use").
+                                F2b docstring updated to reflect that
+                                push_private was removed from notify.py (was:
+                                "push_private remains for future use").
     explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
                               PAGE_INTRO + PAGE_INTRO_SELL, enrich_run,
                               enrich_candidate;
                               _load_monitored_bulk + _build_user_action (F6)
                               F2: SIGNAL_META extended (unrealized_gain_pct,
-                              target_price_proximity, portfolio_weight_pct,
-                              is_ltcg_eligible, high_severity_negative_count).
-                              GROUP_META extended (booking_opportunity,
-                              valuation_stretch, risk, tax_concentration).
-                              GATE_META extended (earnings_proximity,
-                              in_profit, min_position_age).
-                              _GROUP_TO_SIGNALS extended for sell groups.
+                                target_price_proximity, portfolio_weight_pct,
+                                is_ltcg_eligible, high_severity_negative_count).
+                                GROUP_META extended (booking_opportunity,
+                                valuation_stretch, risk, tax_concentration).
+                                GATE_META extended (earnings_proximity,
+                                in_profit, min_position_age).
+                                _GROUP_TO_SIGNALS extended for sell groups.
                               Chat 5 A18 NOTE: shipped before Chat 5 (verified
-                              at SHA d3f307a during the Chat 5 audit) —
-                              BUY_PAGE_INTRO / SELL_PAGE_INTRO + direction
-                              branch in enrich_run are present.
+                                at SHA d3f307a during the Chat 5 audit) —
+                                BUY_PAGE_INTRO / SELL_PAGE_INTRO + direction
+                                branch in enrich_run are present.
                               Chat 5.5 TD11 SHIPPED (commit 2, 2026-05-24):
-                              _build_signal_meta now falls back to
-                              sig["raw_value"] (parsed via _to_float, rendered
-                              via _format_raw) when meta["fundamentals_field"]
-                              is None and sig["available"] is True. Stale
-                              line-116 comment "News signals (raw values not
-                              persisted post-run; we show normalized only)"
-                              refreshed to describe post-A3+A4 reality.
-                              SIGNAL_META formatter_kind switched: news_net_
-                              sentiment → score_signed (signed 1-decimal),
-                              news_story_velocity → ratio, news_story_count
-                              → count (integer), high_severity_negative_count
-                              → count. is_ltcg_eligible deliberately kept on
-                              score_only (binary semantic; dossier carries
-                              meaningful value). Two new _format_raw kinds
-                              added: score_signed (`f"{raw:+.1f}"`) and
-                              count (`f"{int(raw)}"`).
+                                _build_signal_meta now falls back to
+                                sig["raw_value"] (parsed via _to_float, rendered
+                                via _format_raw) when meta["fundamentals_field"]
+                                is None and sig["available"] is True. Stale
+                                line-116 comment "News signals (raw values not
+                                persisted post-run; we show normalized only)"
+                                refreshed to describe post-A3+A4 reality.
+                                SIGNAL_META formatter_kind switched: news_net_
+                                sentiment → score_signed (signed 1-decimal),
+                                news_story_velocity → ratio, news_story_count
+                                → count (integer), high_severity_negative_count
+                                → count. is_ltcg_eligible deliberately kept on
+                                score_only (binary semantic; dossier carries
+                                meaningful value). Two new _format_raw kinds
+                                added: score_signed (`f"{raw:+.1f}"`) and
+                                count (`f"{int(raw)}"`).
     notify.py                 push_public, email
                               Chat 5 A2 part 1 SHIPPED: email() now accepts
-                              optional `text=` param for multipart, returns
-                              {ok, id, error} instead of raw resend dict.
-                              All Resend traffic in the backend flows
-                              through this wrapper. Callers:
-                              digest_delivery._send_email (delegates),
-                              reconciliation._send_drift_alerts (Chat 5 A2
-                              part 2 wired correctly to result["ok"]),
-                              cron_health_check.main (Chat 5 commit 8 —
-                              dual-transport alongside push_public),
-                              scripts/smoke_test.py (uses .get('id')).
-                              PublicChannel = "price" | "news" | "errors" |
-                              "digests".
+                                optional `text=` param for multipart, returns
+                                {ok, id, error} instead of raw resend dict.
+                                All Resend traffic in the backend flows
+                                through this wrapper. Callers:
+                                digest_delivery._send_email (delegates),
+                                reconciliation._send_drift_alerts (Chat 5 A2
+                                part 2 wired correctly to result["ok"]),
+                                cron_health_check.main (Chat 5 commit 8 —
+                                dual-transport alongside push_public),
+                                scripts/smoke_test.py (uses .get('id')).
+                                PublicChannel = "price" | "news" | "errors" |
+                                "digests".
                               Chat 5 TD8 SHIPPED (commits 7a + 7b,
-                              2026-05-23): push_private function +
-                              PrivateTopic Literal + _NTFY_AUTH constant +
-                              `from base64 import b64encode` import all
-                              removed. Self-hosted ntfy service was stopped
-                              on EC2 2026-05-18T11:01:12 IST during F2b
-                              deploy; commits 7a/7b cleaned up the orphan
-                              code 2026-05-23.
+                                2026-05-23): push_private function +
+                                PrivateTopic Literal + _NTFY_AUTH constant +
+                                `from base64 import b64encode` import all
+                                removed. Self-hosted ntfy service was stopped
+                                on EC2 2026-05-18T11:01:12 IST during F2b
+                                deploy; commits 7a/7b cleaned up the orphan
+                                code 2026-05-23.
     cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
                               get_recent_heartbeats, get_latest_per_cron,
                               count_today_heartbeats, ist_today_window_utc,
                               is_expected_today
                               F2: CRON_REGISTRY includes
-                              "weekly_suggestions_sell" CronSpec (idle in
-                              current --direction=both deployment;
-                              retained for topology flexibility).
+                                "weekly_suggestions_sell" CronSpec (idle in
+                                current --direction=both deployment;
+                                retained for topology flexibility).
                               CONVENTION (Section 14): CronSpec fields are
-                              (cron_name, description, schedule_human,
-                              expected_weekdays, min_runs_per_day=1). Three
-                              field-name drifts in Chat 4 produced this rule.
+                                (cron_name, description, schedule_human,
+                                expected_weekdays, min_runs_per_day=1). Three
+                                field-name drifts in Chat 4 produced this rule.
                               Chat 5 A6 SHIPPED (commit 3, 2026-05-23):
-                              weekly_suggestions CronSpec schedule_human
-                              now "Sunday 07:00 IST" (was 06:00, drifted
-                              from the actual `0 7 * * 0` crontab).
+                                weekly_suggestions CronSpec schedule_human
+                                now "Sunday 07:00 IST" (was 06:00, drifted
+                                from the actual `0 7 * * 0` crontab).
                               Chat 5 A6.5 SHIPPED (commit 3, 2026-05-23):
-                              refresh_instruments CronSpec description now
-                              "Refresh NSE master from NSE EQUITY_L.csv"
-                              (was "Zerodha Kite"; same drift as A13).
+                                refresh_instruments CronSpec description now
+                                "Refresh NSE master from NSE EQUITY_L.csv"
+                                (was "Zerodha Kite"; same drift as A13).
                               Chat 5 A7 SHIPPED (commit 3, 2026-05-23):
-                              unused SATURDAY = {5} constant removed.
+                                unused SATURDAY = {5} constant removed.
 scripts/
+  __init__.py
   init_db.py
   refresh_instruments.py        Chat 5 A13 SHIPPED (commits 4 + 4b,
                                 2026-05-23): docstring rewritten to
@@ -598,6 +629,10 @@ scripts/
                                  + private-ntfy test block + iPhone
                                  expectation bullet that referenced the
                                  private channel.
+tests/
+  __init__.py                    empty package placeholder (no test files
+                                 currently committed; reserved for the
+                                 future pytest layout)
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 (2026-05-23) — full rewrite covering
@@ -611,8 +646,9 @@ docs/
                                 refresh" paragraph corrected — the
                                 buy-side universe is NIFTY 100 ∪ active
                                 holdings, NOT "top 250 by market cap".
-  Project_State.md              THIS FILE
+  Project_State.md              THIS FILE (Chat 5.7 doc reconciliation)
 pyproject.toml
+uv.lock
 README.md                       Chat 5 doc deliverable 2/4 SHIPPED
                                 (2026-05-23) — full operator manual
                                 rewrite (~600 lines, 12 sections).
@@ -628,18 +664,25 @@ README.md                       Chat 5 doc deliverable 2/4 SHIPPED
                                 reality.
 ```
 
-(Frontend file map unchanged from prior version; no frontend code touched in Chat 5 beyond the README rewrite — see Section 6 + Chat 5.5 status in Section 13. TD13 frontend per-page reference still OPEN, deferred pending route-file reads at SHA.)
+(Frontend file map in Section 6.)
 
 ## Section 6: Frontend file map
 
-Directory layout (unchanged from prior version — no frontend code touches in Chat 5 or Chat 5.5; the only frontend deliverable was a full README.md rewrite at SHA `9edfc8f`; TD13 per-page section still OPEN):
-
+Verified against frontend tree at SHA `4f31b49`:
 ```
 app/
-  layout.tsx                  root layout, fonts, ThemeProvider, QueryProvider
+  layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
+                              (Providers component imported from ./providers)
   page.tsx                    dashboard
+  providers.tsx               combines ThemeProvider + TanStack QueryClient +
+                              ReactQueryDevtools into one Providers component
+                              imported by layout. Replaces the earlier
+                              `lib/query-client.tsx` + `lib/config.ts` split
+                              that prior versions of this file map listed —
+                              those files do NOT exist at HEAD.
   globals.css                 Tailwind v4 imports, font variable mappings,
                               shadcn .dark class
+  favicon.ico
   holdings/[isin]/page.tsx    single holding drill-down
   reconciliation/page.tsx
   cost-basis/page.tsx
@@ -648,64 +691,93 @@ app/
   suggestions/page.tsx        F6: no actedThisSession; user_action stamp from
                               backend drives the collapsed-card render.
                               F2: SHIPPED — useState<SuggestionDirection>("buy");
-                              shadcn Tabs with "buy"/"sell" triggers and a
-                              direction-row card; per-direction TanStack query
-                              keys; direction-aware page subtitle + empty-state
-                              copy; direction-aware toast description on
-                              feedback.
+                                shadcn Tabs with "buy"/"sell" triggers and a
+                                direction-row card; per-direction TanStack query
+                                keys; direction-aware page subtitle + empty-state
+                                copy; direction-aware toast description on
+                                feedback.
 components/
-  ui/                         shadcn primitives (button, card, dialog, popover,
-                              tabs, separator, badge, skeleton, etc.)
+  ui/                         shadcn primitives — alert-dialog, badge, button,
+                              card, chart, dialog, dropdown-menu, input, label,
+                              popover, select, separator, sheet, skeleton,
+                              table, tabs, textarea, tooltip
   holdings-table.tsx
   buy-sheet.tsx
   sell-sheet.tsx              Phase-1 manual SELL transaction sheet with FIFO
                               preview. NOT the F2 sell-side suggestion surface.
                               That lives inside suggestion-card.tsx via the
                               isSellSide branch.
-  edit-transaction-sheet.tsx
+  transaction-edit-sheet.tsx  (Earlier copies of this file map listed this as
+                              "edit-transaction-sheet.tsx" — that filename
+                              does NOT exist; on-disk name is
+                              transaction-edit-sheet.tsx. Corrected Chat 5.7.)
   holding-header.tsx, holding-stats.tsx, price-chart.tsx,
   transactions-list.tsx, notes-panel.tsx
+  recent-activity-card.tsx    Dashboard "recent activity" widget (referenced
+                              by header button in the dashboard layout).
+  sector-breakdown.tsx        Dashboard sector pie / bar component.
+  stat-card.tsx               Generic numeric stat card used in dashboard
+                              summary row.
+  top-movers.tsx              Dashboard top-gainers / top-losers list.
+  totals-row.tsx              Dashboard totals strip (invested / current /
+                              day-gain).
   reconciliation-badge.tsx
+  theme-provider.tsx          next-themes provider wrapper used by
+                              app/providers.tsx.
   theme-toggle.tsx
   refresh-button.tsx
   suggestion-card.tsx         full explainability layer (Commit B);
                               F6: CollapsedFeedbackRow when user_action != null
                               F2: SHIPPED — isSellSide = Boolean(groupMeta?.
-                              booking_opportunity); group bars switch labels;
-                              dossier section renders tax_consideration +
-                              concentration_note for sell, portfolio_fit for buy.
+                                booking_opportunity); group bars switch labels;
+                                dossier section renders tax_consideration +
+                                concentration_note for sell, portfolio_fit for buy.
   explain-popover.tsx         reusable info-icon popover (Commit B)
   page-intro.tsx              "How to read this page" collapsible (Commit B)
 lib/
   api.ts                      hand-typed API client; SINGLE SOURCE OF TRUTH for
                               frontend types; ~600 lines.
                               F6+F10: UserAction, MonitoredStocksAuditEntry,
-                              getRecentFeedbackAudit, getFeedbackAuditForIsin,
-                              previous_status on submitFeedback response,
-                              excluded_acted on SuggestionRun.
+                                getRecentFeedbackAudit, getFeedbackAuditForIsin,
+                                previous_status on submitFeedback response,
+                                excluded_acted on SuggestionRun.
                               F2: SHIPPED — SuggestionDirection type, direction
-                              param on getLatestSuggestionRun / listSuggestionRuns
-                              / getSuggestionPerformance, direction on
-                              SuggestionRun + SuggestionOutcome + SuggestionDossier,
-                              BucketKey type, by_bucket breakdowns on
-                              SuggestionPerformance windows.
-  api-types.ts                GITIGNORED; auto-generated by `npm run gen-api`;
-                              not actually used at runtime; do not check in
+                                param on getLatestSuggestionRun / listSuggestionRuns
+                                / getSuggestionPerformance, direction on
+                                SuggestionRun + SuggestionOutcome + SuggestionDossier,
+                                BucketKey type, by_bucket breakdowns on
+                                SuggestionPerformance windows.
   format.ts                   inr(value), pct(value, withSign?),
                               colorForChange(value), dateTime(iso), nf, date
   utils.ts                    cn() (clsx + tailwind-merge)
-  config.ts                   apiBaseUrl (reads NEXT_PUBLIC_API_BASE_URL env)
-  query-client.tsx            TanStack Query provider
-package.json
-tsconfig.json                 paths: "@/*" -> "./*"
+public/                       static SVGs (file, globe, next, vercel, window)
 README.md                     Chat 5 doc deliverable 3/4 SHIPPED (2026-05-23,
                               frontend SHA 9edfc8f) — operator manual rewrite
-                              (~220 lines, 12 sections). Per-page reference
-                              section intentionally DEFERRED to TD13 because
-                              Glean reads of the route files failed during
-                              the doc pass; would have required guessing
-                              TanStack Query keys + mutation refetch patterns.
+                              (~220 lines, 12 sections). TD13 frontend per-page
+                              reference (Section 13) SHIPPED in the same commit
+                              and unchanged at HEAD SHA `4f31b49` — covers
+                              Dashboard, Holdings drill-down, Transactions,
+                              Audit, Reconciliation, Cost Basis, Suggestions,
+                              each with TanStack Query keys owned, mutations
+                              and their fan-out targets, exact backend
+                              endpoints hit, key shadcn primitives, and
+                              dark-mode behaviour.
+AGENTS.md                     Four-line note: "this is NOT the Next.js you
+                              know — read node_modules/next/dist/docs/ before
+                              writing code". Targets coding agents.
+CLAUDE.md                     One-line file that just `@AGENTS.md` references
+                              the above.
+components.json               shadcn config (Nova preset).
+package.json
+package-lock.json
+next.config.ts                Default config; no custom rewrites/middleware.
+postcss.config.mjs            Tailwind v4 PostCSS plugin.
+tsconfig.json                 strict mode; "@/*" path alias; bundler
+                              moduleResolution; target ES2017.
+.npmrc                        npm config (legacy-peer-deps used in deploy-ui.sh).
 ```
+
+There is no `middleware.ts`, no `.env.example`, no custom `next.config.*` overrides at HEAD. Tailscale is the auth perimeter.
 
 ## Section 7: Database collections (exhaustive)
 
@@ -739,6 +811,7 @@ All collections live in MongoDB Atlas M10. The DB name is set by env (`MONGODB_D
 - Key fields: `isin`, `symbol`, `exchange`, `type` (BUY/SELL/SPLIT/BONUS/DEMERGER), `trade_date`, `quantity` (Decimal128), `price`, `total_fees`, `remaining_quantity` (for FIFO lot tracking), `notes`, `source`, `corporate_action.ratio_from`, `corporate_action.ratio_to`, `fully_consumed_at`, `deleted_at`
 - INVARIANT: never directly UPDATEd or DELETEd; edits and deletes go through `/transactions/{id}` PATCH/DELETE which require a reason, write to `transactions_audit` first, then apply the change, then call `recompute_holding`
 - Indexes: `(isin, trade_date)`, `(symbol, trade_date)`, `trade_date`
+- Chat 5.6 robustness pass: `quantity` / `price` / `total_fees` validators tightened to `ge=0`; SPLIT/BONUS quantity-math path covered in `holdings_service.preview_sell` so that previews of sells taken after a corporate action match the post-recompute holding.
 
 #### `transactions_staging`
 - Holding area for the bulk ICICI order book imports before promotion to live
@@ -831,6 +904,7 @@ All collections live in MongoDB Atlas M10. The DB name is set by env (`MONGODB_D
 - INVARIANT: append-only; never updated.
 - INVARIANT: `top_candidates[*].user_action` is NOT in the persisted doc. Added at API serialization time by `enrich_run` only.
 - INVARIANT (F2): pre-F2 runs persisted without a `direction` key still load cleanly via Pydantic default = `"buy"`.
+- INVARIANT (Chat 5.6 robustness pass): legacy persisted runs missing newer optional fields (e.g. `excluded_acted`, `direction`-related fields) round-trip through the Pydantic model without raising; defaults applied at read time and the API serializer still strips `notes` + `all_candidates` from the response.
 - Indexes: `(run_date desc)`, `(run_date_ist, run_type)`, `(status)`
 
 #### `suggestion_outcomes`
@@ -876,10 +950,9 @@ Scaffolds; not actively written by current code. `conversations` will be used fo
 
 ## Section 8: API endpoints (exhaustive)
 
-(unchanged from prior version — Chat 5 + Chat 5.5 touched only writer implementations, response-shape internals (TD11 changes the rendered raw_value strings inside `signal_meta[*]`), Pydantic v2 migration, and doc text. No endpoint paths, methods, or top-level response shapes changed.)
+(unchanged from prior version — Chat 5 + Chat 5.5 + Chat 5.6 touched only writer implementations, response-shape internals (TD11 changes the rendered raw_value strings inside `signal_meta[*]`), Pydantic v2 migration, validator hardening, and doc text. No endpoint paths, methods, or top-level response shapes changed.)
 
 ### Phase 1
-
 ```
 GET    /health
 GET    /portfolio/holdings                           Holding[]
@@ -907,7 +980,6 @@ DELETE /instruments/{exchange}/{symbol}              delete override
 ```
 
 ### Phase 2 (Suggestions)
-
 ```
 GET    /suggestions/latest?direction=buy|sell        SuggestionRun + enrichment
 GET    /suggestions/runs?direction=buy|sell&limit=N&skip=N  {runs, total, limit, skip}
@@ -916,8 +988,8 @@ GET    /suggestions/performance?direction=buy|sell   SuggestionPerformance with 
 POST   /suggestions/{isin}/feedback                  {isin, action, status, previous_status}
                                                      Body: {action: "acted"|"passed"|"rejected", note?: string}
                                                      Chat 5 A1: writer migrated to typed
-                                                       MonitoredStockFeedbackPatch; response shape
-                                                       unchanged.
+                                                     MonitoredStockFeedbackPatch; response shape
+                                                     unchanged.
 GET    /suggestions/{isin}/audit?limit=N             MonitoredStocksAuditEntry[]   (F10)
 GET    /suggestions/feedback/audit/recent?limit=N    MonitoredStocksAuditEntry[]   (F10)
 GET    /cron/heartbeats?limit=N                      {heartbeats, health_summary}
@@ -940,7 +1012,6 @@ F10 feedback-audit endpoint shape:
 - The static-path `/feedback/audit/recent` route is declared BEFORE the dynamic `/{isin}/audit` route
 
 ### Future endpoints (planned)
-
 ```
 POST   /watchlist/{isin}                             add to watchlist (F13)
 DELETE /watchlist/{isin}                             remove from watchlist (F13)
@@ -953,7 +1024,6 @@ GET    /tax/capital-gains?fy=YYYY-YY                 capital gains pack (F11)
 ```
 
 ### Sell endpoint response shape (critical, often confused)
-
 `POST /portfolio/holdings/{isin}/sell` returns one of:
 - The full updated `Holding` doc (partial sell, position still active)
 - `{message: "Position fully exited", realized_total: "<string Decimal>"}` (full exit)
@@ -974,11 +1044,13 @@ Run `crontab -l` to see current state. Every script below is heartbeat-instrumen
 # Phase 2 crons (registered Chat 2 via F5a — all heartbeat-instrumented)
 0 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_fundamentals.py >> /home/ubuntu/cron-fundamentals.log 2>&1
 30 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/fetch_news_for_universe.py --include-held >> /home/ubuntu/cron-news.log 2>&1
+
 # TD14 (Chat 5.5, OPEN): the line below currently has `--notify --run-type scheduled` ON EC2, both of
 # which fail argparse. Remove them via `crontab -e`. The line documented HERE is the CORRECT version
 # (defaults: --notify is already implicit; --run-type was never a real flag); also `--no-notify` is
 # the opposite-of-default opt-out for smoke tests.
 0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both >> /home/ubuntu/cron-suggestions.log 2>&1
+
 45 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/track_suggestion_outcomes.py >> /home/ubuntu/cron-outcomes.log 2>&1
 
 # F4 cron health monitoring (added Chat 2; dual-transport Chat 5 commit 8)
@@ -997,15 +1069,16 @@ CHAT 5 PENDING ONE-TIME EC2 STEPS (all closed 2026-05-24):
 - Self-hosted private ntfy service stopped + disabled (TD8): SHIPPED 2026-05-18 / code cleanup 2026-05-23.
 - `/etc/logrotate.d/portfolio-advisor` installed: SHIPPED 2026-05-24.
 
-CHAT 5.5 PENDING ONE-TIME EC2 STEPS:
+CHAT 5.5 PENDING ONE-TIME EC2 STEPS (carried into Chat 5.7):
 - **TD10**: remove the `0 0 * * 0 find ... -size +10M ...` line via `crontab -e` AFTER the first full logrotate cycle completes (next: 2026-05-31; verify 2026-06-01).
 - **TD14**: remove the bogus `--notify --run-type scheduled` flags from the Sunday 07:00 IST line via `crontab -e`. NEITHER flag exists on `run_weekly_suggestions.py` argparse. argparse rejects every Sunday run with a usage error. cron-suggestions.log is 221 bytes (just the error). No digest has fired in weeks. Fix: open `crontab -e`, change the line to the version documented in the block above (drop the two bogus flags). Optional recovery to send a digest now (rather than waiting for next Sunday):
-  ```bash
-  ssh ubuntu@100.112.20.41
-  cd /home/ubuntu/ai-stock-advisor-backend
-  PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both 2>&1 | tee -a /home/ubuntu/cron-suggestions.log
-  ```
-  Expect ~3-5 min (Sonnet dossiers); the digest email + ntfy push fire at the end.
+
+```bash
+ssh ubuntu@100.112.20.41
+cd /home/ubuntu/ai-stock-advisor-backend
+PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both 2>&1 | tee -a /home/ubuntu/cron-suggestions.log
+```
+Expect ~3-5 min (Sonnet dossiers); the digest email + ntfy push fire at the end.
 
 `CRON_REGISTRY` (in code) entries (10 total):
 - `refresh_instruments`, `refresh_prices`, `refresh_prices_intraday`, `take_reconciliation_snapshot`, `refresh_fundamentals`, `fetch_news_for_universe`, `run_weekly_suggestions`, `track_suggestion_outcomes`, `cron_health_check`
@@ -1060,6 +1133,7 @@ These come straight from `docs/data_flow.md` (rewritten Chat 5 doc deliverable 1
 - Cost basis is IT-Act-correct, not broker-nominal. The broker-nominal view is recoverable as `holdings.invested_amount + total_cost_basis_adjustment`.
 - `prices_intraday` writes are append-only within a day.
 - ICICI portfolio display shows TMPV ~₹813 and TMCV ~₹253 — cosmetically wrong vs our tax-correct numbers; does not affect actual money or tax filing.
+- Chat 5.6 robustness: `preview_sell` correctly folds SPLIT/BONUS adjustments into the lot walk so a preview taken after a corporate action matches the post-recompute holding (regression-test material when F7 lands).
 
 ## Section 12: Phase 2 INVARIANTS
 
@@ -1075,6 +1149,7 @@ These come straight from `docs/data_flow.md` (rewritten Chat 5 doc deliverable 1
 - F10 write-before-apply: every `POST /suggestions/{isin}/feedback` writes `monitored_stocks_audit` BEFORE the corresponding `monitored_stocks.update_one` apply.
 - **Chat 5 A1**: `monitored_stocks` writes go through `MonitoredStockFeedbackPatch(...).model_dump(exclude_none=True)`. `extra="forbid"` catches Literal drift at write time. `exclude_none=True` preserves prior-action `*_at` timestamps. `$setOnInsert` seeds `added_by`, `added_reason`, `_schema_version`, `created_at`.
 - The `notes` field on a `SuggestionRun` is a JSON string containing `{dossiers: [...]}`. The router parses it and exposes `dossiers` at the top level, then strips `notes` and `all_candidates`.
+- **Chat 5.6 round-trip invariant**: every Phase-2 Pydantic model loads cleanly from any historical persisted doc — newer optional fields (e.g. `direction`, `excluded_acted`, `tracking_status`, feedback `*_at` timestamps) default at read time so the API never 500s on a legacy doc.
 
 ### F2 / F14 invariants (Chat 4)
 - `SuggestionDirection` literal = `"buy" | "sell"`. Both `SuggestionRun.direction` and `SuggestionOutcome.direction` default to `"buy"`.
@@ -1119,7 +1194,7 @@ Phase 1 (all shipped, all locked):
 - ICICI Order Book import → staging → reconcile → promote pipeline
 - Manual transaction entry for IPOs, demergers, bonuses, splits
 - Transaction edit/delete with mandatory reason + audit log
-- Preview-sell endpoint
+- Preview-sell endpoint (Chat 5.6 hardened SPLIT/BONUS handling)
 - Reconciliation snapshots (manual + auto) with drift detection
 - Cost basis adjustments (TMPV/TMCV demerger seeded)
 - EOD + intraday price refresh
@@ -1140,39 +1215,46 @@ Phase 2 Suggestions Engine:
 - Commit B (frontend explainability)
 
 Chat 2 (F4 + F5a) — Cron observability shipped 2026-05-16.
-
 Chat 3 (F6 + F5b + F10) — Stateful feedback shipped 2026-05-17.
-
 Chat 4 (F2b + F14 + F2 backend + F2 frontend) — Sell-side fully shipped 2026-05-17/18/20.
-
 Chat 5 (Audit + cleanup) — fully SHIPPED 2026-05-24. Eight commits + two manual EC2 steps + one infra step + four doc deliverables.
+Chat 5.5 (Small TD cleanup) — TD9 + TD11 + TD12 SHIPPED 2026-05-24; TD10, TD13 (later closed in Chat 5.6 window), TD14 carried.
 
-Chat 5.5 (Small TD cleanup) — partially SHIPPED 2026-05-24, three TDs OPEN (TD10, TD13, TD14):
+Chat 5.6 — Post-Chat-5.5 robustness pass (SHIPPED between 2026-05-24 and 2026-05-29, baked into HEAD `64d5ae3`). Observed in code comments at this SHA but not previously recorded in this file's Section 13 / 18; captured here so we don't rework. The pass touched cross-cutting hardening rather than a single feature:
+| Area | Change observed at SHA `64d5ae3` |
+|---|---|
+| Pydantic round-trip | Phase-2 models (`SuggestionRun`, `SuggestionOutcome`, `MonitoredStock`, etc.) load cleanly from legacy persisted docs even when newer optional fields are missing; defaults applied at read time. |
+| Validators | `ge=0` validators tightened across `Transaction` numeric fields (quantity / price / total_fees) to fail fast on bad imports. |
+| FIFO SPLIT/BONUS | `holdings_service.preview_sell` lot-walk correctly folds SPLIT/BONUS corporate-action adjustments so previews after corporate actions match the post-recompute Holding. |
+| Frontend per-page reference | TD13 SHIPPED — frontend README §13 covers all 7 routes with TanStack keys + mutations + fan-out + endpoints + primitives + dark-mode notes; content unchanged from generation SHA `9edfc8f`, verified at HEAD SHA `4f31b49`. |
+| Fix-ticket cross-refs | Code comments at SHA `64d5ae3` reference an external fix registry (F-numbers including F2 / F3 / F4 / F5 / F7 / F8 / F12 / F14 / F16-F21 / F23 / F27-F29 / F79 / F80 / F82). The numeric F-registry that pairs these IDs with their descriptions is not currently mirrored in Project_State.md; reconciliation is logged as TD15 (Section 18) and should be cleared in the next chat by reading every annotated file at SHA `64d5ae3` and producing the mapping. |
 
-| # | Commit / step | Items closed | Date |
-|---|---|---|---|
-| 1 | settings.py `NTFY_URL/USER/PASS` field removal + EC2 secrets.env sed | TD9 | 2026-05-24 |
-| 2 | `explainability.py` _build_signal_meta raw_value fallback + formatter additions + comment refresh | TD11 | 2026-05-24 |
-| 3 | `README.md` + `docs/data_flow.md` doc corrections (the script `seed_nifty100.py` is CORRECTLY NAMED; "top 250" was a doc hallucination) | TD12 | 2026-05-24 |
-| 4 | `Project_State.md` refresh (this commit) | docs | 2026-05-24 |
-| 5 | Frontend `README.md` per-page reference (TD13) | (deferred — needs route files at SHA) | OPEN |
-| 6 | EC2 `crontab -e` removal of `0 0 * * 0` log truncation line (TD10) | (deferred — gated on first logrotate cycle 2026-05-31) | OPEN |
-| 7 | EC2 `crontab -e` removal of bogus `--notify --run-type scheduled` flags from Sunday 07:00 line (TD14, discovered Chat 5.5) | (deferred — manual EC2 step) | OPEN |
+Chat 5.7 — Doc reconciliation pass (THIS commit, 2026-05-29):
+- Section 0: added the "construct GitHub URLs at SHA + ask for tree-listing first" hard rule, embedded the canonical tree-listing bash block so the user can paste-and-run it as step 1 of every new chat.
+- Section 2: added the matching user-side communication rule.
+- Section 4: last-verified SHAs advanced (backend `64d5ae3`, frontend `4f31b49`).
+- Section 5: added `app/services/yfinance_lookup.py`, `app/agents/__init__.py`, `app/scheduler/__init__.py`, `tests/__init__.py` to the file map; clarified `app/models/_*.py` placeholders.
+- Section 6: replaced the phantom `lib/config.ts` / `lib/query-client.tsx` entries with the actual `app/providers.tsx`; corrected `transaction-edit-sheet.tsx` filename; added `recent-activity-card`, `sector-breakdown`, `stat-card`, `top-movers`, `totals-row`, `theme-provider`, `AGENTS.md`, `CLAUDE.md`, `components.json`, `next.config.ts`, `postcss.config.mjs`, `.npmrc`, `public/*.svg`.
+- Section 13: added Chat 5.6 row above and this Chat 5.7 row; marked TD13 SHIPPED in the chat split plan footer.
+- Section 18: TD13 → SHIPPED; new TD15 added for F-number registry reconciliation.
+- Section 14 / 15 / 16 / 17: added Chat 5.7 entries for the new tree-listing-and-URL-construction workflow.
+- Section 19: re-affirmed the `raw.githubusercontent.com` preference and the tree-listing-first workflow.
 
-Open items CARRIED FORWARD past Chat 5.5:
+Open items CARRIED FORWARD past Chat 5.7:
 - TD10 — remove redundant `0 0 * * 0 log truncation` crontab line. Verify 2026-06-01 then drop.
-- TD13 — frontend per-page reference doc. Needs frontend HEAD SHA + ability to read route files at that SHA.
-- TD14 — remove bogus `--notify --run-type scheduled` from Sunday 07:00 IST crontab line (NEITHER flag exists on `run_weekly_suggestions.py` argparse). Cause of missing Sunday digests since the flags were added.
+- TD14 — remove bogus `--notify --run-type scheduled` from Sunday 07:00 IST crontab line.
+- TD15 — reconcile the external F-number fix registry (F2/F3/F4/F5/F7/F8/F12/F14/F16-F21/F23/F27-F29/F79/F80/F82) referenced in Chat-5.6 code comments against Project_State.md (Section 18 + glossary).
 
 ### Final chat split plan
-
 | # | Chat | Scope | Status |
 |---|---|---|---|
 | 2 | Cron observability | F4 + F5a | SHIPPED 2026-05-16 |
 | 3 | Stateful suggestions | F6 + F5b + F10 | SHIPPED 2026-05-17 |
 | 4 | Sell-side suggestions | F2 + F2b + F14 + F2 frontend + F2b cosmetic | SHIPPED 2026-05-17/18/20 |
 | 5 | Audit + cleanup | A1-A19 + TD8 + dual-transport + logrotate + 4 doc deliverables | SHIPPED 2026-05-23/24 |
-| 5.5 | Small TD cleanup | TD9 + TD11 + TD12 SHIPPED 2026-05-24; TD10 + TD13 + TD14 OPEN | partially SHIPPED |
+| 5.5 | Small TD cleanup | TD9 + TD11 + TD12 SHIPPED; TD10/TD14 OPEN; TD13 carried | partially SHIPPED |
+| 5.6 | Post-5.5 robustness pass | Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13 doc | SHIPPED (at HEAD 64d5ae3 / 4f31b49) |
+| 5.7 | Doc reconciliation pass | Project_State.md full-file refresh, file-map repairs, new URL-at-SHA rule | SHIPPED (THIS commit) |
 | 6 | Chat features | F1 + F3 | open |
 | 7 | Portfolio intelligence | F12 + F15 | open |
 | 8 | Watchlist | F13 | open |
@@ -1245,6 +1327,11 @@ The assistant has confused these multiple times. Memorize them.
 - **For settings-side cleanup that touches both `settings.py` and `/etc/portfolio-advisor/secrets.env` (orphan-key removal post-decommission), ship BOTH sides in ONE atomic commit + restart.** Touching `settings.py` alone risks masking a Pydantic v2 validation error on boot if the model and the env file drift to incompatible states. TD9 pattern: backup secrets.env first (`secrets.env.bak.<timestamp>`), sed-delete the matching lines, restart, verify with `/health` + `journalctl` grep for `error|valid|ntfy`.
 - **Glean's snippet-mode rendering of long Markdown files line-wraps at sentence boundaries, NOT at file-line boundaries.** Reconstructing a long source file from snippets risks corrupting paragraph structure (e.g., bullet items spanning multiple snippet lines). For canvas full-file artifacts of Project_State.md, prefer reading via `raw.githubusercontent.com/<repo>/<sha>/<path>` (which preserves line structure) over the GitHub blob URL or other Glean-snippet paths. If the raw URL also returns snippets, ask the user for an EC2 `cat` paste.
 
+### Chat 5.7 additions
+- **AT NO POINT make code changes while relying on memory.** Construct the GitHub URL of the file you need from `owner=doshisahil95`, `repo`, the SHA the user has supplied this chat, and a `file_path` that you got from the Section-0 tree-listing command. Re-read at that URL (prefer `raw.githubusercontent.com` per the Chat 5.5 rule) before writing any find-and-replace block. This convention is now the FIRST hard rule in Section 0.
+- **Ask the user to run the canonical tree-listing command at the very start of every chat**, right after they paste the Section-0 bootstrap and before they describe scope. The command is embedded verbatim in Section 0. This ensures the assistant has an accurate file inventory before constructing any URL.
+- **When updating the file map (Sections 5 / 6), diff the previous file map against the user's `ls-tree` output line-by-line.** Past doc drift discovered Chat 5.7: `lib/config.ts` and `lib/query-client.tsx` were listed but do not exist (replaced by `app/providers.tsx`); `edit-transaction-sheet.tsx` was listed but the on-disk name is `transaction-edit-sheet.tsx`; `app/services/yfinance_lookup.py` and `app/agents/`/`app/scheduler/`/`tests/` packages existed but were unenumerated. Always run the diff before publishing.
+
 ## Section 15: Anti-patterns the assistant has fallen into
 
 - Full-file rewrites instead of additive patches. EXCEPTION: PROJECT_STATE.md is always full-file.
@@ -1287,10 +1374,14 @@ The assistant has confused these multiple times. Memorize them.
 - **Adding cron-line flags without running the script's `--help` first.** TD14: someone added `--notify --run-type scheduled` to the Sunday 07:00 line at some point; neither flag existed. argparse rejected every run; cron-suggestions.log was a 221-byte error message every Sunday; no digest fired; user noticed only when manually testing TD9. RULE: when adding ANY flag to a cron line, run `python scripts/<name>.py --help` first. When reading an existing cron line to document it, do the same — if the docs show flags that `--help` doesn't list, the cron is broken.
 - **Rendering an artifact that includes nested triple-backtick fences and assuming canvas display will work.** First Chat-5.5 attempt at Project_State.md rendered inline in chat instead of as canvas. The Section 0 bootstrap is itself wrapped in triple-backticks, which is necessary fidelity but can confuse renderers. RULE: keep the artifact's source structure faithful to the on-disk file (don't switch fences to indented code blocks); if canvas fails to render, deliver as a sandbox file (`/home/user/output/...`) with a download link as fallback.
 
+### Chat 5.7 additions
+- **Trusting the file map in Project_State.md as the source of truth for what exists on disk.** TD13 SHIPPED was missed in the prior Project_State.md because the file's own Section 13 said "OPEN"; the actual frontend README at HEAD has the per-page reference. Chat-5.7 root cause: when the file map and the actual `ls-tree` disagree, the `ls-tree` is the truth. RULE: at the start of every chat, run the Section-0 tree-listing command and diff it against Sections 5 + 6 of this file before doing anything else.
+- **Listing files in Sections 5/6 that don't exist** (`lib/config.ts`, `lib/query-client.tsx`, `edit-transaction-sheet.tsx`) — these were carried forward from old commit summaries and never reconciled. Will silently cause find-and-replace blocks to fail against non-existent files in future patches.
+- **Capturing fix-ticket references (F-numbers, etc.) in code comments without mirroring them into Project_State.md.** Chat-5.6 robustness pass left ~20 F-number references in code that have no entry in Section 18; without an explicit reconciliation pass (TD15), future chats will not know what each F-number resolved. RULE: every F-number a chat lands MUST get a Section-18 row, even if the body is "DESCRIPTION TBD — reconcile against external registry".
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
-
 ```
 I AM LOSING CONTEXT
 ```
@@ -1299,7 +1390,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1319,10 +1410,13 @@ I AM LOSING CONTEXT
 - **Chat 5 closure trigger: about to restructure Project_State.md when the user has asked you to preserve structure.**
 - **Chat 5.5 trigger: about to propose a rename of a script based on a file-map summary without having read the script body at HEAD.** Switch chats if you catch yourself doing this.
 - **Chat 5.5 trigger: about to document a cron line without having run the script's `--help` to verify the flags exist.** Switch chats.
+- **Chat 5.7 trigger: about to write a find-and-replace block (or full-file replacement) for a file whose existence on disk you have not confirmed via the Section-0 tree listing this chat.** Switch chats.
+- **Chat 5.7 trigger: about to construct a GitHub URL for a file using a SHA the user has not supplied this chat.** Re-ask for the SHA; do not invent.
 
 ### What "switching chats" means
+The user copies the Section 0 bootstrap into a fresh chat. The new chat reads PROJECT_STATE, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes. Then coding.
 
-The user copies the Section 0 bootstrap into a fresh chat. The new chat reads PROJECT_STATE, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes. Then coding. The new chat updates PROJECT_STATE at the end of its work as the last commit.
+The new chat updates PROJECT_STATE at the end of its work as the last commit.
 
 ### What NOT to do
 - Don't silently degrade.
@@ -1371,7 +1465,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "How does `compute_system_performance(direction='sell')` handle excess_return?" → SIGN-FLIPS at aggregation time.
 
 ### Chat 5 additions
-- "Is F2 frontend shipped?" → Yes, verified at frontend SHA `e34e126`; README rewrite at `9edfc8f`.
+- "Is F2 frontend shipped?" → Yes, verified at frontend SHA `e34e126`; README rewrite at `9edfc8f`; unchanged at HEAD `4f31b49`.
 - "Is the Q/V/M/N=0 sell-digest cosmetic bug fixed?" → Yes, 2026-05-20 commit `cea8eee`.
 - "Is `target_price` consumed anywhere?" → Yes, F2 sell-side `target_price_proximity`. `stop_loss` deferred to Chat 9 (TD6).
 - "Has `digest_delivery._send_email` been reconciled with `notify.email()`?" → Yes (Chat 5 A2 part 1).
@@ -1398,6 +1492,12 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Where do `cron-*.log` files live and what happens at 10MB?" → `/home/ubuntu/cron-*.log`. Pre-2026-05-24 a weekly `find ... -size +10M` cron tail-truncated them. Now `/etc/logrotate.d/portfolio-advisor` rotates weekly regardless of size (rotate 4 + compress). The legacy line is TD10, scheduled for removal post-2026-05-31.
 - "Why didn't TD12 become a rename?" → Because reading `scripts/seed_nifty100.py` at HEAD showed it does what its name says — downloads `ind_nifty100list.csv` from NSE and marks ~100 instruments. The "top 250" claim was a doc-side hallucination. Lesson encoded in Section 14.
 
+### Chat 5.7 additions
+- "What did Chat 5.6 ship?" → A cross-cutting robustness pass at HEAD `64d5ae3`: Pydantic round-trip hardening on Phase-2 models, `ge=0` validators on `Transaction` numeric fields, `holdings_service.preview_sell` SPLIT/BONUS lot-walk fix, and TD13 frontend per-page reference at frontend HEAD `4f31b49`. Cross-cutting F-number references in code comments are tracked as TD15 for reconciliation.
+- "What did TD13 ship?" → Frontend README Section 13 — per-page reference for all 7 routes (Dashboard, Holdings drill-down, Transactions, Audit, Reconciliation, Cost Basis, Suggestions) with TanStack Query keys owned, mutations and their fan-out targets, exact backend endpoints, key shadcn primitives, and dark-mode behaviour. Generated at SHA `9edfc8f`, unchanged at HEAD `4f31b49`.
+- "What's the canonical tree-listing command and when is it run?" → The block in Section 0 (`git -C <repo> rev-parse HEAD && git -C <repo> ls-tree -r --name-only HEAD` for both repos). The user runs it once per chat immediately after pasting Section 0 and before describing scope.
+- "How do you construct a GitHub URL to read a file from source?" → `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`, where `<repo>` is one of the two repo names, `<sha>` is the SHA the user supplied this chat, and `<path>` came from the tree listing. Never the blob URL (`LINK_NEEDS_AUTH` failure mode).
+
 ## Section 18: Tech debt registry
 
 | ID | Item | Status | Chat target |
@@ -1421,16 +1521,17 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD2 | `docs/data_flow.md` stale | SHIPPED Chat 5 doc deliverable 1/4 (2026-05-23 + 2026-05-24 corrections + Chat 5.5 commit 3 TD12 corrections) | — |
 | TD3 | `dossier_service.valuation_verdict` single-string split | DEFERRED | Future UI work |
 | TD4 | Backend `README.md` stale | SHIPPED Chat 5 doc deliverable 2/4 (2026-05-23 + 2026-05-24 corrections + Chat 5.5 commit 3 TD12 corrections) | — |
-| TD5 | Frontend `README.md` missing `/suggestions` route + Suggestions header button | SHIPPED Chat 5 doc deliverable 3/4 (2026-05-23 at frontend SHA `9edfc8f`); per-page reference deferred to TD13 | — |
+| TD5 | Frontend `README.md` missing `/suggestions` route + Suggestions header button | SHIPPED Chat 5 doc deliverable 3/4 (2026-05-23 at frontend SHA `9edfc8f`); per-page reference shipped as TD13 | — |
 | TD6 | `holdings.stop_loss` orphan | OPEN — Chat 5 Q3 resolved as "wire it"; deferred to Chat 9 | Chat 9 |
 | TD7 | `CandidateScore` fixed buy-side group fields | DEFERRED | Post-launch |
 | TD8 | EC2 self-hosted private ntfy service decommission + code cleanup | SHIPPED — service stopped 2026-05-18; code cleanup commits 7a + 7b (2026-05-23) | — |
 | TD9 | Orphan `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` cleanup from `settings.py` + `/etc/portfolio-advisor/secrets.env` | SHIPPED Chat 5.5 commit 1 (2026-05-24) | — |
-| TD10 | Remove redundant `0 0 * * 0 log truncation` crontab line (logrotate replaces it as of 2026-05-24) | OPEN | Chat 5.5 (verify first logrotate cycle 2026-05-31; remove 2026-06-01) |
+| TD10 | Remove redundant `0 0 * * 0 log truncation` crontab line (logrotate replaces it as of 2026-05-24) | OPEN | next chat (verify first logrotate cycle 2026-05-31; remove 2026-06-01) |
 | TD11 | Wire `explainability._build_signal_meta` to read `sig["raw_value"]` for momentum/news signals + refresh stale comment + reassign news formatter kinds | SHIPPED Chat 5.5 commit 2 (2026-05-24) | — |
-| TD12 | Rename `scripts/seed_nifty100.py` (file map flagged as misnamed) | SHIPPED-AS-DOC-FIX Chat 5.5 commit 3 (2026-05-24): the script is correctly named; "top 250" was a hallucination in the Chat-5 file-map summary that propagated into 3 docs. All four locations corrected (file map in this file, README §8 entries for seed_nifty100 + refresh_fundamentals, README §11 gotcha #1, data_flow.md "Universe + fundamentals refresh"). No rename, no code change. | — |
-| TD13 | Frontend per-page reference doc (TanStack Query keys, mutation refetch patterns, endpoint-per-route mapping) | OPEN — deferred from Chat 5 doc deliverable 3/4; not unblocked in Chat 5.5 (need frontend HEAD SHA + ability to read route files at that SHA) | Chat 5.5 (carry) |
-| TD14 | Sunday 07:00 IST crontab line passes `--notify --run-type scheduled` to `run_weekly_suggestions.py`; NEITHER flag exists on the script's argparse. argparse rejects every Sunday run with a usage error. cron-suggestions.log is 221 bytes (just the error). No digest has fired in weeks. Discovered Chat 5.5 2026-05-24 while investigating "no digest received Sunday 6:28 PM IST". Fix: `crontab -e` on EC2 and delete the two bogus flags. Optional immediate-recovery: run the script manually with `--direction=both` to fire a one-off digest. | OPEN — manual EC2 step | Chat 5.5 (carry) |
+| TD12 | Rename `scripts/seed_nifty100.py` (file map flagged as misnamed) | SHIPPED-AS-DOC-FIX Chat 5.5 commit 3 (2026-05-24): the script is correctly named; "top 250" was a hallucination. All four locations corrected. No rename, no code change. | — |
+| TD13 | Frontend per-page reference doc (TanStack Query keys, mutation refetch patterns, endpoint-per-route mapping) | SHIPPED Chat 5.6 at frontend SHA `4f31b49` (content generated at `9edfc8f`, unchanged at HEAD). All 7 routes covered in frontend README §13. | — |
+| TD14 | Sunday 07:00 IST crontab line passes `--notify --run-type scheduled` to `run_weekly_suggestions.py`; NEITHER flag exists on the script's argparse. argparse rejects every Sunday run with a usage error. cron-suggestions.log is 221 bytes (just the error). No digest has fired in weeks. Discovered Chat 5.5 2026-05-24 while investigating "no digest received Sunday 6:28 PM IST". Fix: `crontab -e` on EC2 and delete the two bogus flags. Optional immediate-recovery: run the script manually with `--direction=both` to fire a one-off digest. | OPEN — manual EC2 step | next chat (carry) |
+| TD15 | F-number fix registry reconciliation. The Chat-5.6 robustness pass (now at HEAD `64d5ae3`) left ~20 in-code F-references (F2 / F3 / F4 / F5 / F7 / F8 / F12 / F14 / F16-F21 / F23 / F27-F29 / F79 / F80 / F82) that have no row in this Section 18. Some overlap with the F-feature registry already mirrored in this file (e.g. F2 = sell-side, F4 = cron observability, F14 = earnings calendar); others (F16-F82 range) appear to be external fix-ticket IDs from a registry that does not yet live in Project_State.md. Goal: read every annotated file at SHA `64d5ae3`, list each F-number with its file + one-line description, then map each to an existing Section-13 / Section-18 row OR add a new row. Without this mapping, future chats cannot tell what each F-reference resolved. | OPEN — doc reconciliation | next chat |
 
 ### Fixed in earlier chats (kept for posterity)
 - **DIGEST SELL-SIDE Q/V/M/N BUG** — fixed 2026-05-20 in `cea8eee` via direction-aware `_format_score_breakdown`.
@@ -1442,6 +1543,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - **`digest_delivery._send_email` inline Resend** — fixed Chat 5 A2 part 1 (2026-05-23).
 - **All Chat 5 audit items A2-A19 + TD8** — closed Chat 5 2026-05-23/24.
 - **Chat 5.5 TD9 + TD11 + TD12** — closed Chat 5.5 2026-05-24 (commits 1, 2, 3).
+- **Chat 5.6 robustness pass** — Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13. Baked into HEAD `64d5ae3` (backend) / `4f31b49` (frontend). F-number registry pending reconciliation as TD15.
 
 ## Section 19: How to update this document
 
@@ -1459,11 +1561,10 @@ What to update each chat:
 - Section 11 — new Phase 1 invariants (rare)
 - Section 7 — collection schema changes
 - Section 8 — endpoint changes (or notable internal-data changes, as TD11 noted under Section 8)
-- Section 5/6 — file additions/deletions
+- Section 5/6 — file additions/deletions (diff against the Section-0 tree listing line-by-line)
 - Section 4 — pin new last-verified SHAs
 
 Commit message convention:
-
 ```
 docs: update PROJECT_STATE.md after <chat scope>
 - <bullet list of sections changed>
@@ -1476,6 +1577,8 @@ Chat 5 added rule: when starting a new chat, after reading PROJECT_STATE, do a c
 Chat 5 closure added rule: Project_State.md structure is immutable. Section 0 stays at top. Numbered Sections 1-22 stay in order. New sub-items go INSIDE the existing sections, never as new top-level sections.
 
 Chat 5.5 added rule: when reading Project_State.md via Glean for the purpose of producing a full-file canvas refresh, prefer the SHA-pinned `raw.githubusercontent.com` URL over the GitHub blob URL — the blob URL frequently returns `LINK_NEEDS_AUTH` even on public repos. If both URLs fail, ask the user to `ssh ubuntu@100.112.20.41 && cat ~/ai-stock-advisor-backend/docs/Project_State.md` and paste the bytes.
+
+Chat 5.7 added rule: the canonical tree-listing command (embedded in Section 0) MUST be the very first thing run in every new chat, before scope description. The assistant requests it in the acknowledgement message. Every URL the assistant constructs for a file-read MUST use a SHA the user has supplied this chat (not a memory-resident SHA) and a path verified to exist in the tree listing. The URL form is `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`.
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1539,10 +1642,14 @@ Chat 5.5 added rule: when reading Project_State.md via Glean for the purpose of 
 - **TD14 flagged as a tracked open item rather than silently fixed in this commit**: the bogus `--notify --run-type scheduled` crontab flags are a manual EC2 `crontab -e` change. The assistant cannot edit the live crontab; the user must. Logging it as TD14 ensures it doesn't get lost and gives the user the exact recovery commands. Two action items for the user: (1) `crontab -e` and remove the flags; (2) optionally `python scripts/run_weekly_suggestions.py --direction=both` to fire a one-off recovery digest immediately.
 - **Project_State.md fetched via raw.githubusercontent.com at SHA** rather than the GitHub blob URL: Chat 5.5 spent a turn discovering that the blob URL returns `LINK_NEEDS_AUTH` on a public repo. The raw URL with explicit SHA returns clean line-preserved content. Standing convention encoded in Section 19.
 
+### Chat 5.7 additions
+- **Tree-listing-first workflow over recall-based file referencing**: Chat 5.7 discovered that the prior Project_State.md file map listed files that did not exist on disk (`lib/config.ts`, `lib/query-client.tsx`, `edit-transaction-sheet.tsx`) and omitted files that did (`app/providers.tsx`, `app/services/yfinance_lookup.py`, dashboard composites like `top-movers.tsx`). Embedding the canonical `git ls-tree` block in Section 0 and requiring the user to run it before scope-statement eliminates this drift class permanently: the assistant can no longer reference a file from memory without being able to point at a tree-listing line that proves it exists.
+- **Capturing the Chat-5.6 robustness pass in Section 13 + flagging F-number reconciliation as TD15 rather than silently inventing F-mappings**: ~20 in-code F-references at HEAD `64d5ae3` could not be mapped to existing Section-18 rows from the available context. Inventing entries would have polluted the registry with hallucinated descriptions. Logging TD15 ensures the reconciliation happens against ground truth in the next chat.
+- **Marking TD13 SHIPPED only after verifying the frontend README at the current HEAD SHA contained the per-page reference** (it did). The previous Project_State.md had TD13 marked OPEN despite the work being shipped — pure status drift caused by the doc not being updated in the same commit as the code/README change.
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
-
 - Auto-trading. Never.
 - Multi-user.
 - Mutual funds, FDs, foreign equities, derivatives, crypto.
@@ -1593,6 +1700,10 @@ So future chats don't accidentally try to add these:
 - **Cron-health dual transport (Chat 5 commit 8)**: ntfy + email; raises only when BOTH fail.
 - **Logrotate (Chat 5 2026-05-24)**: weekly with rotate-4, copytruncate, su ubuntu ubuntu.
 - **`_format_raw` formatter kinds (Chat 5.5 TD11)**: existing kinds — `percent_decimal`, `percent_already`, `ratio`, `multiple`, `currency_inr_cr`, `score_only`. NEW kinds — `score_signed` (`f"{raw:+.1f}"`, e.g. `+74.4` for news net sentiment), `count` (`f"{int(raw)}"`, e.g. `54` for news story count).
-- **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 (Chat 5.5)**: see Section 18. TD9/TD11/TD12 SHIPPED 2026-05-24; TD10/TD13/TD14 OPEN.
+- **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 / TD15 (Chat 5.5–5.7)**: see Section 18. TD9 / TD11 / TD12 SHIPPED 2026-05-24; TD13 SHIPPED Chat 5.6 (at frontend HEAD `4f31b49`); TD10 / TD14 / TD15 OPEN.
+- **Chat 5.6 robustness pass**: cross-cutting Pydantic round-trip hardening + `ge=0` validators + `preview_sell` SPLIT/BONUS lot-walk fix + frontend per-page reference. Baked into HEAD `64d5ae3` / `4f31b49`. F-number cross-refs in code comments pending reconciliation as TD15.
+- **Chat 5.7 (THIS commit)**: Project_State.md doc reconciliation pass — Section 0 URL-construction rule, file-map repairs in Sections 5 + 6, Chat 5.6 capture in Section 13, TD13 SHIPPED, TD15 added.
+- **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. The user runs it once per chat immediately after the bootstrap. The assistant uses its output as the source of truth for every file path it references and every URL it constructs.
+- **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 
 End of PROJECT_STATE.md.
