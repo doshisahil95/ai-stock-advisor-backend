@@ -108,8 +108,8 @@ CRON_REGISTRY: list[CronSpec] = [
         expected_weekdays=SUNDAY,
     ),
     CronSpec(
-        cron_name="run_weekly_suggestions",
-        description="Weekly buy-side suggestions run + digest",
+        cron_name="weekly_suggestions",
+        description="Weekly buy + sell suggestions run + combined digest",
         schedule_human="Sunday 07:00 IST",
         expected_weekdays=SUNDAY,
     ),
