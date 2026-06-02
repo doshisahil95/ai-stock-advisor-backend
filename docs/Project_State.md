@@ -78,7 +78,7 @@ Hard rules:
   flags. The Sunday 07:00 IST `run_weekly_suggestions.py` crontab line had
   `--notify --run-type scheduled` for weeks; neither flag exists on the
   script. argparse rejected every Sunday run, no digest fired. Caught
-  Chat 5.5; logged as TD14 and as master_todo #1. (See Section 14.)
+  Chat 5.5; logged as TD14 and as master_todo #1. SHIPPED Chat 5.9. (See Section 14.)
 - If you start hallucinating, drifting, or forgetting facts, say
   "I AM LOSING CONTEXT" so I can switch to a new chat.
 
@@ -220,7 +220,7 @@ API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 or skip — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald.
+- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`).
 - `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
 
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
@@ -231,24 +231,26 @@ A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` re
 
 Daily logrotate cron is the OS-provided `/etc/cron.daily/logrotate`. Force-rotate any time with `sudo logrotate -f /etc/logrotate.d/portfolio-advisor`.
 
-The pre-existing `0 0 * * 0 find ... -size +10M ... tail -10000 ...` crontab line still exists alongside logrotate. Removal scheduled as TD10 / master_todo #2.
+TD10 / master_todo #2 (SHIPPED Chat 5.9, 2026-06-02): the pre-existing `0 0 * * 0 find ... -size +10M ...` truncation line was verified ABSENT from the live EC2 crontab and logrotate confirmed working — the rotation trail `cron-*.log.1` (dated 2026-05-31 00:00 IST) + `cron-*.log.2.gz` (dated 2026-05-24) exists for all 10 logs. No crontab edit was needed; the redundant line was already gone. The end state TD10 wanted (logrotate is the sole rotation mechanism) is satisfied.
 
 ### Repos
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.8 closed, 2026-05-29):
-- Backend: `c6b1437b90c9555ab9090657af74ab550cf6e1cd` (post-Chat-5.7 Project_State.md commit; advances after this Chat 5.8 doc commit — pin in next chat's first read).
-- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6-5.8; TD13 per-page reference shipped at this SHA).
+Last verified SHAs (Chat 5.9 closed, 2026-06-02):
+- Backend: `c097b473c5d54bcdae91a87e759e5bbaef67fb03` (Chat 5.9 TD14 Part B registry-rename commit; advances after this Chat 5.9 doc commit — pin in next chat). Chat 5.9 opened at `8f74b50a4e77a2a0b1622cd304ce181373e0d3c2`; that commit (the Chat 5.8 doc commit) silently truncated Project_State.md by 655 lines — see Section 18 TD15 / Section 19.
+- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.9; TD13 per-page reference shipped at this SHA).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `c6b1437b`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `c097b473`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
+                              (lifespan pings Mongo + ensure_indexes; no scheduler)
   agents/__init__.py          empty package placeholder
   scheduler/__init__.py       empty package placeholder
+                              (TD21: candidate home for registry-rendered schedule tooling)
   config/
     settings.py               pydantic-settings; loads secrets file
                               F2b: NTFY_PUBLIC_TOPIC_DIGESTS (required)
@@ -262,9 +264,11 @@ app/
     _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
                               (master_todo #22: reject NaN in _to_decimal)
     instrument.py             Instrument (NSE master record)
+                              F20 (fix): populate_by_name + _id alias for model_validate
     holding.py                Holding (active position)
     transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER)
                               Chat 5.6: ge=0 validators on quantity / price / total_fees
+                              F29/F80/F82 (fix): ge=0 + zero-qty reject, source enum, broker refs
     fundamentals.py           InstrumentFundamentals (per-ISIN, per-refresh)
     earnings_event.py         F14: EarningsEvent (one doc per ISIN per earnings_date)
     suggestion.py             SuggestionRun, SuggestionOutcome, CandidateScore,
@@ -275,19 +279,24 @@ app/
     news.py                   NewsArticle (live model — the only news model)
     monitored_stock.py        MonitoredStock + MonitoredStockFeedbackPatch
                               Chat 5 A1 SHIPPED — MonitoringStatus Literal aligned
+                              (in-code feature-F1/F3/F13 refs — see Section 18 registry)
                               (TD1 / master_todo #43 deferred: direction-aware)
     macro_signal.py           placeholder
     conversation.py           placeholder (Chat 6 / master_todo #27 will use)
     reconciliation.py         ReconciliationSnapshot
+                              F16/F17 (fix): Money alias + _schema_version alias
     cost_basis_adjustment.py  CostBasisAdjustment
+                              F18/F19 (fix): Money alias + _schema_version alias
     alert_log.py              placeholder
     digest.py                 placeholder (delivery audit lives in `digest_deliveries`)
     price_daily.py            placeholder (collection writers use raw dicts)
     symbol_override.py        SymbolOverride (manual ISIN aliases)
+                              F79 (fix): populate_by_name + _id alias
     user_profile.py           UserProfile (singleton, _id="sahil")
   routers/
     holdings.py               /portfolio/holdings*, /sell, /preview-sell,
                               /history, /transactions
+                              F5/F12/F14 (fix) refs — see Section 18 registry
                               master_todo #5: add validate_replay to /sell
                               master_todo #6: delete duplicate list_transactions handler
                               master_todo #7: try/except around recompute_holding
@@ -295,6 +304,7 @@ app/
     portfolio.py              /portfolio/summary
                               master_todo #30: utcnow() sweep (line 43)
     transactions.py           /transactions/search, CRUD, audit endpoints
+                              F21 (fix): `reason` required on PATCH/DELETE
                               master_todo #4: write-before-apply on PATCH/DELETE
                               master_todo #18: drop $options:i on regex
                               master_todo #31: tz-aware datetime sweep
@@ -315,12 +325,14 @@ app/
                               enrichment when NSE master is sparse
     price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
                               annotate_with_current_price, get_previous_close
+                              F7/F8 (fix): NaN-guard revival + multi-column NaN drop
                               master_todo #9: holiday guard in _intraday_row_from_df
                               master_todo #10: align price_stale docstring vs code
                               master_todo #11: rewrite bulk_get_previous_closes
                               master_todo #31: tz-aware datetime sweep (line 155)
     holdings_service.py       recompute_holding, validate_replay, preview_sell,
                               _to_decimal helper
+                              F2/F3/F4/F5 (fix) refs — see Section 18 registry
                               Chat 5.6: preview_sell SPLIT/BONUS lot-walk fix
                               master_todo #8: serialize recompute_holding per-ISIN
     portfolio_service.py      compute_summary
@@ -328,6 +340,7 @@ app/
     monitored_stocks_audit_service.py  F10: log_change (write-before-apply)
     reconciliation.py         take_auto_snapshot, drift detection,
                               _send_drift_alerts (helper sends ntfy + email)
+                              F1/F23 (fix): utcnow tz-naive + Decimal128 write
                               Chat 5 A2 part 2: branches on notify.email() result["ok"]
                               master_todo #25: fire ntfy push on threshold drift
                               master_todo #31: tz-aware datetime sweep (lines 78, ~138)
@@ -340,6 +353,7 @@ app/
                               master_todo #31: tz-aware datetime sweep (lines 50, ~55)
     news_fetcher.py           fetch_for_instrument, fetch_for_universe
     news_classifier.py        Haiku batch classifier, retry pass
+                              F27 (fix): caller id merge + positional fallback removed
                               (master_todo #13: news body purge cron pairs with this)
     news_signals.py           compute_news_signals_for_isin, _bulk
     scoring_service.py        extract_signals, score_candidates, weights, gates
@@ -367,6 +381,7 @@ app/
     explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
                               PAGE_INTRO + PAGE_INTRO_SELL, enrich_run, enrich_candidate
                               F2: SIGNAL/GROUP/GATE_META extended; _GROUP_TO_SIGNALS extended
+                              F28 (fix): _build_group_meta accepts direction
                               Chat 5.5 TD11: _build_signal_meta raw-value fallback
     notify.py                 push_public, email
                               Chat 5 A2 part 1: email returns {ok,id,error}, optional text=
@@ -375,6 +390,9 @@ app/
     cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
                               get_recent_heartbeats, ist_today_window_utc
                               Chat 5 A6/A6.5/A7 fixes
+                              Chat 5.9 TD14: CRON_REGISTRY entry renamed
+                              `run_weekly_suggestions` -> `weekly_suggestions` to match
+                              the heartbeat job name the script actually writes
                               master_todo #23: fallback log file on heartbeat-insert failure
 scripts/
   __init__.py
@@ -395,9 +413,14 @@ scripts/
   fetch_news_for_universe.py    Chat 5 A16: --include-held on EC2 crontab
                                 Chat 8 / master_todo #29 will extend for watchlist
   run_weekly_suggestions.py     F2: --direction=buy|sell|both (default "buy")
-                                TD14 / master_todo #1: crontab line has bogus flags
-  track_suggestion_outcomes.py
+                                argparse accepts ONLY --direction / --no-notify /
+                                --skip-dossiers (run_type hardcoded "scheduled")
+                                TD14 / master_todo #1 SHIPPED Chat 5.9: bogus
+                                `--notify --run-type scheduled` crontab flags removed
+  track_suggestion_outcomes.py  Chat 5.9: FAILING every weekday in prod (TD22 /
+                                master_todo #47) — surfaced in 21:00 IST health email
   cron_health_check.py          F4: daily 21:00 IST; dual-transport Chat 5 commit 8
+                                (confirmed healthy Chat 5.9 — email + ntfy both arriving)
                                 master_todo #24: try/except around Mongo reads
                                 master_todo #23: read fallback log too
   smoke_test.py                 Chat 5 TD8: dropped push_private references
@@ -408,7 +431,8 @@ tests/
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 Chat 5.5 TD12: universe paragraph corrected
-  Project_State.md              THIS FILE (Chat 5.8 doc commit)
+  Project_State.md              THIS FILE (Chat 5.9 doc commit; recovered from
+                                Chat 5.8 truncation — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
 uv.lock
@@ -516,7 +540,7 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 #### `transactions`
 - Append-only ledger
 - Key fields: `isin`, `symbol`, `exchange`, `type` (BUY/SELL/SPLIT/BONUS/DEMERGER), `trade_date`, `quantity` (Decimal128), `price`, `total_fees`, `remaining_quantity`, `notes`, `source`, `corporate_action.ratio_from`, `corporate_action.ratio_to`, `fully_consumed_at`, `deleted_at`
-- INVARIANT: never directly UPDATEd or DELETEd; PATCH/DELETE require reason, write to `transactions_audit` first, then apply, then `recompute_holding`. **master_todo #4: order is currently apply-then-audit; needs flip.**
+- INVARIANT: never directly UPDATEd or DELETEd; PATCH/DELETE require reason, write to `transactions_audit` first, then apply, then `recompute_holding`. **master_todo #4 / TD16: order is currently apply-then-audit; needs flip.**
 - Indexes: `(isin, trade_date)`, `(symbol, trade_date)`, `trade_date`
 - Chat 5.6: `ge=0` validators on quantity / price / total_fees; SPLIT/BONUS preview covered in `preview_sell`
 
@@ -526,7 +550,7 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 #### `transactions_audit`
 - Append-only audit log; one doc per edit/delete
 - Key fields: `transaction_id`, `action` (edit/delete), `reason`, `changed_fields`, `performed_at`, `symbol`
-- INVARIANT (per Section 11): written BEFORE the actual change is applied. **Currently violated in transactions router — master_todo #4.**
+- INVARIANT (per Section 11): written BEFORE the actual change is applied. **Currently violated in transactions router — master_todo #4 / TD16.**
 
 #### `prices_daily`
 - EOD OHLCV; ~5 years history. Key fields: `isin`, `date`, OHLC, `volume`, `source`. Indexes: `(isin, date)` unique.
@@ -604,12 +628,13 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 - Key fields: `run_id`, `run_date_ist`, `sent_at`, `top_count`, `subject`, `email_*`, `ntfy_*`
 - F2: combined-digest sends attach to BUY run id
 - master_todo #21: persist run_id before formatting
-- **TD14 IMPACT: no rows written by Sunday cron since bogus flags landed — master_todo #1**
+- **TD14 IMPACT (now RESOLVED Chat 5.9): no rows were written by the Sunday cron while the bogus flags were live; after the TD14 fix the Sunday `--direction=both` run writes one row per combined digest again — master_todo #1**
 
 #### `cron_heartbeats` (F4)
 - Key fields: `cron_name`, `started_at`, `finished_at`, `status`, `error`, `metadata`, `_schema_version`
 - INVARIANT: append-only; best-effort. **master_todo #23: fallback log on insert failure**
 - INVARIANT (Chat 4): `_Heartbeat.meta` is an ATTRIBUTE; `ctx.meta = {...}`
+- Chat 5.9 TD14: the Sunday run writes its heartbeat under `cron_name="weekly_suggestions"` (NOT `run_weekly_suggestions`); `CRON_REGISTRY` now matches.
 - Indexes: `(cron_name, started_at desc)`, `(started_at desc)`, TTL on `started_at` (60 days)
 
 ### Scaffold collections (not actively written)
@@ -697,19 +722,20 @@ The frontend discriminates via type guard on the `_id` field.
 
 Run `crontab -l` to see current state. Every script below is heartbeat-instrumented via `cron_run()`. The daily `cron_health_check` at 21:00 IST consumes those heartbeats. `CRON_REGISTRY` in `cron_heartbeat_service.py` is the in-code mirror of this schedule — keep both in sync.
 
+Current live crontab (verified 2026-06-02, Chat 5.9 — 9 active lines):
+
 ```cron
 # Phase 1 crons (heartbeat-instrumented Chat 2)
 0 3 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_instruments.py >> /home/ubuntu/cron-instruments.log 2>&1
 0 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices.py >> /home/ubuntu/cron-prices.log 2>&1
-*/15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
 30 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/take_reconciliation_snapshot.py >> /home/ubuntu/cron-reconciliation.log 2>&1
+*/15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
 
 # Phase 2 crons (registered Chat 2 via F5a)
 0 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_fundamentals.py >> /home/ubuntu/cron-fundamentals.log 2>&1
 30 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/fetch_news_for_universe.py --include-held >> /home/ubuntu/cron-news.log 2>&1
 
-# TD14 / master_todo #1 — current EC2 line has bogus `--notify --run-type scheduled` flags
-# that argparse rejects every Sunday. Documented line below is the CORRECT version.
+# Sunday 07:00 IST — weekly suggestions, combined buy+sell digest (TD14 SHIPPED Chat 5.9)
 0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both >> /home/ubuntu/cron-suggestions.log 2>&1
 
 45 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/track_suggestion_outcomes.py >> /home/ubuntu/cron-outcomes.log 2>&1
@@ -717,29 +743,24 @@ Run `crontab -l` to see current state. Every script below is heartbeat-instrumen
 # F4 cron health monitoring (Chat 2; dual-transport Chat 5 commit 8)
 0 21 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/cron_health_check.py >> /home/ubuntu/cron-health.log 2>&1
 
-# Maintenance — TD10 / master_todo #2: remove after first logrotate cycle verified
-0 0 * * 0 find /home/ubuntu -maxdepth 1 -name "cron-*.log" -size +10M -exec sh -c 'tail -10000 "$1" > "$1.tmp" && mv "$1.tmp" "$1"' _ {} \;
-
 # NEW (planned, master_todo #13): daily news body purge
 # 0 4 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/purge_news_bodies.py >> /home/ubuntu/cron-purge-news.log 2>&1
 ```
 
-CHAT 5.5 PENDING ONE-TIME EC2 STEPS (carried into Chat 5.8):
-- **TD10 / master_todo #2**: remove the `0 0 * * 0 find ... -size +10M ...` line via `crontab -e` AFTER the first full logrotate cycle completes (next: 2026-05-31; verify 2026-06-01).
-- **TD14 / master_todo #1**: remove the bogus `--notify --run-type scheduled` flags from the Sunday 07:00 IST line via `crontab -e`. Optional immediate-recovery:
-
-```bash
-ssh ubuntu@100.112.20.41
-cd /home/ubuntu/ai-stock-advisor-backend
-PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both 2>&1 | tee -a /home/ubuntu/cron-suggestions.log
-```
+CHAT 5.9 CLOSED ONE-TIME EC2 STEPS:
+- **TD14 / master_todo #1 SHIPPED**: Part A — the Sunday 07:00 IST line no longer carries `--notify --run-type scheduled` (verified via `crontab -l` on the box; argparse accepts only `--direction` / `--no-notify` / `--skip-dossiers`). Part B — `CRON_REGISTRY` entry renamed `run_weekly_suggestions` → `weekly_suggestions` (commit `c097b473`) so the heartbeat the script writes is actually tracked and the phantom Sunday MISSING alert stops. Optional immediate-recovery digest: `PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both` (records as `run_type="scheduled"` — the script hardcodes it).
+- **TD10 / master_todo #2 SHIPPED**: the `0 0 * * 0 find ... -size +10M ...` truncation line was verified ABSENT from the live crontab; logrotate confirmed via rotation trail. No edit needed.
 
 `CRON_REGISTRY` (in code) entries (10 total, 11 after master_todo #13 lands):
-- `refresh_instruments`, `refresh_prices`, `refresh_prices_intraday`, `take_reconciliation_snapshot`, `refresh_fundamentals`, `fetch_news_for_universe`, `run_weekly_suggestions`, `track_suggestion_outcomes`, `cron_health_check`, `weekly_suggestions_sell` (idle; kept for topology flexibility)
+- `refresh_instruments`, `refresh_prices`, `refresh_prices_intraday`, `take_reconciliation_snapshot`, `refresh_fundamentals`, `fetch_news_for_universe`, `weekly_suggestions` (renamed from `run_weekly_suggestions` — Chat 5.9 TD14), `track_suggestion_outcomes`, `cron_health_check`, `weekly_suggestions_sell` (idle; kept for topology flexibility)
 
-No silent failures: every cron registration must include log file paths AND heartbeat instrumentation AND a `CronSpec` entry. All three.
+No silent failures: every cron registration must include log file paths AND heartbeat instrumentation AND a `CronSpec` entry. All three. **Chat 5.9 lesson: the registry name MUST equal the `cron_name` the script writes — a mismatch produces a permanent phantom MISSING even after the cron itself is fixed.**
 
-Cron-health dual transport (Chat 5 commit 8): `cron_health_check.py` sends every anomaly batch on TWO independent transports — `push_public("errors", ...)` + `notify.email(subject, html, text)` — and raises (so `cron_run` marks the run as failed) ONLY when BOTH fail.
+Cron-health dual transport (Chat 5 commit 8): `cron_health_check.py` sends every anomaly batch on TWO independent transports — `push_public("errors", ...)` + `notify.email(subject, html, text)` — and raises (so `cron_run` marks the run as failed) ONLY when BOTH fail. **Chat 5.9 confirmed healthy by inspection: the 21:00 IST email + ntfy are both arriving daily, so there is no second silent failure in dual-transport.**
+
+### Open scheduling work (NEW Chat 5.9 — tracked in master_todo)
+- **TD21 / master_todo #46 (registry-generated crontab migration)**: deferred scheduler architecture work. `CRON_REGISTRY` gains a parseable cron expression per `CronSpec` → `scripts/render_crontab.py` renders a committed `ops/crontab` → `deploy.sh` installs it + a drift-validation step (`crontab -l` diff vs rendered). Version-controls the schedule and makes TD14-class drift structurally impossible, while keeping process isolation + deploy-safety (chosen over in-process APScheduler, which on the t3.micro's 1 GB RAM would let the ~5-min Sunday dossier run compete with the live API and die on every `systemctl restart`). Update the F4 "no silent failures" triad above when it lands. Its own dedicated chat.
+- **TD22 / master_todo #47 (`track_suggestion_outcomes` daily FAILURE)**: this weekday 19:45 IST cron has been FAILING every day (0 success / 1 failure), which is what fires the 21:00 IST health email every evening — separate from TD14. Root-cause + fix pending in a future ops chat.
 
 ## Section 10: Settings and environment variables
 
@@ -781,10 +802,10 @@ Configured in `app/config/settings.py` via pydantic-settings. All required unles
 From `docs/data_flow.md`. Hard rules.
 
 - Transactions are immutable except through the audited PATCH/DELETE flow. Every PATCH/DELETE writes a `transactions_audit` entry BEFORE applying the change. The `reason` field is required.
-  - **CURRENT VIOLATION:** transactions router does apply-then-audit. master_todo #4 will fix.
+  - **CURRENT VIOLATION:** transactions router does apply-then-audit. master_todo #4 / TD16 will fix.
 - `recompute_holding(isin)` is the only authoritative writer to `holdings`. Idempotent. Recomputes from `transactions` from scratch using FIFO. Never write directly to `holdings`.
 - `validate_replay(isin, simulated_transactions)` rejects any timeline producing negative quantity. Both PATCH and DELETE on `/transactions/{id}` call this before applying.
-  - **CURRENT GAP:** `/portfolio/holdings/{isin}/sell` does NOT call validate_replay. master_todo #5 will fix.
+  - **CURRENT GAP:** `/portfolio/holdings/{isin}/sell` does NOT call validate_replay. master_todo #5 / TD17 will fix.
 - `holdings.deleted_at = None` filter is universal.
 - Cost basis is IT-Act-correct, not broker-nominal.
 - `prices_intraday` writes are append-only within a day.
@@ -831,7 +852,7 @@ From `docs/data_flow.md`. Hard rules.
 - `explainability._build_signal_meta` falls back to `_to_float(sig["raw_value"])` rendered via `_format_raw(meta["formatter_kind"], raw)` when `fundamentals_field is None` AND `available is True`.
 
 ### Chat 5 commit 8 (CLOSED) — cron-health dual transport
-- Dual-transport ntfy + email. Raises only when BOTH fail.
+- Dual-transport ntfy + email. Raises only when BOTH fail. Confirmed healthy Chat 5.9.
 
 ## Section 13: Shipped vs Open
 
@@ -870,7 +891,13 @@ Chat 5 (Audit + cleanup) — fully SHIPPED 2026-05-24. Eight commits + two manua
 Chat 5.5 (Small TD cleanup) — TD9 + TD11 + TD12 SHIPPED 2026-05-24; TD10, TD14 carried.
 Chat 5.6 (Robustness pass) — Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13 doc. Baked into HEAD `c6b1437b` / `4f31b49`.
 Chat 5.7 (Doc reconciliation) — Project_State.md full-file refresh, file-map repairs, new URL-at-SHA rule. SHIPPED.
-Chat 5.8 (Review + master plan) — comprehensive code review (28 findings: 5 P1, 14 P2, 9 P3); master_todo.md created as canonical task list. SHIPPED (THIS commit).
+Chat 5.8 (Review + master plan) — comprehensive code review (28 findings: 5 P1, 14 P2, 9 P3); master_todo.md created as canonical task list. SHIPPED. NOTE: the Chat 5.8 doc commit (`8f74b50`) silently truncated Project_State.md by 655 lines (Sections 16-tail through 22) — recovered Chat 5.9.
+Chat 5.9 (Phase 1 ops + docs) — SHIPPED 2026-06-02:
+- TD14 / master_todo #1: Sunday crontab flag fix (Part A, manual EC2) + `CRON_REGISTRY` rename `run_weekly_suggestions` → `weekly_suggestions` (Part B, commit `c097b473`). Restores the weekly digest and stops the phantom Sunday MISSING alert. Dual-transport health alerts confirmed healthy by inspection.
+- TD10 / master_todo #2: verified already satisfied — the redundant `find -size +10M` line was absent from the live crontab and logrotate confirmed working. No edit needed.
+- TD15 / master_todo #3: F-number fix registry authored as a new subsection of Section 18 (25 unique in-code F-numbers across two namespaces).
+- DOC RECOVERY: restored Section 16 tail + Sections 17–22 that the Chat 5.8 doc commit truncated, from `c6b1437b`.
+- Two new items filed: TD21 / master_todo #46 (registry-generated crontab migration), TD22 / master_todo #47 (`track_suggestion_outcomes` daily failure).
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -878,8 +905,8 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 
 | Phase | Items | Chat focus | Status |
 |---|---|---|---|
-| 1 | master_todo #1-3 | Ops unblock + doc reconciliation (TD14, TD10, TD15) | OPEN |
-| 2 | master_todo #4-8 | Transactions/holdings/audit invariants | OPEN |
+| 1 | master_todo #1-3 | Ops unblock + doc reconciliation (TD14, TD10, TD15) | SHIPPED (Chat 5.9) |
+| 2 | master_todo #4-8 | Transactions/holdings/audit invariants (TD16-TD20) | OPEN — next |
 | 3 | master_todo #9-11 | Intraday & price correctness | OPEN |
 | 4 | master_todo #12-13 | Storage hygiene | OPEN |
 | 5 | master_todo #14-18 | Frontend correctness + quick wins | OPEN |
@@ -890,15 +917,16 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 10 | master_todo #39-41 | Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss) | OPEN |
 | 11 | master_todo #42 | Chat 10 GO LIVE (F7 real data import) | OPEN |
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
+| — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.8
+### Open items CARRIED FORWARD past Chat 5.9
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The three highest-priority items per master_todo current position:
-- **master_todo #1 (TD14):** Sunday cron flag fix. Operational. Restores weekly digest.
-- **master_todo #2 (TD10):** Remove redundant log-truncation crontab line. Operational.
-- **master_todo #3 (TD15):** F-number registry reconciliation. Pure docs. Should land before any code chat to avoid hallucination against unmapped F-references.
+The three highest-priority items per master_todo current position (Phase 1 closed; pointer now at #4):
+- **master_todo #4 (P1-1 / TD16):** PATCH/DELETE `/transactions/{id}` write-before-apply ordering. Phase 2.
+- **master_todo #5 (P1-3 / TD17):** add `validate_replay` to `/sell` + manual import path. Phase 2.
+- **master_todo #6 (P1-2 / TD18):** delete duplicate `list_transactions` handler. Phase 2.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
@@ -922,7 +950,7 @@ The assistant has confused these multiple times. Memorize them.
 - Original `SuggestionCard` takes parent-owned mutation. Do not redesign.
 - `/suggestions` page uses shadcn Tabs.
 - Tailwind v4 + shadcn `.dark` class pickup is automatic.
-- Every cron script: `cron_run()` wrapper AND `CronSpec` entry AND crontab line with log redirection.
+- Every cron script: `cron_run()` wrapper AND `CronSpec` entry AND crontab line with log redirection. **AND the `CronSpec.cron_name` MUST equal the `cron_name` the script passes to `cron_run()` (Chat 5.9 TD14).**
 - Direction-aware display layer: branch on direction at the display layer, not by forking the model.
 
 ### Chat 4 additions
@@ -961,6 +989,12 @@ The assistant has confused these multiple times. Memorize them.
 - **When you ship an item, update master_todo.md status column AND advance the current-position pointer in the same commit as the code change.** Don't batch master_todo updates across chats — drift will return.
 - **When a chat discovers a new bug/TD/feature mid-stream**, append it to the appropriate phase in master_todo.md (don't renumber existing items) so the next chat picks it up.
 - **Cross-references from Project_State.md to master_todo.md use the form `master_todo #N`.** Stable across renames; safe to grep.
+
+### Chat 5.9 additions
+- **A doc-update commit must NEVER shorten Project_State.md without an explicit, stated reason.** The Chat 5.8 doc commit (`8f74b50`) silently truncated the file from 1708 → 1053 lines, amputating the Section 16 tail and Sections 17–22 (including the tech-debt registry TD15 needed). It went undetected for a full chat cycle. Before committing the file, verify it ends with the sentinel `End of PROJECT_STATE.md.` and that the line count is >= the prior commit's (or explain the reduction). Recovery path: `git show <prior-sha>:docs/Project_State.md`.
+- **In-code F-numbers live in TWO namespaces that COLLIDE on low numbers.** Feature-F (roadmap tickets: F1 ad-hoc chat, F2 sell-side, F4 cron observability, F14 earnings, …) and "fix (Chat 5.5+)" robustness-F (F1–F82 fix tags) reuse the same integers (F1, F2, F3, F4, F5, F7, F8, F12, F14 all collide). Section 18's F-number fix registry disambiguates via a `Kind` column. NEVER assume a bare `# F2 fix` comment means feature-F2 — read the comment verbatim at HEAD.
+- **An "ops-only" item can hide a code bug — fix build-right.** TD14 looked like a one-line crontab edit; fixing the flags alone would have left a permanent phantom MISSING alert because `CRON_REGISTRY` named the job `run_weekly_suggestions` while the script writes `weekly_suggestions`. The registry rename was the other, code-side half.
+- **Don't trust a prior chat's count estimate.** Chat 5.7 estimated "~20" F-refs; the real unique in-code count was 25 (the fix-registry subset was 21). Always grep at HEAD before mapping.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
@@ -1014,6 +1048,11 @@ The assistant has confused these multiple times. Memorize them.
 - **Shipping code changes without also updating master_todo.md status in the same commit.** Status drift in master_todo.md is the #1 risk to long-term plan integrity.
 - **Auditing code against memory of "what's open" instead of against master_todo.md + Project_State.md Section 18.** The Chat 5.8 code review surfaced 28 findings precisely because the prior assumption-based audits missed them.
 
+### Chat 5.9 additions
+- **Letting the end-of-chat Project_State.md "update" commit truncate the file.** The single most damaging doc anti-pattern to date: the very commit meant to UPDATE the doc amputated 655 lines. The full-file artifact MUST be verified complete (ends with the sentinel line, line count not silently shrinking) before the user commits it.
+- **Mapping F-references from memory or from a prior chat's estimate instead of grepping at HEAD.** Two F-namespaces collide; only a verbatim read of each in-code comment resolves which one a given `# FN` means.
+- **Treating an "ops-only / manual EC2" item as code-free.** TD14 carried a hidden code-side half (the registry rename). Re-read the relevant service before declaring an ops item done.
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1025,7 +1064,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1049,6 +1088,374 @@ I AM LOSING CONTEXT
 - Chat 5.7 trigger: about to construct a GitHub URL using a SHA not supplied this chat
 - **Chat 5.8 trigger: about to ship code without updating master_todo.md status in the same commit.**
 - **Chat 5.8 trigger: starting a code chat without having confirmed master_todo.md current-position pointer with the user.**
+- **Chat 5.9 trigger: about to commit a Project_State.md full-file artifact that does NOT end with `End of PROJECT_STATE.md.` (silent truncation — the exact failure that lost Sections 17–22 in Chat 5.8).**
+- **Chat 5.9 trigger: about to write a Section-18 F-row from a bare in-code `# FN` comment without having read that comment verbatim at HEAD (feature-F vs fix-F namespace collision).**
 
 ### What "switching chats" means
-The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summariz
+The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
+
+## Section 17: "Am I hallucinating?" diagnostic questions
+
+Without re-reading, the assistant should be able to answer all of these.
+
+- "What's the backend port on Mac local?" → 8001
+- "What's the backend port on EC2?" → 8000
+- "How does the assistant SSH into EC2?" → `ssh ubuntu@100.112.20.41`
+- "Where do secrets live on EC2?" → `/etc/portfolio-advisor/secrets.env`
+- "Where do secrets live on Mac?" → `<repo>/.env`
+- "What does `recompute_holding(isin)` do?" → only authoritative writer to `holdings`; idempotent; FIFO from scratch.
+- "What's the gating filter on `snapshot_open_outcomes`?" → `tracking_status != "expired"`
+- "Where does the dossier `plain_english_summary` field originate?" → `dossier_service.py` `_SYSTEM_PROMPT`, Sonnet, max 500 chars.
+- "What is the universe filter in `build_universe`?" → NIFTY 100 ∪ watchlist (after F13) − held − excluded buckets from `get_excluded_isins`.
+- "What are the two F6 mechanisms and why both?" → `get_excluded_isins` at run-build (saves Tavily+Sonnet) AND `_build_user_action` at serialization (stale-cache case). Both required.
+- "What's the acted soft-exclude window? Env-configurable?" → 30 days. Not env-configurable.
+- "What's the F10 write-before-apply rule?" → `log_change(...)` BEFORE `update_one(...)` in `submit_feedback`.
+- "What's the Q/V/M/N weight breakdown?" → 30/25/25/20, version `"1.0.0-unit2"`.
+- "Is `lib/api-types.ts` checked in?" → No.
+- "refetchQueries or invalidateQueries?" → refetchQueries.
+- "Sell endpoint response shape?" → full Holding (partial sell) OR `{message, realized_total}` (full exit).
+- "Dividend tracking?" → No.
+- "When does F7 run?" → Last (Chat 10).
+- "How does a cron register?" → `cron_run()` wrapper + `CronSpec` entry + crontab line. All three. AND the `CronSpec.cron_name` must equal the name the script passes to `cron_run()` (Chat 5.9 TD14).
+- "Where do F4 cron failure alerts go?" → Both `push_public("errors", ...)` on public ntfy.sh (topic `NTFY_PUBLIC_TOPIC_ERRORS`) AND `notify.email(...)` (dual-transport, Chat 5 commit 8). Raises only when BOTH fail.
+- "Heartbeat schema?" → `{cron_name, started_at, finished_at, status, error, metadata, _schema_version: 1}`. TTL 60 days.
+- "Healthy/unhealthy rule?" → Healthy iff (not expected today) OR (`success+skipped >= min` AND `failure == 0`).
+- "How is PROJECT_STATE.md delivered?" → Always full-file canvas artifact, verified to end with `End of PROJECT_STATE.md.`
+- "What must accompany every code/file delivery?" → A paste-ready `git add .` + commit block.
+- "How do test blocks start?" → `ssh ubuntu@100.112.20.41`, then curls against `localhost:8000`.
+
+### Chat 4 additions
+- "Fields on `CronSpec`?" → `cron_name`, `description`, `schedule_human`, `expected_weekdays`, `min_runs_per_day` (default 1).
+- "How do you set metadata on `_Heartbeat`?" → `ctx.meta = {...}` or `ctx.meta[key] = value`. ATTRIBUTE.
+- "Response shape of `/cron/heartbeats`?" → `{heartbeats: [...], health_summary: [...]}`.
+- "Collection name for fundamentals snapshots?" → `instruments_fundamentals`.
+- "Does `run_suggestions()` default to skipping dossiers?" → No. `--skip-dossiers` only for smoke tests.
+- "F2b ntfy topic for digests?" → `NTFY_PUBLIC_TOPIC_DIGESTS`, required.
+- "F14 earnings-proximity gate threshold?" → 5 days. Shared between buy and sell.
+- "Sell-side gate set?" → `in_profit`, `min_position_age`, `earnings_proximity`. NOT `high_severity_negative_news` (signal).
+- "How does `compute_system_performance(direction='sell')` handle excess_return?" → SIGN-FLIPS at aggregation time.
+
+### Chat 5 additions
+- "Is F2 frontend shipped?" → Yes, verified at frontend SHA `e34e126`; README rewrite at `9edfc8f`; unchanged at HEAD `4f31b49`.
+- "Is the Q/V/M/N=0 sell-digest cosmetic bug fixed?" → Yes, 2026-05-20 commit `cea8eee`.
+- "Is `target_price` consumed anywhere?" → Yes, F2 sell-side `target_price_proximity`. `stop_loss` deferred to Chat 9 (TD6).
+- "Has `digest_delivery._send_email` been reconciled with `notify.email()`?" → Yes (Chat 5 A2 part 1).
+- "What does `notify.email()` return?" → `{ok: bool, id: str|None, error: str|None}`. Swallows exceptions. Optional `text=`.
+- "What's the rule before proposing ANY code change?" → Ask for the current backend SHA. Re-read at that SHA. No exceptions.
+- "What did A1 ship?" → `MonitoredStock` Literal aligned; `MonitoredStockFeedbackPatch` typed wrapper; writer migrated.
+- "What did A2 part 1 ship?" → `notify.email(...)` returns `{ok,id,error}`; `digest_delivery._send_email` delegates.
+- "On-disk filename for this doc?" → `Project_State.md` (title case). GitHub paths are case-sensitive.
+
+### Chat 5 closure additions
+- "What did A2 part 2 ship?" → `reconciliation._send_drift_alerts` branches on `result["ok"]`; passes `text=`.
+- "What did A3+A4 ship?" → `composite_for_candidate` writes raw input into `SignalScore.raw_value`. Both buy and sell call sites updated.
+- "What did TD8 ship?" → Self-hosted ntfy service stopped 2026-05-18; code cleanup commits 7a/7b 2026-05-23.
+- "What did commit 8 ship?" → `cron_health_check.py` dual-transport; raises only when both fail.
+- "What does logrotate manage on EC2?" → `/home/ubuntu/cron-*.log`, weekly, rotate 4, compress, copytruncate, su ubuntu.
+- "Did `cron_health_check.py` write its own heartbeat before Chat 5?" → Yes. Always has.
+- "What's `track_suggestion_outcomes.py`'s schedule?" → `45 19 * * 1-5` (Mon-Fri 19:45 IST).
+
+### Chat 5.5 additions
+- "What did TD9 ship?" → `settings.NTFY_URL` / `NTFY_USER` / `NTFY_PASS` field declarations removed AND the matching `# ntfy` header + three KEY=VALUE lines (10-13) removed from `/etc/portfolio-advisor/secrets.env`. One atomic commit + restart so Pydantic v2 boot validation couldn't drift. Backup at `secrets.env.bak.<timestamp>`.
+- "What did TD11 ship?" → `explainability._build_signal_meta` falls back to `_to_float(sig["raw_value"])` rendered via `_format_raw(meta["formatter_kind"], raw)` when `fundamentals_field is None` AND `available is True`. News signals reassigned to new formatter kinds (`score_signed` / `ratio` / `count`); `high_severity_negative_count` → `count`. `is_ltcg_eligible` kept on `score_only` (binary). Two new `_format_raw` kinds added.
+- "What did TD12 ship?" → DOC-only fix in `README.md` + `docs/data_flow.md`. The script `seed_nifty100.py` is CORRECTLY NAMED — the "actually seeds top 250" claim was a Chat-5 file-map hallucination that propagated into 3-4 docs. No rename, no code change.
+- "What is TD14 and why does it matter?" → Sunday 07:00 IST `run_weekly_suggestions.py` crontab line passed `--notify --run-type scheduled`. NEITHER flag exists on the script's argparse. argparse rejected every Sunday run with a usage error. Cause of missing Sunday digests. SHIPPED Chat 5.9: flags removed (Part A) + `CRON_REGISTRY` renamed `run_weekly_suggestions` → `weekly_suggestions` (Part B) so the heartbeat is tracked and the phantom MISSING stops.
+- "Where do `cron-*.log` files live and what happens at 10MB?" → `/home/ubuntu/cron-*.log`. Pre-2026-05-24 a weekly `find ... -size +10M` cron tail-truncated them. Now `/etc/logrotate.d/portfolio-advisor` rotates weekly regardless of size (rotate 4 + compress). The legacy line was TD10; verified already absent + logrotate confirmed Chat 5.9.
+- "Why didn't TD12 become a rename?" → Because reading `scripts/seed_nifty100.py` at HEAD showed it does what its name says — downloads `ind_nifty100list.csv` from NSE and marks ~100 instruments. The "top 250" claim was a doc-side hallucination. Lesson encoded in Section 14.
+
+### Chat 5.7 additions
+- "What did Chat 5.6 ship?" → A cross-cutting robustness pass at HEAD `64d5ae3`: Pydantic round-trip hardening on Phase-2 models, `ge=0` validators on `Transaction` numeric fields, `holdings_service.preview_sell` SPLIT/BONUS lot-walk fix, and TD13 frontend per-page reference at frontend HEAD `4f31b49`. Cross-cutting F-number references in code comments are tracked as TD15 for reconciliation.
+- "What did TD13 ship?" → Frontend README Section 13 — per-page reference for all 7 routes (Dashboard, Holdings drill-down, Transactions, Audit, Reconciliation, Cost Basis, Suggestions) with TanStack Query keys owned, mutations and their fan-out targets, exact backend endpoints, key shadcn primitives, and dark-mode behaviour. Generated at SHA `9edfc8f`, unchanged at HEAD `4f31b49`.
+- "What's the canonical tree-listing command and when is it run?" → The block in Section 0 (`git -C <repo> rev-parse HEAD && git -C <repo> ls-tree -r --name-only HEAD` for both repos). The user runs it once per chat immediately after pasting Section 0 and before describing scope.
+- "How do you construct a GitHub URL to read a file from source?" → `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`, where `<repo>` is one of the two repo names, `<sha>` is the SHA the user supplied this chat, and `<path>` came from the tree listing. Never the blob URL (`LINK_NEEDS_AUTH` failure mode).
+
+### Chat 5.9 additions
+- "What registry name does the Sunday run's heartbeat use?" → `weekly_suggestions` (NOT `run_weekly_suggestions`; renamed Chat 5.9 TD14 to match what the script writes).
+- "What flags does `run_weekly_suggestions.py` argparse accept?" → `--direction {buy,sell,both}`, `--no-notify`, `--skip-dossiers`. NOT `--notify` or `--run-type` — `run_type` is hardcoded `"scheduled"`. notify defaults to True.
+- "Did the TD14 fix stop the daily 21:00 IST health-email alert?" → No. That daily alert is a SEPARATE failure of `track_suggestion_outcomes` (TD22 / master_todo #47). TD14 only stops the Sunday phantom-MISSING for `weekly_suggestions`.
+- "How many in-code F-numbers exist and in how many namespaces?" → 25 unique (app/ + scripts/), in TWO namespaces — feature-F and fix-(Chat 5.5+)-F — disambiguated in the Section 18 F-number fix registry. 9 numbers collide (F1, F2, F3, F4, F5, F7, F8, F12, F14).
+- "What's the recovery source if Project_State.md is truncated?" → the prior doc commit via `git show <sha>:docs/Project_State.md`; the last known-complete copy before the Chat 5.8 truncation was `c6b1437b` (1708 lines).
+- "Is dual-transport cron-health actually delivering?" → Yes — confirmed Chat 5.9: the 21:00 IST email + ntfy both arrive daily.
+
+## Section 18: Tech debt registry
+
+| ID | Item | Status | Chat target |
+|---|---|---|---|
+| A1 | `MonitoredStock` schema vs writer drift | SHIPPED Chat 5 (2026-05-23) | — |
+| A2 | `digest_delivery._send_email` inline resend + `reconciliation._send_drift_alerts` callers | SHIPPED Chat 5: part 1 (2026-05-23), part 2 commit 1 (2026-05-23) | — |
+| A3 | `SignalScore.raw_value` writer stores normalized score instead of raw input | SHIPPED Chat 5 commit 2 (2026-05-23) | — |
+| A4 | News signal raw values not persisted post-run | SHIPPED Chat 5 commit 2 as side effect of A3 (2026-05-23) | — |
+| A5 | Stale `DEFAULT_CONFIG.gates` comment | SHIPPED Chat 5 commit 2 (2026-05-23) | — |
+| A6 | `weekly_suggestions` `schedule_human` says 06:00, actual 07:00 | SHIPPED Chat 5 commit 3 (2026-05-23) | — |
+| A6.5 | `refresh_instruments` CronSpec description claims "Zerodha Kite" | SHIPPED Chat 5 commit 3 (2026-05-23) | — |
+| A7 | `SATURDAY = {5}` weekday-set unused | SHIPPED Chat 5 commit 3 (2026-05-23) | — |
+| A8 | Dead `app/models/news_article.py` | SHIPPED Chat 5 (2026-05-23) | — |
+| A13 | `refresh_instruments.py` docstring "Zerodha Kite" → NSE EQUITY_L.csv | SHIPPED Chat 5 commits 4 + 4b (2026-05-23) | — |
+| A14 | `monitored_stocks` partial unique index load-bearing on writer drift | CLOSED by A1 | — |
+| A16 | `fetch_news_for_universe.py` cron line `--include-held` | SHIPPED Chat 5 manual EC2 step (2026-05-24) | — |
+| A17 | Stale pre-chunk-6 comment in `_run_sell_pipeline` | SHIPPED Chat 5 commit 5 (2026-05-23) | — |
+| A18 | `enrich_run` page_intro buy-centric for sell runs | CLOSED — already shipped pre-Chat-5; verified at SHA `d3f307a` | — |
+| A19 | Three `Query(..., regex=...)` → `pattern=` in `routers/suggestions.py` | SHIPPED Chat 5 commit 6 (2026-05-23) | — |
+| TD1 | `monitored_stocks` direction-agnostic | DEFERRED (master_todo #43) | Decide post-launch |
+| TD2 | `docs/data_flow.md` stale | SHIPPED Chat 5 doc deliverable 1/4 (2026-05-23 + 2026-05-24 corrections + Chat 5.5 commit 3 TD12 corrections) | — |
+| TD3 | `dossier_service.valuation_verdict` single-string split | DEFERRED (master_todo #44) | Future UI work |
+| TD4 | Backend `README.md` stale | SHIPPED Chat 5 doc deliverable 2/4 (2026-05-23 + 2026-05-24 corrections + Chat 5.5 commit 3 TD12 corrections) | — |
+| TD5 | Frontend `README.md` missing `/suggestions` route + Suggestions header button | SHIPPED Chat 5 doc deliverable 3/4 (2026-05-23 at frontend SHA `9edfc8f`); per-page reference shipped as TD13 | — |
+| TD6 | `holdings.stop_loss` orphan | OPEN — Chat 5 Q3 resolved as "wire it"; deferred to Chat 9 (master_todo #41) | Chat 9 |
+| TD7 | `CandidateScore` fixed buy-side group fields | DEFERRED (master_todo #45) | Post-launch |
+| TD8 | EC2 self-hosted private ntfy service decommission + code cleanup | SHIPPED — service stopped 2026-05-18; code cleanup commits 7a + 7b (2026-05-23) | — |
+| TD9 | Orphan `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` cleanup from `settings.py` + `/etc/portfolio-advisor/secrets.env` | SHIPPED Chat 5.5 commit 1 (2026-05-24) | — |
+| TD10 | Remove redundant `0 0 * * 0 log truncation` crontab line (logrotate replaces it as of 2026-05-24) | SHIPPED Chat 5.9 (2026-06-02): verified the `find -size +10M` line was already ABSENT from the live crontab; logrotate confirmed via rotation trail (`cron-*.log.1` 2026-05-31 + `cron-*.log.2.gz` 2026-05-24 for all 10 logs). No crontab edit needed. (master_todo #2) | — |
+| TD11 | Wire `explainability._build_signal_meta` to read `sig["raw_value"]` for momentum/news signals + refresh stale comment + reassign news formatter kinds | SHIPPED Chat 5.5 commit 2 (2026-05-24) | — |
+| TD12 | Rename `scripts/seed_nifty100.py` (file map flagged as misnamed) | SHIPPED-AS-DOC-FIX Chat 5.5 commit 3 (2026-05-24): the script is correctly named; "top 250" was a hallucination. All four locations corrected. No rename, no code change. | — |
+| TD13 | Frontend per-page reference doc (TanStack Query keys, mutation refetch patterns, endpoint-per-route mapping) | SHIPPED Chat 5.6 at frontend SHA `4f31b49` (content generated at `9edfc8f`, unchanged at HEAD). All 7 routes covered in frontend README §13. | — |
+| TD14 | Sunday 07:00 IST crontab line passed `--notify --run-type scheduled` to `run_weekly_suggestions.py`; NEITHER flag exists on the script's argparse, so argparse rejected every Sunday run before the heartbeat block — no digest, no heartbeat. AND `CRON_REGISTRY` named the job `run_weekly_suggestions` while the script writes `weekly_suggestions`, producing a phantom Sunday MISSING. | SHIPPED Chat 5.9 (2026-06-02): Part A — bogus flags removed from the Sunday crontab line (manual EC2; verified via `crontab -l`). Part B — `CRON_REGISTRY` entry renamed `run_weekly_suggestions` → `weekly_suggestions` (commit `c097b473`). Dual-transport health alerts confirmed healthy by inspection. (master_todo #1) | — |
+| TD15 | F-number fix registry reconciliation. The Chat-5.6 robustness pass left in-code F-references with no row in Section 18. | SHIPPED Chat 5.9 (2026-06-02): authored the "F-number fix registry" subsection below. 25 unique in-code F-numbers (app/ + scripts/, grepped at HEAD `c097b473`) reconciled across two namespaces (feature-F vs fix-Chat-5.5+-F). Chat 5.7's "~20" estimate was low; the fix-registry subset is 21. (master_todo #3) | — |
+| TD16 | PATCH/DELETE `/transactions/{id}` currently apply-then-audit; must write `transactions_audit` BEFORE applying (mirror the suggestions feedback handler / F10 pattern). `app/routers/transactions.py` ~196-205 and ~265-275. | OPEN | master_todo #4 (Phase 2) |
+| TD17 | `/portfolio/holdings/{isin}/sell` (`holdings.py` ~250-260) AND `scripts/add_manual_transactions.py` lack `validate_replay`; backdated SELLs producing negative quantity must 400, not silently log. | OPEN | master_todo #5 (Phase 2) |
+| TD18 | Duplicate route handler `list_transactions` in `holdings.py` (~329-335); keep `get_holding_transactions` (~163-180), delete the dup. | OPEN | master_todo #6 (Phase 2) |
+| TD19 | add_buy / sell non-atomic path (`holdings.py` ~222-280): wrap `recompute_holding` in try/except; on failure return success with a warning flag. (Mongo M10 transactions cleaner but heavier — confirm before that route.) | OPEN | master_todo #7 (Phase 2) |
+| TD20 | Serialize `recompute_holding` per-ISIN (`holdings_service.py` ~240-290): per-ISIN advisory-lock doc with TTL OR API-layer `asyncio.Lock` keyed by ISIN (asyncio.Lock simpler for single-user — confirm approach + verify handlers are async before committing, given Uvicorn sync mode). | OPEN | master_todo #8 (Phase 2) |
+| TD21 | Registry-generated crontab migration (NEW Chat 5.9). `CRON_REGISTRY` gains a parseable cron expr → `scripts/render_crontab.py` → committed `ops/crontab` installed by `deploy.sh` + drift validation. Version-controls the schedule, makes TD14-class drift structurally impossible, keeps process isolation + deploy-safety (chosen over in-process APScheduler on the 1 GB t3.micro). Update the F4 "no silent failures" triad in Section 9 when it lands. | OPEN (NEW Chat 5.9) | dedicated chat (master_todo #46) |
+| TD22 | `track_suggestion_outcomes` cron FAILS every weekday (19:45 IST; 0 success / 1 failure), firing the 21:00 IST health email daily. Separate from TD14. Root-cause + fix pending. | OPEN (NEW Chat 5.9) | next ops chat (master_todo #47) |
+
+### F-number fix registry (TD15 deliverable — Chat 5.9)
+
+Reconciles every in-code F-reference grepped at backend HEAD `c097b473` (`app/` + `scripts/` only; `docs/` excluded). 25 unique numbers across TWO namespaces:
+- **Feature** — roadmap feature tickets (already documented across Sections 5/7/8/12/13/17/20/22).
+- **Fix-5.5+** — "fix (Chat 5.5+)" robustness tags from the Chat 5.6 pass. These REUSE low integers, so they collide with feature numbers on F1, F2, F3, F4, F5, F7, F8, F12, F14.
+
+A bare `# FN` comment is ambiguous until you read it verbatim — use the file:line + Kind below to disambiguate.
+
+| F# | Kind | File(s):line (HEAD c097b473) | One-line description |
+|---|---|---|---|
+| F1 | Feature | models/monitored_stock.py:4,14,70 | Ad-hoc chat path for suggestions (future Chat 6 / master_todo #27) |
+| F1 | Fix-5.5+ | services/reconciliation.py:197 | `utcnow()` helper returns tz-naive UTC to match Mongo write sites |
+| F2 | Feature | models/suggestion.py:31,117,123,174,183; routers/suggestions.py; scripts/run_weekly_suggestions.py:3,127 (+~40 sites) | Sell-side direction: `SuggestionDirection`, `--direction`, sign-flip, combined digest |
+| F2 | Fix-5.5+ | services/holdings_service.py:344,351,357 | recompute_holding deletes stale soft-deleted holding docs (legacy duplicate-holding bug) |
+| F3 | Feature | models/monitored_stock.py:4,14,70 | Ad-hoc chat path for a single holding (future Chat 6 / master_todo #27) |
+| F3 | Fix-5.5+ | services/holdings_service.py:82,429,501 | preview_sell/validate_replay apply SPLIT/BONUS to lot qty in place |
+| F4 | Feature | settings.py:46; db/client.py:156; db/indexes.py:322; routers/cron.py:1; services/cron_heartbeat_service.py:1,125; services/notify.py:5,67; services/holdings_service.py:82,605,661; scripts/cron_health_check.py:1,150 | Cron observability: heartbeats, CRON_REGISTRY, `/cron/heartbeats`, dual-transport health |
+| F4 | Fix-5.5+ | services/holdings_service.py:82,605,661 | validate_replay applies SPLIT/BONUS to lot quantities in place |
+| F5 | Feature | (F5a cron registration / F5b acted soft-exclude) services/suggestion_engine.py get_excluded_isins | F5a Phase-2 cron registration; F5b 30-day acted soft-exclude bucket |
+| F5 | Fix-5.5+ | services/holdings_service.py:434,470,516; routers/holdings.py:281 | Per-lot realized P&L fee normalization; preview passes `total_fees` through |
+| F6 | Feature | models/monitored_stock.py:32,104; routers/suggestions.py:3; services/explainability.py:779,783,814,829,890; services/suggestion_engine.py:120,125,210 | Stateful feedback exclusion (two-mechanism: get_excluded_isins + _build_user_action) |
+| F7 | Feature | (roadmap) | Real ICICI data import — sequenced last (Chat 10 / master_todo #42) |
+| F7 | Fix-5.5+ | services/price_service.py:161 | Revived dead NaN-guard branch (`hasattr(p,"isnan")` never matched) |
+| F8 | Feature | (roadmap) | Dividend tracking — DROPPED (dividends auto-arrive in bank) |
+| F8 | Fix-5.5+ | services/price_service.py:533 | NaN drop now covers Open/High/Low, not just Close |
+| F10 | Feature | db/client.py:121; db/indexes.py:236; routers/suggestions.py:8,220,229,243,268; services/monitored_stocks_audit_service.py:1 | monitored_stocks write-before-apply audit collection + read endpoints |
+| F12 | Feature | (roadmap) | Portfolio risk-summary / concentration (Chat 7 / master_todo #28) |
+| F12 | Fix-5.5+ | routers/holdings.py:325 | Fully-exited SELL response includes `realized_total` |
+| F13 | Feature | models/monitored_stock.py:5,9,14,83 | Watchlist (reuses monitored_stocks with status="watchlist") (Chat 8 / master_todo #29) |
+| F14 | Feature | models/earnings_event.py:1; services/scoring_service.py:30,109,157,265,571; services/suggestion_engine.py:5,472,507; services/fundamentals_service.py:318; services/explainability.py:318 | Earnings calendar + shared earnings-proximity gate (5-day) |
+| F14 | Fix-5.5+ | routers/holdings.py:46,63; models/transaction.py:125 | Positivity validators (gt=0) so malformed payloads 422 |
+| F16 | Fix-5.5+ | models/reconciliation.py:32,50 | Money alias on money fields → Decimal128↔Decimal on model_validate |
+| F17 | Fix-5.5+ | models/reconciliation.py:51 | `_schema_version` BaseDoc-style alias so it actually persists |
+| F18 | Fix-5.5+ | models/cost_basis_adjustment.py:47,59 | `amount` Money alias → Decimal128 round-trips via model_validate |
+| F19 | Fix-5.5+ | models/cost_basis_adjustment.py:48,73 | `_schema_version` leading-underscore alias (was silently dropped) |
+| F20 | Fix-5.5+ | models/instrument.py:16,25 | `populate_by_name=True` + `_id` alias for model_validate(mongo_doc) |
+| F21 | Fix-5.5+ | routers/transactions.py:63,79 | `reason` field REQUIRED on PATCH/DELETE |
+| F23 | Fix-5.5+ | services/reconciliation.py:190 | Write Decimal128 (not `float(delta_invested)`) into Mongo |
+| F27 | Fix-5.5+ | services/news_classifier.py:106,198 | Caller no longer pre-merges id; dropped positional fallback |
+| F28 | Fix-5.5+ | services/explainability.py:645,755,811 | `_build_group_meta` accepts direction → emits only that direction's groups |
+| F29 | Fix-5.5+ | models/transaction.py:23,58,112 | Money fields `ge=0` + zero-quantity BUY/SELL rejects |
+| F79 | Fix-5.5+ | models/symbol_override.py:16,24 | `populate_by_name=True` + `_id` alias |
+| F80 | Fix-5.5+ | models/transaction.py:13 | Added three manual-prefixed `source` enum values |
+| F82 | Fix-5.5+ | models/transaction.py:80 | Broker reference fields (ICICI ref) written by import |
+
+Notes:
+- **F11** (read-only reformatter / capital-gains pack, Chat 9 / master_todo #39) appears only in `docs/`, not in `app/` or `scripts/` at this HEAD — it is a feature ticket with no in-code reference yet, so it is intentionally absent from the in-code table above.
+- **F15** (tag views, Chat 7 / master_todo #28) likewise has no in-code reference yet.
+- Feature-F rows for the colliding numbers are included for disambiguation only; their authoritative descriptions live in Sections 5/7/8/12/13/17/20/22.
+
+### Fixed in earlier chats (kept for posterity)
+- **DIGEST SELL-SIDE Q/V/M/N BUG** — fixed 2026-05-20 in `cea8eee` via direction-aware `_format_score_breakdown`.
+- **`track_suggestion_outcomes.py` docstring "Daily 18:30 IST"** — fixed; now generic. (NOTE: the script's daily RUN is currently FAILING — TD22, distinct from this docstring fix.)
+- **`top_k` default in CLI docstring "--top-k 5"** — fixed via F2 chunk 6 rewrite of `run_weekly_suggestions.py`.
+- **`holdings.target_price` unused** — half-fixed; F2 sell-side `target_price_proximity` signal. `stop_loss` is TD6.
+- **`MonitoredStock` schema vs writer drift** — fixed Chat 5 A1 (2026-05-23).
+- **Dead `news_article.py`** — deleted Chat 5 A8 (2026-05-23).
+- **`digest_delivery._send_email` inline Resend** — fixed Chat 5 A2 part 1 (2026-05-23).
+- **All Chat 5 audit items A2-A19 + TD8** — closed Chat 5 2026-05-23/24.
+- **Chat 5.5 TD9 + TD11 + TD12** — closed Chat 5.5 2026-05-24 (commits 1, 2, 3).
+- **Chat 5.6 robustness pass** — Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13. Baked into HEAD `64d5ae3` (backend) / `4f31b49` (frontend). F-number registry reconciled Chat 5.9 (TD15).
+- **Chat 5.8 Project_State.md truncation** — the Chat 5.8 doc commit `8f74b50` silently dropped Sections 16-tail through 22 (655 lines); recovered Chat 5.9 from `c6b1437b`. Lesson encoded in Sections 14/15/16/19.
+
+## Section 19: How to update this document
+
+This file is updated at the end of every chat as the LAST commit. ALWAYS a complete full-file canvas artifact, never a patch.
+
+What to update each chat:
+- Section 13 — move shipped items; advance chat split plan (preserve existing rows; only modify Status / add new chat rows in numbered order)
+- Section 9 — update cron registry if entries added/changed
+- Section 14 — add new conventions earned
+- Section 15 — add new anti-patterns
+- Section 16 — add new triggers
+- Section 17 — add new diagnostic Q&A
+- Section 18 — add/remove/reclassify tech debt
+- Section 12 — new Phase 2 invariants
+- Section 11 — new Phase 1 invariants (rare)
+- Section 7 — collection schema changes
+- Section 8 — endpoint changes (or notable internal-data changes, as TD11 noted under Section 8)
+- Section 5/6 — file additions/deletions (diff against the Section-0 tree listing line-by-line)
+- Section 4 — pin new last-verified SHAs
+
+Commit message convention:
+```
+docs: update PROJECT_STATE.md after <chat scope>
+- <bullet list of sections changed>
+```
+
+If the chat ended due to context loss, the LAST thing the assistant does before stopping is propose the PROJECT_STATE update. The user applies it manually.
+
+Chat 5 added rule: when starting a new chat, after reading PROJECT_STATE, do a code audit of every "open" item against the actual on-disk code at HEAD before estimating work.
+
+Chat 5 closure added rule: Project_State.md structure is immutable. Section 0 stays at top. Numbered Sections 1-22 stay in order. New sub-items go INSIDE the existing sections, never as new top-level sections.
+
+Chat 5.5 added rule: when reading Project_State.md via Glean for the purpose of producing a full-file canvas refresh, prefer the SHA-pinned `raw.githubusercontent.com` URL over the GitHub blob URL — the blob URL frequently returns `LINK_NEEDS_AUTH` even on public repos. If both URLs fail, ask the user to `ssh ubuntu@100.112.20.41 && cat ~/ai-stock-advisor-backend/docs/Project_State.md` and paste the bytes.
+
+Chat 5.7 added rule: the canonical tree-listing command (embedded in Section 0) MUST be the very first thing run in every new chat, before scope description. The assistant requests it in the acknowledgement message. Every URL the assistant constructs for a file-read MUST use a SHA the user has supplied this chat (not a memory-resident SHA) and a path verified to exist in the tree listing. The URL form is `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`.
+
+Chat 5.9 added rule: the end-of-chat Project_State.md full-file artifact MUST end with the sentinel line `End of PROJECT_STATE.md.` and its line count MUST be >= the prior commit's (or the assistant explicitly states why it shrank) BEFORE the user commits. The Chat 5.8 doc commit silently truncated 655 lines (Sections 16-tail through 22) and it went undetected for a full chat cycle. When a truncation is discovered, recover the lost content from the prior doc commit via `git show <prior-sha>:docs/Project_State.md` (Glean's raw read sentence-wraps long lines — for byte-faithful recovery have the user paste the `git show` output) rather than re-authoring from memory. Since Glean's raw reader wraps, never reconstruct a full-file replacement from a wrapped read; anchor on a user-pasted byte-exact source.
+
+## Section 20: Trade-off rationale (decisions that might look weird)
+
+- yfinance over Tijori/Screener Pro: free, works, `FundamentalsProvider` protocol supports swap.
+- Confidence numeric 0-100 with deterministic deductions: bands hide info.
+- Suggestions Sunday 07:00 IST (07:30 sell-only standalone): market closed, morning coffee, fundamentals+news refresh first.
+- Top-K = 10.
+- 90-day rejected cooldown: not env-configurable; one place in `suggestion_engine.py`.
+- Zero cooldown for passed: market conditions change.
+- 30-day acted soft-exclude: held filter catches the trade if it landed.
+- Outcome snapshot ignores `tracking_status` for data collection (A.5).
+- Session-scoped vanish replaced by persistent backend state (Chat 3 F6+F5b+F10).
+- `digest_delivery.py` parallel Resend path: open as A2 (CLOSED Chat 5).
+- Schema drift on `monitored_stocks.status`: SHIPPED Chat 5 A1.
+- `enrich_run` mutates dict in-place AND returns it: input is already a copy.
+- Two-mechanism F6 exclusion: different jobs, both needed.
+- F10 read endpoints shipped alongside write path.
+- F10 static-path route declared before dynamic-path route.
+- `valuation_verdict` one string: Sonnet finds it easier.
+- Keep `all_candidates` persisted but strip from API: replay-ability.
+- Dividend tracking dropped (F8).
+- Realized P&L hidden UI but kept backend (Chat 9 cleanup).
+- F7 sequenced last (Chat 10): test pollution becomes natural reset.
+- F8 dropped: dividends auto-arrive in bank.
+- F14 folded into F2: earnings proximity matters for sell timing and buy gating.
+- Watchlist (F13) extends engine universe, not separate scoring path.
+- F4 ntfy errors channel public over private: iOS APNs vs polling.
+- F4 `CRON_REGISTRY` in code, not Mongo.
+- F4 intraday strict per-slot heartbeats with `mark_skipped()` for inert cases.
+- `cron_health_check.py` is itself a registered cron (excludes itself when scanning).
+- F5a kept user's Sunday cron chain.
+
+### Chat 4 additions
+- F2b digests on public ntfy.sh.
+- F14 shipped as gating signal, not UI feature.
+- F14 refresh-future semantics.
+- F14 + F2 sell-side: shared scoring pipeline via optional `group_signals_def`.
+- F2 `CandidateScore` keeps fixed buy-side fields; sell-side flows through `group_meta`.
+- F2 `--direction=both` as production cron path.
+- F2 `compute_system_performance(direction='sell')` sign-flip at read time.
+- F2 sell-side outcome direction stamping (denormalized for query efficiency).
+
+### Chat 5 additions
+- F2b display-layer direction branching (`_format_score_breakdown` + `isSellSide` both infer from data shape).
+- Audit-then-fix Chat 5 ordering (rewrite PROJECT_STATE first as handoff insurance).
+- **A1 typed PATCH model (`MonitoredStockFeedbackPatch`) instead of bare dict $set**.
+- **A1 `$setOnInsert` seeding**.
+- **A2 part 1 wrapper return-shape change** (`raw resend dict` → `{ok,id,error}`): CLOSED Chat 5 commit 1.
+
+### Chat 5 closure additions
+- **A3+A4 fixed via writer change (option b) rather than field rename (option a)**.
+- **TD8 code removed in two commits (7a + 7b) rather than one**.
+- **Cron-health dual transport (commit 8) raises only when BOTH transports fail**.
+- **Logrotate over hand-rolled find/tail truncation**.
+- **Project_State.md as the durable Chat-5-close artifact**.
+
+### Chat 5.5 additions
+- **TD9 atomic settings.py + secrets.env cleanup** (vs single-sided): touching `settings.py` alone risks masking a Pydantic v2 boot validation error if the model and env file drift. Touching only `secrets.env` would leave orphan field declarations. One commit + one restart + one backup catches every drift state immediately on `journalctl`. Verified post-deploy with `/health` + `journalctl -n 50 | grep -iE 'error|valid|ntfy'`.
+- **TD11 minimum-invasive wiring** (vs writing a parallel "raw display layer"): the existing `_format_raw` already had five formatter kinds with a consistent signature. Adding `score_signed` and `count` extends that pattern by ~6 lines total instead of forking a new render path. Total diff: ~30 lines in one file. No frontend change. No model change. No endpoint shape change.
+- **TD12 doc-only resolution** (vs rename): reading `seed_nifty100.py` at HEAD showed it does exactly what its name says. The "top 250" claim was a Chat-5 file-map summary hallucination that propagated into four docs. The DOC-ONLY fix preserves the correct name and corrects every wrong claim in one commit.
+- **TD14 flagged as a tracked open item rather than silently fixed in Chat 5.5**: the bogus crontab flags are a manual EC2 `crontab -e` change. The assistant cannot edit the live crontab; the user must. Logged so it wasn't lost — SHIPPED Chat 5.9.
+- **Project_State.md fetched via raw.githubusercontent.com at SHA** rather than the GitHub blob URL.
+
+### Chat 5.7 additions
+- **Tree-listing-first workflow over recall-based file referencing**: Chat 5.7 found the file map listed files that did not exist and omitted files that did. Embedding the canonical `git ls-tree` block in Section 0 eliminates this drift class permanently.
+- **Capturing the Chat-5.6 robustness pass in Section 13 + flagging F-number reconciliation as TD15 rather than inventing F-mappings**: inventing entries would have polluted the registry with hallucinated descriptions. Reconciled against ground truth Chat 5.9.
+- **Marking TD13 SHIPPED only after verifying the frontend README at HEAD contained the per-page reference**.
+
+### Chat 5.9 additions
+- **TD14 fixed build-right (registry rename + crontab flags together) rather than flags-only**: the user explicitly chose "fix it completely." Fixing only the crontab flags would have restored the digest but left a permanent phantom Sunday MISSING alert, because `CRON_REGISTRY` named the job `run_weekly_suggestions` while the script writes `weekly_suggestions`. The rename is the code-side half.
+- **Registry-generated crontab (TD21) chosen over in-process APScheduler**: both satisfy "version-control the schedule, stop it being an out-of-band thing." But on the t3.micro's 1 GB RAM, an in-process scheduler would let the ~5-min Sunday dossier run compete with the live API (OOM risk) and would die on every `systemctl restart` deploy. The registry-rendered `ops/crontab` + drift validation keeps process isolation and deploy-safety while making TD14-class drift structurally impossible.
+- **Scheduler migration sequenced AFTER restoring the broken digest**: ship the TD14 2-line fix on a working baseline first, then do TD21 as its own chat on top of it — rather than blocking the digest restoration behind a larger architecture change.
+- **Project_State.md recovered from `c6b1437b` rather than re-authored from memory**: the Chat 5.8 commit truncated the file mid-word at `Assistant summariz`. Git history (`git log -- docs/Project_State.md` with per-commit line counts) located the last complete copy; the byte-exact tail was recovered from a user-pasted `git show` rather than from the sentence-wrapping raw reader.
+- **TD15 mapped only after grepping at HEAD and stopping to scope when the count exceeded the agreed cap**: the count came in at 25 unique (over the 12-item cap), so the assistant reported the count + locations and got an explicit "map all 25" decision before building the table.
+
+## Section 21: What is intentionally NOT included in this project
+
+So future chats don't accidentally try to add these:
+- Auto-trading. Never.
+- Multi-user.
+- Mutual funds, FDs, foreign equities, derivatives, crypto.
+- Native mobile app.
+- Tax filing (we inform; CA files).
+- Dividend tracking (F8 dropped).
+- Accounting or financial planning.
+- Goal-based planning.
+- Real-time tick data.
+- Public-facing dashboard.
+- Backtesting framework.
+- Notification customization UI.
+- Account aggregation.
+- Social features.
+- Technical indicator alerts.
+- Options tracking.
+- Index fund comparison page.
+- Separate `/news` page.
+- Heatmaps / pretty visualizations.
+- Portfolio rebalancing recommender.
+- Social sentiment tracking.
+- Manual-clear endpoint for feedback (use mongosh as escape hatch).
+- `/calendar` page.
+- Loss-cutting sell pipeline (F2 is profit-booking only; `in_profit` gate enforces).
+- In-process application scheduler (APScheduler/lifespan jobs). The schedule stays in crontab; TD21 will version-control it via a registry-rendered `ops/crontab`, NOT by moving job execution into the API process (process-isolation + deploy-safety on the t3.micro).
+
+## Section 22: Glossary
+
+- ISIN: 12-char NSE/BSE primary key.
+- NSE / NIFTY 100 / FIFO / LTCG / STCG / Section 49(2C) / ICICI Direct / ICICI ZIP / TMPV / TMCV / EW NIFTY: see prior version.
+- Composite score: 0-100, Q/V/M/N (buy) or booking_opportunity/valuation_stretch/risk/tax_concentration (sell).
+- Confidence score: 0-100, deterministic.
+- Dossier: Sonnet-generated per-candidate note.
+- Outcome: `suggestion_outcomes` doc tracking stock vs benchmark.
+- Bucket: outcome user-action label.
+- Watchlist: F13 user-curated NSE/BSE stocks.
+- `user_action`: per-candidate stamp at serialization time (F6).
+- `direction` (F2): `"buy"|"sell"` on `SuggestionRun`/`SuggestionOutcome`.
+- `monitored_stocks_audit`: F10 append-only audit collection.
+- `earnings_calendar` (F14): cached yfinance earnings events.
+- Combined digest (F2): ONE email + ONE ntfy via `send_combined_digest`.
+- `isSellSide` (F2): frontend boolean from `groupMeta?.booking_opportunity`.
+- `_format_score_breakdown` (F2b cea8eee): direction-aware digest helper.
+- **`MonitoredStockFeedbackPatch` (Chat 5 A1)**: typed Pydantic model for the `$set` patch. `ConfigDict(extra="forbid")`. Catches Literal drift at write time.
+- **`notify.email()` return contract (Chat 5 A2)**: `{ok: bool, id: str|None, error: str|None}`. Swallows Resend exceptions. Optional `text=` for multipart.
+- **`_send_drift_alerts` (Chat 5 A2 part 2)**: `reconciliation.py` helper; ntfy + email dual emit; `sent.append("email")` gated on `result["ok"]`.
+- **`composite_for_candidate` (Chat 5 A3+A4)**: scoring helper with optional `candidate_signals_for_isin` that wires raw signal inputs into `SignalScore.raw_value`.
+- **TD8 ntfy decommission (Chat 5 commits 7a+7b)**: self-hosted ntfy stopped 2026-05-18; `push_private` + `PrivateTopic` + `_NTFY_AUTH` + `b64encode` import + `smoke_test.py` private block all removed 2026-05-23.
+- **Cron-health dual transport (Chat 5 commit 8)**: ntfy + email; raises only when BOTH fail. Confirmed delivering daily Chat 5.9.
+- **Logrotate (Chat 5 2026-05-24)**: weekly with rotate-4, copytruncate, su ubuntu ubuntu.
+- **`_format_raw` formatter kinds (Chat 5.5 TD11)**: existing kinds — `percent_decimal`, `percent_already`, `ratio`, `multiple`, `currency_inr_cr`, `score_only`. NEW kinds — `score_signed` (`f"{raw:+.1f}"`), `count` (`f"{int(raw)}"`).
+- **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 / TD15 (Chat 5.5–5.9)**: see Section 18. TD9 / TD11 / TD12 SHIPPED 2026-05-24; TD13 SHIPPED Chat 5.6; TD10 / TD14 / TD15 SHIPPED Chat 5.9.
+- **`weekly_suggestions` (CRON_REGISTRY name, Chat 5.9 TD14)**: the heartbeat job name the Sunday `run_weekly_suggestions.py` run writes (for both `buy` and `--direction=both`). Renamed from `run_weekly_suggestions` so the health check tracks it. The crontab COMMAND is still `run_weekly_suggestions.py`; only the in-code registry/heartbeat NAME is `weekly_suggestions`.
+- **F-number fix registry (Section 18, Chat 5.9 TD15)**: unified table disambiguating the two F-namespaces — feature-F (roadmap) vs fix-(Chat 5.5+)-F (robustness) — which collide on F1/F2/F3/F4/F5/F7/F8/F12/F14.
+- **Registry-generated crontab (TD21, NEW Chat 5.9)**: planned schedule-from-CRON_REGISTRY rendering → committed `ops/crontab` + `deploy.sh` install + drift validation. Keeps process isolation; not an in-process scheduler.
+- **Chat 5.6 robustness pass**: cross-cutting Pydantic round-trip hardening + `ge=0` validators + `preview_sell` SPLIT/BONUS lot-walk fix + frontend per-page reference. Baked into HEAD `64d5ae3` / `4f31b49`. F-number cross-refs reconciled Chat 5.9 (TD15).
+- **Chat 5.7**: Project_State.md doc reconciliation pass — Section 0 URL-construction rule, file-map repairs in Sections 5 + 6, Chat 5.6 capture in Section 13, TD13 SHIPPED, TD15 added.
+- **Chat 5.8**: comprehensive code review (28 findings) + `master_todo.md` created as canonical task list. NOTE: its doc commit silently truncated this file (recovered Chat 5.9).
+- **Chat 5.9 (THIS commit)**: Phase 1 ops + docs — TD14 (crontab flags + CRON_REGISTRY rename), TD10 (verified already satisfied), TD15 (F-number fix registry authored). Recovered Sections 16-tail + 17–22 truncated by the Chat 5.8 commit. Filed TD21 (registry-generated crontab) + TD22 (track_suggestion_outcomes daily failure).
+- **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
+- **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
+
+End of PROJECT_STATE.md.

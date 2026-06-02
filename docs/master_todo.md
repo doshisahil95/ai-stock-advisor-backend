@@ -4,16 +4,24 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-05-29
+**Last updated:** 2026-06-02 (Chat 5.9 — Phase 1 closed)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
+**Current backend SHA (Chat 5.9 close):** `c097b473c5d54bcdae91a87e759e5bbaef67fb03` (advances after the Chat 5.9 doc commit)
+
+> Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). This full-file replacement collapses it back to a single copy. No item rows were affected.
 
 ---
 
 ## Current position
 
-**Next item to start: #1 (TD14 — fix Sunday crontab).**
+**Next item to start: #4 (P1-1 / TD16 — write-before-apply on PATCH/DELETE /transactions/{id}).**
 
-Items completed since this file was created: none yet.
+Phase 1 is fully SHIPPED (Chat 5.9, 2026-06-02). Per the standing rule, Phase 2 (#4–#8) begins in a fresh chat to keep context clean.
+
+Items completed since this file was created:
+- #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
+- #2 (TD10) — SHIPPED 2026-06-02 (Chat 5.9)
+- #3 (TD15) — SHIPPED 2026-06-02 (Chat 5.9)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -34,6 +42,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 9. **Phase 10** — Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss wiring).
 10. **Phase 11** — Chat 10 GO LIVE (F7 real data import) — last, so test pollution gets wiped in one operation.
 11. **Phase 12** — Deferred TDs (TD1, TD3, TD7) — after launch is stable.
+12. **New items (Chat 5.9)** — TD21 (registry-generated crontab migration) + TD22 (track_suggestion_outcomes daily failure), filed mid-stream; see the NEW ITEMS phase below.
 
 ---
 
@@ -54,13 +63,13 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 
 ---
 
-## PHASE 1 — Unblock operations (no code; do this week)
+## PHASE 1 — Unblock operations (no code; do this week) — SHIPPED Chat 5.9
 
 | # | Source | Item | Files / surface | Status |
 |---|---|---|---|---|
-| 1 | TD14 / P1-5 | Fix Sunday 07:00 IST crontab line: drop bogus `--notify --run-type scheduled` flags. Optional: run `scripts/run_weekly_suggestions.py --direction=both` manually for immediate digest recovery. Also confirm whether nightly `cron_health_check` ntfy + email alerts have actually been arriving — if not, second silent failure in dual-transport path. | EC2 `crontab -e` | OPEN |
-| 2 | TD10 | Remove redundant `0 0 * * 0 find ... -size +10M ...` crontab line (logrotate replaces it). Verify first logrotate cycle completed (next: 2026-05-31 Sun 00:00 IST window) then remove. | EC2 `crontab -e` | OPEN |
-| 3 | TD15 | Reconcile F-number fix registry: read every file at HEAD that carries an F-comment (F2/F3/F4/F5/F7/F8/F12/F14/F16-F21/F23/F27-F29/F79/F80/F82), map each F-number to its file + one-line description, add rows to `Project_State.md` Section 18. Do BEFORE any code chat. Also: this may surface that items #26 (P2-6) and #43 (TD1) are already partially addressed by an F-ticket. | `docs/Project_State.md` | OPEN |
+| 1 | TD14 / P1-5 | Fix Sunday 07:00 IST crontab line: drop bogus `--notify --run-type scheduled` flags. Optional: run `scripts/run_weekly_suggestions.py --direction=both` manually for immediate digest recovery. Also confirm whether nightly `cron_health_check` ntfy + email alerts have actually been arriving — if not, second silent failure in dual-transport path. **Chat 5.9 closed build-right: Part A flags removed from crontab (verified via `crontab -l`); Part B `CRON_REGISTRY` entry renamed `run_weekly_suggestions` → `weekly_suggestions` (commit `c097b473`) to match the heartbeat the script writes, killing the phantom Sunday MISSING. Dual-transport confirmed HEALTHY by inspection (email + ntfy both arrive daily). The daily 21:00 health alert is a SEPARATE failure → filed as #47 (TD22).** | EC2 `crontab -e` + `app/services/cron_heartbeat_service.py` | SHIPPED 2026-06-02 (Chat 5.9) |
+| 2 | TD10 | Remove redundant `0 0 * * 0 find ... -size +10M ...` crontab line (logrotate replaces it). Verify first logrotate cycle completed (next: 2026-05-31 Sun 00:00 IST window) then remove. **Chat 5.9: GATE PASSED (rotation trail `cron-*.log.1` 2026-05-31 + `.2.gz` 2026-05-24 present for all 10 logs) AND the `find -size +10M` line was found ABSENT from the live crontab — already removed in a prior session or never deployed. End state satisfied; no edit needed.** | EC2 `crontab -e` | SHIPPED 2026-06-02 (Chat 5.9) |
+| 3 | TD15 | Reconcile F-number fix registry: read every file at HEAD that carries an F-comment (F2/F3/F4/F5/F7/F8/F12/F14/F16-F21/F23/F27-F29/F79/F80/F82), map each F-number to its file + one-line description, add rows to `Project_State.md` Section 18. Do BEFORE any code chat. Also: this may surface that items #26 (P2-6) and #43 (TD1) are already partially addressed by an F-ticket. **Chat 5.9: grepped at HEAD `c097b473` — 25 unique in-code F-numbers (the "~20" estimate was low; fix-registry subset is 21) across TWO colliding namespaces (feature-F vs fix-Chat-5.5+-F). Authored the "F-number fix registry" subsection in Section 18 with a Kind column. Recovered the truncated Section 18 (and Sections 16-tail through 22) that the Chat 5.8 doc commit `8f74b50` had silently amputated. No overlap found that lets #26 or #43 drop — both stay OPEN/DEFERRED.** | `docs/Project_State.md` | SHIPPED 2026-06-02 (Chat 5.9) |
 
 ## PHASE 2 — Transactions / holdings / audit consistency
 
@@ -115,7 +124,7 @@ Fix this surface before Chat 9 touches it.
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
 | 25 | P2-7 | Make `take_auto_snapshot` fire `push_public("price", ...)` when drift change exceeds threshold against last manual snapshot. ntfy only (email too noisy on daily cron). | `app/services/reconciliation.py` ~78-115 | OPEN |
-| 26 | P2-6 / TD1 | Decide & implement: direction-aware feedback relabel. Add `"direction": payload.direction` to outcome filter in `submit_feedback`. Folds in TD1's lingering question; may overlap with an F-ticket — confirm via #3 (TD15) before patching. | `app/routers/suggestions.py` ~310-325 | OPEN |
+| 26 | P2-6 / TD1 | Decide & implement: direction-aware feedback relabel. Add `"direction": payload.direction` to outcome filter in `submit_feedback`. Folds in TD1's lingering question; may overlap with an F-ticket — confirm via #3 (TD15) before patching. **Chat 5.9 note: TD15 reconciliation found no F-ticket already covering this; stays OPEN.** | `app/routers/suggestions.py` ~310-325 | OPEN |
 
 ## PHASE 8 — New features per chat split plan
 
@@ -163,13 +172,20 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 44 | TD3 | Split `dossier_service.valuation_verdict` from single string into `{verdict, rationale}` for cleaner UI. | `services/dossier_service.py`, frontend `suggestion-card.tsx` | DEFERRED |
 | 45 | TD7 | Refactor `CandidateScore` so sell-side groups live as first-class fields instead of flowing through `group_meta`. Removes the buy/sell asymmetry in the data model. | `models/suggestion.py`, `services/scoring_service.py`, `services/explainability.py`, frontend | DEFERRED |
 
+## NEW ITEMS — filed Chat 5.9 (do not renumber existing rows)
+
+| # | Source | Item | Files / surface | Status |
+|---|---|---|---|---|
+| 46 | TD21 | Registry-generated crontab migration (the deferred scheduler-architecture work). `CRON_REGISTRY` gains a parseable cron expression per `CronSpec` → new `scripts/render_crontab.py` renders a committed `ops/crontab` → `deploy.sh` installs it + a drift-validation step (`crontab -l` diff vs rendered). Version-controls the schedule and makes TD14-class drift structurally impossible, while keeping process isolation + deploy-safety (explicitly chosen OVER in-process APScheduler, which on the 1 GB t3.micro would let the ~5-min Sunday dossier run compete with the live API and die on every `systemctl restart`). Update the F4 "no silent failures" triad in Project_State §9 when it lands. Its own dedicated chat. | `app/services/cron_heartbeat_service.py`, `scripts/render_crontab.py` (NEW), `ops/crontab` (NEW), `deploy.sh` | OPEN |
+| 47 | TD22 | `track_suggestion_outcomes` cron FAILS every weekday (19:45 IST; the 21:00 IST health email shows `track_suggestion_outcomes: 0 success / 1 failure` daily). Distinct from TD14 — surfaced during the Chat 5.9 TD14 investigation. Root-cause the daily failure (read `cron-outcomes.log` at HEAD + the script body) and fix. | `scripts/track_suggestion_outcomes.py`, `app/services/outcome_tracker.py` | OPEN |
+
 ---
 
 ## Summary by phase
 
 | Phase | Items | Theme | Gating |
 |---|---|---|---|
-| 1 | 1-3 | Unblock ops + reconcile docs | No code |
+| 1 | 1-3 | Unblock ops + reconcile docs | No code — SHIPPED Chat 5.9 |
 | 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 |
 | 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side |
 | 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data |
@@ -181,6 +197,7 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 10 | 39-41 | Chat 9 pre-launch cleanup | TD6 + F11 + realized P&L hide |
 | 11 | 42 | Chat 10 GO LIVE (F7) | Everything else done |
 | 12 | 43-45 | Deferred TDs (TD1, TD3, TD7) | After launch stable |
+| NEW | 46-47 | TD21 scheduler migration + TD22 outcomes-cron failure | Filed Chat 5.9; schedule independently |
 
 ---
 
@@ -195,7 +212,7 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 
 - **Every chat ends with two doc commits:** `Project_State.md` full-file replacement AND a `master_todo.md` update (status changes + current-position pointer advance).
 - **Never delete shipped rows.** Change `OPEN` → `SHIPPED <YYYY-MM-DD> (Chat <N>)`. Shipped rows are the audit trail.
-- **Adding new items mid-stream** (e.g., a fresh bug discovered): append the row at the END of the appropriate phase; do not renumber existing items (item numbers are stable references).
+- **Adding new items mid-stream** (e.g., a fresh bug discovered): append the row at the END of the appropriate phase (or in the NEW ITEMS phase); do not renumber existing items (item numbers are stable references).
 - **Re-ordering between phases:** allowed if the rationale block explains why; document the reason in the row's Notes column if needed.
 - **If a row becomes obsolete** (e.g., TD15 reconciliation reveals an F-ticket already shipped a fix): change Status to `DROPPED <YYYY-MM-DD> (Chat <N>) — <one-line reason>`. Do not delete.
 - **Current-position pointer** at the top must advance every time the lowest-numbered OPEN row changes.
