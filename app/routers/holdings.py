@@ -375,14 +375,3 @@ def patch_holding(isin: str, patch: HoldingMetadataPatch) -> dict:
 
     new_doc = Collections.holdings().find_one({"isin": isin, "deleted_at": None})
     return _doc_to_response(new_doc)
-
-
-@router.get("/{isin}/transactions", summary="List all transactions for a stock")
-def list_transactions(isin: str) -> list[dict]:
-    """Return all transactions (BUY/SELL/DIVIDEND/etc.) for one stock, oldest first."""
-    txs = list(
-        Collections.transactions()
-        .find({"isin": isin, "deleted_at": None})
-        .sort("trade_date", 1)
-    )
-    return [_doc_to_response(t) for t in txs]
