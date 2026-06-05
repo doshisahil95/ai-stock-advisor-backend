@@ -235,26 +235,26 @@ def edit_transaction(tx_id: str, payload: EditTransactionRequest) -> dict:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, error_msg)
 
     # ── Apply the edit ──────────────────────────────────────────────────────
+    # TD16 (write-before-apply): build the would-be after-state and write the
+    # audit row BEFORE mutating the ledger. If the audit insert fails, the
+    # update_one never runs -- same invariant as the F10 feedback handler and
+    # the transactions_audit guarantee in Project_State Section 11.
     update_fields["updated_at"] = datetime.now(timezone.utc)
-    Collections.transactions().update_one(
-        {"_id": oid},
-        {"$set": _convert_decimals_to_decimal128(update_fields)},
-    )
-
-    after = Collections.transactions().find_one({"_id": oid})
-
-    # Audit log BEFORE recompute, so it captures the change cleanly
+    after_preview = {**before, **update_fields}
     log_change(
         transaction_id=str(oid),
         isin=before["isin"],
         action="edit",
         before=_serialize(before),
-        after=_serialize(after),
+        after=_serialize(after_preview),
         reason=payload.reason,
     )
-
+    Collections.transactions().update_one(
+        {"_id": oid},
+        {"$set": _convert_decimals_to_decimal128(update_fields)},
+    )
+    after = Collections.transactions().find_one({"_id": oid})
     recompute_holding(before["isin"])
-
     return _serialize(after)
 
 
@@ -291,12 +291,9 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
         )
 
     # ── Apply the soft-delete ───────────────────────────────────────────────
-    now = datetime.now(timezone.utc)
-    Collections.transactions().update_one(
-        {"_id": oid},
-        {"$set": {"deleted_at": now, "updated_at": now}},
-    )
-
+    # TD16 (write-before-apply): write the audit row BEFORE the soft-delete.
+    # If the audit insert fails, the ledger mutation never happens -- same
+    # invariant as the F10 feedback handler and Project_State Section 11.
     log_change(
         transaction_id=str(oid),
         isin=before["isin"],
@@ -305,7 +302,11 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
         after=None,
         reason=payload.reason,
     )
-
+    now = datetime.now(timezone.utc)
+    Collections.transactions().update_one(
+        {"_id": oid},
+        {"$set": {"deleted_at": now, "updated_at": now}},
+    )
     recompute_holding(before["isin"])
 
     return {
