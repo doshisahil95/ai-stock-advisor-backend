@@ -305,42 +305,25 @@ def bulk_get_previous_closes(
     isin_to_latest_date: dict[str, datetime],
 ) -> dict[str, Decimal | None]:
     """For each ISIN, get the close from the most recent trading day BEFORE
-    that ISIN's latest_date. Returns {isin: previous_close_decimal_or_None}.
+    that ISIN's latest_date.
 
+    Returns {isin: previous_close_decimal_or_None}.
     Used to compute day gain — paired with bulk_get_latest_prices.
+
+    P2-13 / master_todo #11: pushes the per-ISIN ``date < latest_date`` filter
+    into Mongo via one indexed find_one per ISIN (the (isin, date) index makes
+    each a single-doc point-query). The previous shape $push-ed every price doc
+    for every ISIN into an in-memory array and filtered in Python, pulling ~34k
+    docs per dashboard request. Delegates to the single-ISIN get_previous_close
+    so the Decimal128/Decimal normalization lives in exactly one place.
     """
     if not isin_to_latest_date:
         return {}
 
-    pipeline = [
-        {"$match": {"isin": {"$in": list(isin_to_latest_date.keys())}}},
-        {"$sort": {"isin": 1, "date": -1}},
-        {
-            "$group": {
-                "_id": "$isin",
-                "all_dates": {"$push": {"date": "$date", "close": "$close"}},
-            }
-        },
-    ]
-
-    result: dict[str, Decimal | None] = {}
-    for group in Collections.prices_daily().aggregate(pipeline):
-        isin = group["_id"]
-        latest_date = isin_to_latest_date[isin]
-        prev_close = None
-        for entry in group["all_dates"]:
-            if entry["date"] < latest_date:
-                v = entry["close"]
-                if isinstance(v, Decimal128):
-                    prev_close = v.to_decimal()
-                elif isinstance(v, Decimal):
-                    prev_close = v
-                else:
-                    prev_close = Decimal(str(v))
-                break
-        result[isin] = prev_close
-
-    return result
+    return {
+        isin: get_previous_close(isin, latest_date)
+        for isin, latest_date in isin_to_latest_date.items()
+    }
 
 
 def get_previous_close(isin: str, before_date: datetime) -> Decimal | None:
@@ -379,7 +362,7 @@ def annotate_with_current_price(
       - day_gain (Decimal) = qty * (current_price - previous_close)
       - day_gain_pct (float) = (current_price / previous_close - 1) * 100
       - price_as_of (datetime) = the date of the latest price used
-      - price_stale (bool) = true if latest price is more than 4 trading days old
+      - price_stale (bool) = true if latest price is more than 6 calendar days old
 
     If no price is available, sets all the above to None / 0.
     Day gain fields are only populated if `previous_close` is provided.
@@ -423,6 +406,8 @@ def annotate_with_current_price(
     price_date = latest_price_doc["date"]
     if price_date.tzinfo is None:
         price_date = price_date.replace(tzinfo=timezone.utc)
+    # 6 calendar days (~4 NSE trading days across a weekend) is the canonical
+    # threshold (P2-14 / master_todo #10: code is canonical, docstring aligned).
     is_stale = (datetime.now(timezone.utc) - price_date) > timedelta(days=6)
 
     holding_doc["current_price"] = current_price
@@ -525,6 +510,24 @@ def fetch_intraday_quotes(holdings_meta: list[dict]) -> list[dict]:
     return all_rows
 
 
+# ── IST helpers (P1-4 / master_todo #9) ──────────────────────────────────────
+IST = timezone(timedelta(hours=5, minutes=30))  # fixed UTC+5:30; India has no DST
+
+
+def _to_ist(ts) -> datetime:
+    """Convert a datetime / pandas Timestamp to IST.
+
+    tz-aware inputs are converted; tz-naive inputs are treated as UTC first,
+    matching the naive->UTC convention used elsewhere in this module
+    (see _df_to_rows and annotate_with_current_price).
+    """
+    if hasattr(ts, "to_pydatetime"):
+        ts = ts.to_pydatetime()
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(IST)
+
+
 def _intraday_row_from_df(
     ticker_df, yahoo_ticker: str, meta: dict, captured_at: datetime
 ) -> dict | None:
@@ -542,6 +545,23 @@ def _intraday_row_from_df(
         if clean.empty:
             return None
         last = clean.iloc[-1]
+        # P1-4 / master_todo #9 (holiday guard): yfinance period="1d" can
+        # return the prior trading day's bars on an NSE holiday (a stale bar).
+        # If the latest bar's IST date != today's IST date, treat it as "no
+        # quote" so a holiday-stale row never lands in prices_intraday (and
+        # never becomes a bogus "current price" via bulk_get_latest_intraday).
+        bar_ist_date = _to_ist(clean.index[-1]).date()
+        today_ist_date = _to_ist(captured_at).date()
+        if bar_ist_date != today_ist_date:
+            log.info(
+                "Intraday bar for %s dated %s IST != today %s IST - stale "
+                "(market holiday?); skipping",
+                yahoo_ticker,
+                bar_ist_date,
+                today_ist_date,
+            )
+            return None
+
         # pandas .max()/.min() ignore NaN by default (skipna=True), but
         # return NaN if EVERY value is NaN — defensive check.
         high_max = clean["High"].max()
