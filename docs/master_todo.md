@@ -4,24 +4,29 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-02 (Chat 5.9 — Phase 1 closed)
+**Last updated:** 2026-06-06 (Chat 5.10 — Phase 2 closed)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 5.9 close):** `c097b473c5d54bcdae91a87e759e5bbaef67fb03` (advances after the Chat 5.9 doc commit)
+**Current backend SHA (Chat 5.10 close):** `b34721e8251bb21ad59c0f111f1c8022528844b6` (Phase 2 TD16–TD20 shipped; advances after the Chat 5.10 doc commit)
 
-> Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). This full-file replacement collapses it back to a single copy. No item rows were affected.
+> Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
 ---
 
 ## Current position
 
-**Next item to start: #4 (P1-1 / TD16 — write-before-apply on PATCH/DELETE /transactions/{id}).**
+**Next item to start: #9 (P1-4 / TD — holiday guard on `_intraday_row_from_df`).**
 
-Phase 1 is fully SHIPPED (Chat 5.9, 2026-06-02). Per the standing rule, Phase 2 (#4–#8) begins in a fresh chat to keep context clean.
+Phase 1 + Phase 2 are fully SHIPPED. Phase 2 (#4–#8 / TD16–TD20) shipped Chat 5.10, 2026-06-06. Per the standing rule, Phase 3 (#9–#11) begins in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
 - #2 (TD10) — SHIPPED 2026-06-02 (Chat 5.9)
 - #3 (TD15) — SHIPPED 2026-06-02 (Chat 5.9)
+- #4 (TD16) — SHIPPED 2026-06-06 (Chat 5.10)
+- #6 (TD18) — SHIPPED 2026-06-06 (Chat 5.10)
+- #5 (TD17) — SHIPPED 2026-06-06 (Chat 5.10)
+- #7 (TD19) — SHIPPED 2026-06-06 (Chat 5.10)
+- #8 (TD20) — SHIPPED 2026-06-06 (Chat 5.10)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -33,7 +38,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 
 1. **Phase 1** — Unblock ops first (no code; immediate value; restores weekly digest).
 2. **Phase 1** — Reconcile documentation (TD15) before any chat that reads files with F-comments; otherwise future chats hallucinate against unmapped F-numbers.
-3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide).
+3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
 4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it.
 5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps.
 6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched.
@@ -71,17 +76,17 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 | 2 | TD10 | Remove redundant `0 0 * * 0 find ... -size +10M ...` crontab line (logrotate replaces it). Verify first logrotate cycle completed (next: 2026-05-31 Sun 00:00 IST window) then remove. **Chat 5.9: GATE PASSED (rotation trail `cron-*.log.1` 2026-05-31 + `.2.gz` 2026-05-24 present for all 10 logs) AND the `find -size +10M` line was found ABSENT from the live crontab — already removed in a prior session or never deployed. End state satisfied; no edit needed.** | EC2 `crontab -e` | SHIPPED 2026-06-02 (Chat 5.9) |
 | 3 | TD15 | Reconcile F-number fix registry: read every file at HEAD that carries an F-comment (F2/F3/F4/F5/F7/F8/F12/F14/F16-F21/F23/F27-F29/F79/F80/F82), map each F-number to its file + one-line description, add rows to `Project_State.md` Section 18. Do BEFORE any code chat. Also: this may surface that items #26 (P2-6) and #43 (TD1) are already partially addressed by an F-ticket. **Chat 5.9: grepped at HEAD `c097b473` — 25 unique in-code F-numbers (the "~20" estimate was low; fix-registry subset is 21) across TWO colliding namespaces (feature-F vs fix-Chat-5.5+-F). Authored the "F-number fix registry" subsection in Section 18 with a Kind column. Recovered the truncated Section 18 (and Sections 16-tail through 22) that the Chat 5.8 doc commit `8f74b50` had silently amputated. No overlap found that lets #26 or #43 drop — both stay OPEN/DEFERRED.** | `docs/Project_State.md` | SHIPPED 2026-06-02 (Chat 5.9) |
 
-## PHASE 2 — Transactions / holdings / audit consistency
+## PHASE 2 — Transactions / holdings / audit consistency — SHIPPED Chat 5.10
 
-Fix this surface before Chat 9 touches it.
+Fix this surface before Chat 9 touches it. All five items shipped + verified on EC2 against localhost:8000.
 
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
-| 4 | P1-1 | Make `PATCH /transactions/{id}` and `DELETE /transactions/{id}` write `transactions_audit` BEFORE applying the change. Mirror the suggestions feedback handler pattern. | `app/routers/transactions.py` ~196-205, ~265-275 | OPEN |
-| 5 | P1-3 | Add `validate_replay` to `/portfolio/holdings/{isin}/sell` and to the manual import path so backdated SELLs that produce negative quantity get 400'd, not silently logged. | `app/routers/holdings.py` ~250-260; `scripts/add_manual_transactions.py` | OPEN |
-| 6 | P1-2 | Delete duplicate route handler `list_transactions` (lines ~329-335); keep `get_holding_transactions` (~163-180). | `app/routers/holdings.py` | OPEN |
-| 7 | P2-9 | Make `add_buy` / `sell` non-atomic path safer: wrap `recompute_holding` in try/except, return success with a warning flag if recompute fails. Or use Mongo M10 transactions for atomicity. | `app/routers/holdings.py` ~222-280 | OPEN |
-| 8 | P2-10 | Serialize `recompute_holding` per-ISIN: per-ISIN advisory lock doc with TTL, OR API-layer mutex keyed by ISIN. | `app/services/holdings_service.py` ~240-290 | OPEN |
+| 4 | P1-1 | Make `PATCH /transactions/{id}` and `DELETE /transactions/{id}` write `transactions_audit` BEFORE applying the change. Mirror the suggestions feedback handler pattern. **Chat 5.10 SHIPPED: both handlers now `log_change(...)` BEFORE `update_one(...)`; PATCH audits a computed `{**before, **update_fields}` after-state then applies then re-reads for the response; `validate_replay` still runs first so a rejected edit/delete writes no audit row.** | `app/routers/transactions.py` `edit_transaction` + `delete_transaction` | SHIPPED 2026-06-06 (Chat 5.10) — commit `17f9f94` |
+| 5 | P1-3 | Add `validate_replay` to `/portfolio/holdings/{isin}/sell` and to the manual import path so backdated SELLs that produce negative quantity get 400'd, not silently logged. **Chat 5.10 SHIPPED: `/sell` replays `existing_txns + [proposed_sell]` and 400s before the ledger write; `add_manual_transactions.py` gates SELL inserts on `validate_replay` and aborts with `RuntimeError` instead of silently staging. Existing point-in-time `held_qty` check kept for the clearer common-case message.** | `app/routers/holdings.py` `sell`; `scripts/add_manual_transactions.py` insert loop | SHIPPED 2026-06-06 (Chat 5.10) — commit `5cf3087` |
+| 6 | P1-2 | Delete duplicate route handler `list_transactions` (lines ~329-335); keep `get_holding_transactions` (~163-180). **Chat 5.10 SHIPPED: deleted the shadowed EOF `list_transactions` handler; `get_holding_transactions` is the sole handler for `GET /portfolio/holdings/{isin}/transactions`. Behaviour-neutral (first-registered handler already won every request).** | `app/routers/holdings.py` | SHIPPED 2026-06-06 (Chat 5.10) — committed after `17f9f94`, before `5cf3087` |
+| 7 | P2-9 | Make `add_buy` / `sell` non-atomic path safer: wrap `recompute_holding` in try/except, return success with a warning flag if recompute fails. Or use Mongo M10 transactions for atomicity. **Chat 5.10 SHIPPED (warning-flag path, user-confirmed): both handlers wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked. `recompute_holding` returning None stays a legitimate full-exit success outside the except. M10 multi-doc transactions explicitly REJECTED — per-step session latency on a single-user box not worth it.** | `app/routers/holdings.py` `add_buy` + `sell` (+ module logger) | SHIPPED 2026-06-06 (Chat 5.10) — commit `fb23307` |
+| 8 | P2-10 | Serialize `recompute_holding` per-ISIN: per-ISIN advisory lock doc with TTL, OR API-layer mutex keyed by ISIN. **Chat 5.10 SHIPPED (advisory-lock doc, user-confirmed): `recompute_holding` wraps its body (renamed `_recompute_holding_impl`) in `_per_isin_recompute_lock`, a CM that inserts a doc keyed `_id==isin` into the new `recompute_locks` collection (atomic via unique `_id` index), releases in `finally`, and is TTL-reclaimed after 60s. `asyncio.Lock` REJECTED — confirmed at HEAD that every holdings handler is sync `def` under sync Uvicorn, so asyncio.Lock wouldn't apply; `threading.Lock` rejected because it's blind to the out-of-process scripts. Lock lives at the service layer so all callers (API + scripts) are covered.** | `app/services/holdings_service.py`; `app/db/client.py`; `app/db/indexes.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `b34721e` |
 
 ## PHASE 3 — Intraday & price correctness
 
@@ -186,8 +191,8 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | Phase | Items | Theme | Gating |
 |---|---|---|---|
 | 1 | 1-3 | Unblock ops + reconcile docs | No code — SHIPPED Chat 5.9 |
-| 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 |
-| 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side |
+| 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 — SHIPPED Chat 5.10 |
+| 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — next |
 | 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data |
 | 5 | 14-18 | Frontend correctness + quick wins | Independent |
 | 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) |

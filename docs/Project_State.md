@@ -220,7 +220,7 @@ API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 or skip — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`).
+- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`). NOTE (Chat 5.10): because there is no `--workers` and the route handlers are sync `def`, concurrent requests run in Uvicorn's threadpool — i.e. THREADS within one process. This is why TD20's per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock` (event-loop-only, useless for sync handlers).
 - `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
 
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
@@ -237,13 +237,13 @@ TD10 / master_todo #2 (SHIPPED Chat 5.9, 2026-06-02): the pre-existing `0 0 * * 
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.9 closed, 2026-06-02):
-- Backend: `c097b473c5d54bcdae91a87e759e5bbaef67fb03` (Chat 5.9 TD14 Part B registry-rename commit; advances after this Chat 5.9 doc commit — pin in next chat). Chat 5.9 opened at `8f74b50a4e77a2a0b1622cd304ce181373e0d3c2`; that commit (the Chat 5.8 doc commit) silently truncated Project_State.md by 655 lines — see Section 18 TD15 / Section 19.
-- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.9; TD13 per-page reference shipped at this SHA).
+Last verified SHAs (Chat 5.10 closed, 2026-06-06):
+- Backend: `b34721e8251bb21ad59c0f111f1c8022528844b6` (Chat 5.10 Phase-2 close: TD20 advisory-lock commit; advances after this Chat 5.10 doc commit — pin in next chat). Chat 5.10 opened at `ce5e74616bb811a132843d266e78bccbc1cdad90` (the Chat 5.9 doc commit) and shipped five code commits in master_todo order: `17f9f94` (TD16 write-before-apply) → TD18 dup-handler delete → `5cf3087` (TD17 validate_replay on /sell + manual import) → `fb23307` (TD19 recompute warning-flag) → `b34721e` (TD20 per-ISIN recompute lock).
+- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.10; no frontend work in Chat 5.10; TD13 per-page reference shipped at this SHA).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `c097b473`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
@@ -257,8 +257,10 @@ app/
                               TD9 SHIPPED: NTFY_URL/USER/PASS field declarations removed
   db/
     client.py                 Mongo client, get_db(), Collections accessor class
-                              (incl. monitored_stocks_audit — F10, earnings_calendar — F14)
+                              (incl. monitored_stocks_audit — F10, earnings_calendar — F14,
+                              recompute_locks — TD20 / master_todo #8 advisory locks, Chat 5.10)
     indexes.py                ensure_indexes() called on startup
+                              Chat 5.10: recompute_locks acquired_at TTL index (60s) — TD20
                               (TODO: TTL on prices_intraday — master_todo #12)
   models/
     _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
@@ -297,15 +299,19 @@ app/
     holdings.py               /portfolio/holdings*, /sell, /preview-sell,
                               /history, /transactions
                               F5/F12/F14 (fix) refs — see Section 18 registry
-                              master_todo #5: add validate_replay to /sell
-                              master_todo #6: delete duplicate list_transactions handler
-                              master_todo #7: try/except around recompute_holding
+                              master_todo #5 SHIPPED (Chat 5.10): validate_replay on /sell
+                              master_todo #6 SHIPPED (Chat 5.10): duplicate list_transactions
+                              handler deleted; get_holding_transactions is sole handler
+                              master_todo #7 SHIPPED (Chat 5.10): try/except around
+                              recompute_holding -> recorded_with_warning
+                              Chat 5.10: `import logging` + module `log` added
                               master_todo #15: remove `from pydoc import doc`
     portfolio.py              /portfolio/summary
                               master_todo #30: utcnow() sweep (line 43)
     transactions.py           /transactions/search, CRUD, audit endpoints
                               F21 (fix): `reason` required on PATCH/DELETE
-                              master_todo #4: write-before-apply on PATCH/DELETE
+                              master_todo #4 SHIPPED (Chat 5.10): write-before-apply on
+                              PATCH/DELETE (audit-then-apply)
                               master_todo #18: drop $options:i on regex
                               master_todo #31: tz-aware datetime sweep
     reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
@@ -323,6 +329,9 @@ app/
     instrument_service.py     lookup_isin, bulk_lookup_isins, refresh
     yfinance_lookup.py        thin yfinance Ticker wrapper for sector/industry/long-name
                               enrichment when NSE master is sparse
+                              (Chat 5.10: fetch_metadata swallows all exceptions ->
+                              safe-default dict; a recompute on an unknown symbol never
+                              throws through yfinance)
     price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
                               annotate_with_current_price, get_previous_close
                               F7/F8 (fix): NaN-guard revival + multi-column NaN drop
@@ -330,13 +339,18 @@ app/
                               master_todo #10: align price_stale docstring vs code
                               master_todo #11: rewrite bulk_get_previous_closes
                               master_todo #31: tz-aware datetime sweep (line 155)
-    holdings_service.py       recompute_holding, validate_replay, preview_sell,
+    holdings_service.py       recompute_holding (per-ISIN advisory-lock wrapper) +
+                              _recompute_holding_impl (the read-replay-overwrite body) +
+                              _per_isin_recompute_lock (CM), validate_replay, preview_sell,
                               _to_decimal helper
                               F2/F3/F4/F5 (fix) refs — see Section 18 registry
                               Chat 5.6: preview_sell SPLIT/BONUS lot-walk fix
-                              master_todo #8: serialize recompute_holding per-ISIN
+                              master_todo #8 SHIPPED (Chat 5.10): recompute_holding
+                              serialized per-ISIN via recompute_locks advisory doc + 60s TTL
     portfolio_service.py      compute_summary
     transactions_audit_service.py  log_change, get_audit_for_transaction
+                              (Chat 5.10: log_change is now invoked BEFORE the apply in
+                              the transactions PATCH/DELETE handlers — TD16)
     monitored_stocks_audit_service.py  F10: log_change (write-before-apply)
     reconciliation.py         take_auto_snapshot, drift detection,
                               _send_drift_alerts (helper sends ntfy + email)
@@ -404,10 +418,11 @@ scripts/
   seed_nifty100.py              CORRECTLY NAMED. Reads ind_nifty100list.csv from NSE.
                                 Chat 5.5 TD12 RESOLVED-as-doc-fix
   seed_cost_basis_adjustments.py
-  import_orderbooks.py
+  import_orderbooks.py          (calls into recompute_holding -> now per-ISIN locked, TD20)
   reconcile_staging.py
-  promote_staging.py
-  add_manual_transactions.py    master_todo #5: validate_replay on manual SELL path
+  promote_staging.py            (calls into recompute_holding -> now per-ISIN locked, TD20)
+  add_manual_transactions.py    master_todo #5 SHIPPED (Chat 5.10): validate_replay on
+                                manual SELL path (aborts RuntimeError, no silent insert)
   refresh_fundamentals.py       F14: default universe NIFTY 100 ∪ active holdings
                                 Chat 8 / master_todo #29 will extend for watchlist
   fetch_news_for_universe.py    Chat 5 A16: --include-held on EC2 crontab
@@ -431,8 +446,8 @@ tests/
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 Chat 5.5 TD12: universe paragraph corrected
-  Project_State.md              THIS FILE (Chat 5.9 doc commit; recovered from
-                                Chat 5.8 truncation — see Section 18 TD15)
+  Project_State.md              THIS FILE (Chat 5.10 doc commit; recovered from
+                                Chat 5.8 truncation in Chat 5.9 — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
 uv.lock
@@ -444,7 +459,7 @@ README.md                       Chat 5 doc deliverable 2/4 SHIPPED
 
 ## Section 6: Frontend file map
 
-Verified against frontend tree at SHA `4f31b49`:
+Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10):
 ```
 app/
   layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
@@ -470,6 +485,10 @@ components/
   buy-sheet.tsx
   sell-sheet.tsx              Phase-1 manual SELL transaction sheet with FIFO
                               preview. NOT the F2 sell-side suggestion surface.
+                              OPEN FOLLOW-UP (Chat 5.10, NOT actioned): discriminates on
+                              absence of `_id`; a TD19 `recorded_with_warning` response
+                              (no `_id`) falls through its non-holding branch. Rare
+                              failure path; frontend handling deferred (out of Phase-2 scope).
   transaction-edit-sheet.tsx
   holding-header.tsx          (Chat 9 / master_todo #40: hide realized P&L)
   holding-stats.tsx           (Chat 9 / master_todo #40 + #41: realized P&L hide +
@@ -533,24 +552,32 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 - Key fields: `isin`, `symbol`, `exchange`, `name`, `sector`, `industry`, `quantity` (Decimal128), `avg_cost`, `invested_amount`, `realized_pnl`, `first_purchased_at`, `last_traded_at`, `thesis`, `notes`, `stop_loss`, `target_price`, `tags`, `deleted_at`
 - INVARIANT: every query MUST include `deleted_at: None`
 - Indexes: `isin` unique (partial: only where `deleted_at` is None), `(deleted_at, last_traded_at)`
-- Writer: `recompute_holding(isin)` in `holdings_service.py` is the ONLY authoritative writer
+- Writer: `recompute_holding(isin)` in `holdings_service.py` is the ONLY authoritative writer. Chat 5.10 (TD20): recompute is now serialized per-ISIN via a `recompute_locks` advisory doc so concurrent same-ISIN writes can't interleave their read-replay-overwrite cycles.
 - Note: `realized_pnl` is structural (FIFO computes it) but is HIDDEN in UI per master_todo #40
 - F2: `target_price` consumed by sell-side scoring. `stop_loss` wired by master_todo #41
 
 #### `transactions`
 - Append-only ledger
 - Key fields: `isin`, `symbol`, `exchange`, `type` (BUY/SELL/SPLIT/BONUS/DEMERGER), `trade_date`, `quantity` (Decimal128), `price`, `total_fees`, `remaining_quantity`, `notes`, `source`, `corporate_action.ratio_from`, `corporate_action.ratio_to`, `fully_consumed_at`, `deleted_at`
-- INVARIANT: never directly UPDATEd or DELETEd; PATCH/DELETE require reason, write to `transactions_audit` first, then apply, then `recompute_holding`. **master_todo #4 / TD16: order is currently apply-then-audit; needs flip.**
+- INVARIANT: never directly UPDATEd or DELETEd; PATCH/DELETE require reason, write to `transactions_audit` first, then apply, then `recompute_holding`. **master_todo #4 / TD16 SHIPPED Chat 5.10: order flipped to audit-then-apply; `validate_replay` still runs first so a rejected change writes no audit row.**
 - Indexes: `(isin, trade_date)`, `(symbol, trade_date)`, `trade_date`
 - Chat 5.6: `ge=0` validators on quantity / price / total_fees; SPLIT/BONUS preview covered in `preview_sell`
 
 #### `transactions_staging`
 - Holding area for ICICI order book imports. Same shape as `transactions`.
+- Chat 5.10 (TD17): `add_manual_transactions.py` now replays the per-ISIN staging timeline + the proposed manual SELL via `validate_replay` and ABORTS (RuntimeError) rather than silently inserting an impossible SELL.
 
 #### `transactions_audit`
 - Append-only audit log; one doc per edit/delete
 - Key fields: `transaction_id`, `action` (edit/delete), `reason`, `changed_fields`, `performed_at`, `symbol`
-- INVARIANT (per Section 11): written BEFORE the actual change is applied. **Currently violated in transactions router — master_todo #4 / TD16.**
+- INVARIANT (per Section 11): written BEFORE the actual change is applied. **master_todo #4 / TD16 SHIPPED Chat 5.10 — invariant now satisfied in the transactions router (was previously apply-then-audit).**
+
+#### `recompute_locks` (TD20 / master_todo #8, NEW Chat 5.10)
+- Per-ISIN advisory locks serializing `recompute_holding`. One doc per in-flight recompute.
+- Key fields: `_id` (== isin), `acquired_at`
+- INVARIANT: acquired via an atomic `insert_one` (the unique `_id` index makes exactly one holder win); released via `delete_one` in a `finally`; a competing acquirer spin-waits on `DuplicateKeyError` until free or a 10s timeout (timeout -> `RuntimeError`, which the TD19 try/except degrades to `recorded_with_warning`).
+- Indexes: default `_id` unique (the mutual-exclusion primitive); TTL on `acquired_at` (`expireAfterSeconds=60`) reclaims a lock if a holder process crashes mid-recompute. 60s is ~1000x a typical <50ms recompute.
+- Accessor: `Collections.recompute_locks()`. Writer/holder: `_per_isin_recompute_lock` CM in `holdings_service.py`. Covers the API handlers AND out-of-process scripts (manual import, order-book promote, reconciliation) since the lock lives at the service layer.
 
 #### `prices_daily`
 - EOD OHLCV; ~5 years history. Key fields: `isin`, `date`, OHLC, `volume`, `source`. Indexes: `(isin, date)` unique.
@@ -651,21 +678,25 @@ GET    /health                                       (master_todo #34: actually 
 GET    /portfolio/holdings                           Holding[]
 GET    /portfolio/holdings/{isin}                    Holding
 POST   /portfolio/holdings                           Holding (BUY)
+                                                     (master_todo #7 SHIPPED Chat 5.10:
+                                                      recorded_with_warning on recompute fail)
 PATCH  /portfolio/holdings/{isin}                    Holding (notes/thesis/stop_loss/target_price/tags only)
 POST   /portfolio/holdings/{isin}/sell               Holding OR {message, realized_total}
-                                                     (master_todo #5: add validate_replay)
+                                                     (master_todo #5 SHIPPED Chat 5.10: validate_replay)
+                                                     (master_todo #7 SHIPPED Chat 5.10:
+                                                      recorded_with_warning on recompute fail)
 POST   /portfolio/holdings/{isin}/preview-sell       SellPreview
 GET    /portfolio/holdings/{isin}/history?days=N     PriceBar[]
 GET    /portfolio/holdings/{isin}/transactions       Transaction[]
-                                                     (master_todo #6: dup handler to delete)
+                                                     (master_todo #6 SHIPPED Chat 5.10: dup handler deleted)
 GET    /portfolio/summary                            PortfolioSummary
 GET    /transactions/search?...                      {results, total}
                                                      (master_todo #18: drop $options:i)
 GET    /transactions/{id}                            Transaction
 PATCH  /transactions/{id}                            Transaction (requires reason)
-                                                     (master_todo #4: write-before-apply order)
+                                                     (master_todo #4 SHIPPED Chat 5.10: write-before-apply)
 DELETE /transactions/{id}                            {deleted: true} (requires reason)
-                                                     (master_todo #4: write-before-apply order)
+                                                     (master_todo #4 SHIPPED Chat 5.10: write-before-apply)
 GET    /transactions/audit/recent?limit=N            AuditEntry[]
 GET    /transactions/{id}/audit                      AuditEntry[]
 POST   /reconciliation/snapshot                      ReconciliationSnapshot (manual)
@@ -715,14 +746,15 @@ POST   /admin/recompute/{isin}                       ops recovery (Ops gap / mas
 `POST /portfolio/holdings/{isin}/sell` returns one of:
 - The full updated `Holding` doc (partial sell, position still active)
 - `{message: "Position fully exited", realized_total: "<string Decimal>"}` (full exit)
+- `{status: "recorded_with_warning", isin, warning}` (TD19, Chat 5.10 — the SELL persisted to the ledger but `recompute_holding` raised; the derived holding may be stale)
 
-The frontend discriminates via type guard on the `_id` field.
+The frontend discriminates via type guard on the `_id` field. NOTE (Chat 5.10 open follow-up): the `recorded_with_warning` shape has no `_id`, so the SellSheet currently treats it like the full-exit branch — rare path, frontend handling deferred (out of Phase-2 scope).
 
 ## Section 9: Cron registry on EC2
 
 Run `crontab -l` to see current state. Every script below is heartbeat-instrumented via `cron_run()`. The daily `cron_health_check` at 21:00 IST consumes those heartbeats. `CRON_REGISTRY` in `cron_heartbeat_service.py` is the in-code mirror of this schedule — keep both in sync.
 
-Current live crontab (verified 2026-06-02, Chat 5.9 — 9 active lines):
+Current live crontab (verified 2026-06-02, Chat 5.9 — 9 active lines; unchanged Chat 5.10):
 
 ```cron
 # Phase 1 crons (heartbeat-instrumented Chat 2)
@@ -802,10 +834,11 @@ Configured in `app/config/settings.py` via pydantic-settings. All required unles
 From `docs/data_flow.md`. Hard rules.
 
 - Transactions are immutable except through the audited PATCH/DELETE flow. Every PATCH/DELETE writes a `transactions_audit` entry BEFORE applying the change. The `reason` field is required.
-  - **CURRENT VIOLATION:** transactions router does apply-then-audit. master_todo #4 / TD16 will fix.
+  - **RESOLVED Chat 5.10 (master_todo #4 / TD16):** the transactions router now does audit-then-apply (`log_change` before `update_one`), with `validate_replay` run first so a rejected change writes no audit row.
 - `recompute_holding(isin)` is the only authoritative writer to `holdings`. Idempotent. Recomputes from `transactions` from scratch using FIFO. Never write directly to `holdings`.
-- `validate_replay(isin, simulated_transactions)` rejects any timeline producing negative quantity. Both PATCH and DELETE on `/transactions/{id}` call this before applying.
-  - **CURRENT GAP:** `/portfolio/holdings/{isin}/sell` does NOT call validate_replay. master_todo #5 / TD17 will fix.
+- `recompute_holding(isin)` is serialized per-ISIN via a `recompute_locks` advisory doc (TD20 / master_todo #8, Chat 5.10) so concurrent same-ISIN writes can't interleave their read-replay-overwrite cycles. The lock lives at the service layer, covering API handlers AND out-of-process scripts. Different ISINs never contend.
+- `validate_replay(transactions)` rejects any timeline producing negative quantity. It takes the FULL per-ISIN timeline (existing non-deleted transactions + the proposed one). Both PATCH and DELETE on `/transactions/{id}` call this before applying.
+  - **RESOLVED Chat 5.10 (master_todo #5 / TD17):** `/portfolio/holdings/{isin}/sell` and the `add_manual_transactions.py` SELL path now call `validate_replay`; a backdated SELL that would go negative mid-timeline 400s (API) / aborts with RuntimeError (script) BEFORE the ledger write, instead of being only logged as an oversell warning by `_fifo_replay`.
 - `holdings.deleted_at = None` filter is universal.
 - Cost basis is IT-Act-correct, not broker-nominal.
 - `prices_intraday` writes are append-only within a day.
@@ -862,8 +895,8 @@ Phase 1 (all shipped, all locked):
 - Holdings dashboard with day-gain coloring
 - FIFO cost basis with fee allocation and precision
 - ICICI Order Book import → staging → reconcile → promote pipeline
-- Manual transaction entry for IPOs, demergers, bonuses, splits
-- Transaction edit/delete with mandatory reason + audit log (master_todo #4 will reorder)
+- Manual transaction entry for IPOs, demergers, bonuses, splits (Chat 5.10: manual SELL path now validate_replay-guarded)
+- Transaction edit/delete with mandatory reason + audit log (Chat 5.10: reordered to write-before-apply / audit-then-apply, master_todo #4)
 - Preview-sell endpoint (Chat 5.6 hardened SPLIT/BONUS handling)
 - Reconciliation snapshots (manual + auto) with drift detection
 - Cost basis adjustments (TMPV/TMCV demerger seeded)
@@ -898,6 +931,13 @@ Chat 5.9 (Phase 1 ops + docs) — SHIPPED 2026-06-02:
 - TD15 / master_todo #3: F-number fix registry authored as a new subsection of Section 18 (25 unique in-code F-numbers across two namespaces).
 - DOC RECOVERY: restored Section 16 tail + Sections 17–22 that the Chat 5.8 doc commit truncated, from `c6b1437b`.
 - Two new items filed: TD21 / master_todo #46 (registry-generated crontab migration), TD22 / master_todo #47 (`track_suggestion_outcomes` daily failure).
+Chat 5.10 (Phase 2 — transactions/holdings/audit consistency) — SHIPPED 2026-06-06. Five code commits, all verified on EC2 against localhost:8000:
+- TD16 / master_todo #4 (commit `17f9f94`): PATCH + DELETE `/transactions/{id}` flipped to audit-then-apply (`log_change` BEFORE `update_one`). PATCH audits a computed `{**before, **update_fields}` after-state then applies then re-reads for the response. `validate_replay` still runs first, so a rejected edit/delete writes no audit row. Verified: notes PATCH on an active holding returns 200 + 1 audit row (before+after populated); an impossible edit 400s with the audit count unchanged.
+- TD18 / master_todo #6 (committed after `17f9f94`, before `5cf3087`): deleted the shadowed EOF `list_transactions` handler in `holdings.py`; `get_holding_transactions` (now ~line 204) is the sole handler for `GET /portfolio/holdings/{isin}/transactions`. Behaviour-neutral. Verified: 0 hits for `def list_transactions`, route returns 200.
+- TD17 / master_todo #5 (commit `5cf3087`): `validate_replay` added to `/portfolio/holdings/{isin}/sell` (replays `existing_txns + [proposed_sell]`, 400 before the ledger write) and to `scripts/add_manual_transactions.py` SELL inserts (aborts with RuntimeError). Existing point-in-time `held_qty` check kept for the clearer common-case message. Verified: a backdated SELL on an active holding 400s with the replay reason, holding quantity unchanged, no 2000-dated SELL written.
+- TD19 / master_todo #7 (commit `fb23307`): `add_buy` + `sell` wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked by a recompute failure. `recompute_holding` returning None stays a legitimate full-exit success outside the except. Added module logger. Warning-flag chosen over Mongo M10 multi-doc transactions (user-confirmed: avoids per-step session latency on the single-user box). Verified via fault injection on BOTH paths: ledger row persists despite a forced recompute crash and the caller gets a 2xx warning, not a 500.
+- TD20 / master_todo #8 (commit `b34721e`): `recompute_holding` serialized per-ISIN via a `recompute_locks` advisory doc (atomic `insert_one`, `finally` release, 60s TTL reclaim); body renamed `_recompute_holding_impl`. Chosen over `asyncio.Lock` (user-confirmed) because every holdings handler is sync `def` under sync Uvicorn (confirmed at HEAD) and a `threading.Lock` would be blind to the out-of-process scripts. Added `Collections.recompute_locks()` + `acquired_at` TTL index. Verified: 8 concurrent recomputes of one ISIN → exactly 1 correct holding, no thread errors, no leaked lock; lock primitive enforces mutual exclusion (second acquire raises DuplicateKeyError).
+- No frontend work. One open follow-up noted (NOT actioned): the SellSheet discriminates on absence of `_id`, so a `recorded_with_warning` response (no `_id`) falls through its non-holding branch — rare failure path, deferred.
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -906,8 +946,8 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | Phase | Items | Chat focus | Status |
 |---|---|---|---|
 | 1 | master_todo #1-3 | Ops unblock + doc reconciliation (TD14, TD10, TD15) | SHIPPED (Chat 5.9) |
-| 2 | master_todo #4-8 | Transactions/holdings/audit invariants (TD16-TD20) | OPEN — next |
-| 3 | master_todo #9-11 | Intraday & price correctness | OPEN |
+| 2 | master_todo #4-8 | Transactions/holdings/audit invariants (TD16-TD20) | SHIPPED (Chat 5.10) |
+| 3 | master_todo #9-11 | Intraday & price correctness | OPEN — next |
 | 4 | master_todo #12-13 | Storage hygiene | OPEN |
 | 5 | master_todo #14-18 | Frontend correctness + quick wins | OPEN |
 | 6 | master_todo #19-24 | External-service hardening | OPEN |
@@ -919,14 +959,14 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.9
+### Open items CARRIED FORWARD past Chat 5.10
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The three highest-priority items per master_todo current position (Phase 1 closed; pointer now at #4):
-- **master_todo #4 (P1-1 / TD16):** PATCH/DELETE `/transactions/{id}` write-before-apply ordering. Phase 2.
-- **master_todo #5 (P1-3 / TD17):** add `validate_replay` to `/sell` + manual import path. Phase 2.
-- **master_todo #6 (P1-2 / TD18):** delete duplicate `list_transactions` handler. Phase 2.
+The three highest-priority items per master_todo current position (Phases 1 + 2 closed; pointer now at #9):
+- **master_todo #9 (P1-4):** holiday guard on `_intraday_row_from_df` — if the bar's IST date != today, return None. Phase 3.
+- **master_todo #10 (P2-14):** align `price_stale` docstring vs code (doc "4 trading days" vs code `timedelta(days=6)`). Phase 3.
+- **master_todo #11 (P2-13):** rewrite `bulk_get_previous_closes` to push the filter into Mongo (currently pulls ~34k price docs per dashboard request). Phase 3.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
@@ -938,7 +978,7 @@ The assistant has confused these multiple times. Memorize them.
 - Project_State.md AND master_todo.md are ALWAYS complete full-file replacements.
 - F6 two-mechanism feedback exclusion: `get_excluded_isins` at run-build AND `_build_user_action` at serialization. Both required.
 - The 90-day rejected cooldown and 30-day acted soft-exclude are intentionally NOT env-configurable.
-- F10 write-before-apply: `monitored_stocks_audit_service.log_change(...)` BEFORE `monitored_stocks.update_one(...)`. **The corresponding invariant for transactions is currently violated — master_todo #4.**
+- F10 write-before-apply: `monitored_stocks_audit_service.log_change(...)` BEFORE `monitored_stocks.update_one(...)`. **The corresponding invariant for transactions is now satisfied too — master_todo #4 SHIPPED Chat 5.10.**
 - Secrets path on EC2 is `/etc/portfolio-advisor/secrets.env`.
 - `lib/api.ts` is hand-typed; `lib/api-types.ts` is gitignored.
 - Mutations in frontend use `refetchQueries` (synchronous), NOT `invalidateQueries`. **Two outliers exist — master_todo #14.**
@@ -995,6 +1035,14 @@ The assistant has confused these multiple times. Memorize them.
 - **In-code F-numbers live in TWO namespaces that COLLIDE on low numbers.** Feature-F (roadmap tickets: F1 ad-hoc chat, F2 sell-side, F4 cron observability, F14 earnings, …) and "fix (Chat 5.5+)" robustness-F (F1–F82 fix tags) reuse the same integers (F1, F2, F3, F4, F5, F7, F8, F12, F14 all collide). Section 18's F-number fix registry disambiguates via a `Kind` column. NEVER assume a bare `# F2 fix` comment means feature-F2 — read the comment verbatim at HEAD.
 - **An "ops-only" item can hide a code bug — fix build-right.** TD14 looked like a one-line crontab edit; fixing the flags alone would have left a permanent phantom MISSING alert because `CRON_REGISTRY` named the job `run_weekly_suggestions` while the script writes `weekly_suggestions`. The registry rename was the other, code-side half.
 - **Don't trust a prior chat's count estimate.** Chat 5.7 estimated "~20" F-refs; the real unique in-code count was 25 (the fix-registry subset was 21). Always grep at HEAD before mapping.
+
+### Chat 5.10 additions
+- **The transactions PATCH/DELETE write-before-apply order is now LIVE (audit-then-apply).** Mirror it for any future ledger-mutating route: `log_change(...)` BEFORE `update_one(...)`, and run `validate_replay` BEFORE the audit so a rejected change writes no audit row. For PATCH, audit a computed `{**before, **update_fields}` after-state (Decimal128/Decimal stringify identically), then apply, then re-read for the response.
+- **`validate_replay` signature is `validate_replay(transactions: list[dict]) -> tuple[bool, str | None]`** — it takes the FULL per-ISIN timeline (existing non-deleted txns + the proposed one), not `(isin, sims)`. It reads qty/price via `_to_decimal`, so mixing a raw proposed dict with stored Decimal128 docs is safe; the `{"deleted_at": None}` filter also matches docs where the field is absent.
+- **Every holdings route handler is sync `def` under sync Uvicorn** — confirmed at HEAD. `asyncio.Lock` does NOT serialize sync handlers (they run in threadpool threads). For cross-request mutual exclusion use a Mongo advisory-lock doc (works across threads AND processes) or `threading.Lock` (in-process only). The advisory doc is preferred when out-of-process scripts share the path.
+- **`recompute_holding` returning None is a legitimate success (full exit)** — never conflate it with a recompute failure. TD19's try/except catches only exceptions; the `if not holding`/`if not new_holding` None-branch stays outside it.
+- **`fetch_metadata` (yfinance_lookup) swallows all exceptions** and returns a safe-default dict, so a first-time recompute on an unknown symbol won't throw through yfinance — useful when constructing deterministic happy-path tests on fake ISINs.
+- **When a test grabs "the newest BUY" it can land on an exited/soft-deleted holding** — `validate_replay` then rejects even a notes-only edit (the timeline replays to 0). Seed test data from an ACTIVE holding (`/portfolio/holdings` then its `/transactions`), and use DISTINCT trade dates for BUY-before-SELL so a same-instant ordering ambiguity doesn't false-trip `validate_replay`.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
@@ -1053,6 +1101,13 @@ The assistant has confused these multiple times. Memorize them.
 - **Mapping F-references from memory or from a prior chat's estimate instead of grepping at HEAD.** Two F-namespaces collide; only a verbatim read of each in-code comment resolves which one a given `# FN` means.
 - **Treating an "ops-only / manual EC2" item as code-free.** TD14 carried a hidden code-side half (the registry rename). Re-read the relevant service before declaring an ops item done.
 
+### Chat 5.10 additions
+- **Piping `curl -w "\nHTTP=%{http_code}\n"` straight into `jq`** — the trailing `HTTP=...` line isn't JSON and `jq` errors on it (even though it prints the object correctly first). Write the body with `-o /tmp/x.json` and the status via `-w`, then `jq` the file.
+- **Asserting on guessed response field names** (e.g. `realized_total`/`status` on the SELL happy path) instead of dumping the raw body first to read the real keys.
+- **Same-timestamp BUY+SELL in a replay test** — the ambiguous chronological sort can place the SELL at/before the BUY, so `validate_replay` reports "0 available" and TD17 rejects a path you meant to exercise. Use distinct dates.
+- **Pasting a long Python heredoc into an SSH session and having it truncate mid-block** — write the script to a file (`cat > /tmp/x.py <<'PY' … PY`) then run the file, rather than streaming a 30-line heredoc through the terminal.
+- **Building a full-file Project_State.md / master_todo.md from Glean's sentence-wrapped raw read** — Section 19 guard: anchor on a user-pasted `git show` byte-exact source.
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1064,7 +1119,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1090,6 +1145,10 @@ I AM LOSING CONTEXT
 - **Chat 5.8 trigger: starting a code chat without having confirmed master_todo.md current-position pointer with the user.**
 - **Chat 5.9 trigger: about to commit a Project_State.md full-file artifact that does NOT end with `End of PROJECT_STATE.md.` (silent truncation — the exact failure that lost Sections 17–22 in Chat 5.8).**
 - **Chat 5.9 trigger: about to write a Section-18 F-row from a bare in-code `# FN` comment without having read that comment verbatim at HEAD (feature-F vs fix-F namespace collision).**
+- **Chat 5.10 trigger: about to ship a 3rd code change in a chat without having re-read the relevant function body at the CURRENT HEAD SHA.**
+- **Chat 5.10 trigger: about to write a test block that doesn't start with `ssh ubuntu@100.112.20.41`, or that curls the Tailscale IP instead of `localhost:8000`.**
+- **Chat 5.10 trigger: about to recommend `asyncio.Lock` for a sync-`def` handler under sync Uvicorn.**
+- **Chat 5.10 trigger: about to update master_todo.md status without also updating the matching Project_State.md Section 18 TD row + Section 13 in the same doc commit.**
 
 ### What "switching chats" means
 The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
@@ -1103,7 +1162,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "How does the assistant SSH into EC2?" → `ssh ubuntu@100.112.20.41`
 - "Where do secrets live on EC2?" → `/etc/portfolio-advisor/secrets.env`
 - "Where do secrets live on Mac?" → `<repo>/.env`
-- "What does `recompute_holding(isin)` do?" → only authoritative writer to `holdings`; idempotent; FIFO from scratch.
+- "What does `recompute_holding(isin)` do?" → only authoritative writer to `holdings`; idempotent; FIFO from scratch; serialized per-ISIN via a recompute_locks advisory doc (TD20).
 - "What's the gating filter on `snapshot_open_outcomes`?" → `tracking_status != "expired"`
 - "Where does the dossier `plain_english_summary` field originate?" → `dossier_service.py` `_SYSTEM_PROMPT`, Sonnet, max 500 chars.
 - "What is the universe filter in `build_universe`?" → NIFTY 100 ∪ watchlist (after F13) − held − excluded buckets from `get_excluded_isins`.
@@ -1113,7 +1172,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "What's the Q/V/M/N weight breakdown?" → 30/25/25/20, version `"1.0.0-unit2"`.
 - "Is `lib/api-types.ts` checked in?" → No.
 - "refetchQueries or invalidateQueries?" → refetchQueries.
-- "Sell endpoint response shape?" → full Holding (partial sell) OR `{message, realized_total}` (full exit).
+- "Sell endpoint response shape?" → full Holding (partial sell) OR `{message, realized_total}` (full exit) OR `{status:"recorded_with_warning", isin, warning}` (TD19 recompute-failed).
 - "Dividend tracking?" → No.
 - "When does F7 run?" → Last (Chat 10).
 - "How does a cron register?" → `cron_run()` wrapper + `CronSpec` entry + crontab line. All three. AND the `CronSpec.cron_name` must equal the name the script passes to `cron_run()` (Chat 5.9 TD14).
@@ -1174,8 +1233,17 @@ Without re-reading, the assistant should be able to answer all of these.
 - "What flags does `run_weekly_suggestions.py` argparse accept?" → `--direction {buy,sell,both}`, `--no-notify`, `--skip-dossiers`. NOT `--notify` or `--run-type` — `run_type` is hardcoded `"scheduled"`. notify defaults to True.
 - "Did the TD14 fix stop the daily 21:00 IST health-email alert?" → No. That daily alert is a SEPARATE failure of `track_suggestion_outcomes` (TD22 / master_todo #47). TD14 only stops the Sunday phantom-MISSING for `weekly_suggestions`.
 - "How many in-code F-numbers exist and in how many namespaces?" → 25 unique (app/ + scripts/), in TWO namespaces — feature-F and fix-(Chat 5.5+)-F — disambiguated in the Section 18 F-number fix registry. 9 numbers collide (F1, F2, F3, F4, F5, F7, F8, F12, F14).
-- "What's the recovery source if Project_State.md is truncated?" → the prior doc commit via `git show <sha>:docs/Project_State.md`; the last known-complete copy before the Chat 5.8 truncation was `c6b1437b` (1708 lines).
+- "What's the recovery source if Project_State.md is truncated?" → the prior doc commit via `git show <prior-sha>:docs/Project_State.md`; the last known-complete copy before the Chat 5.8 truncation was `c6b1437b` (1708 lines).
 - "Is dual-transport cron-health actually delivering?" → Yes — confirmed Chat 5.9: the 21:00 IST email + ntfy both arrive daily.
+
+### Chat 5.10 additions
+- "What order do PATCH/DELETE /transactions/{id} write the audit?" → audit-then-apply (`log_change` BEFORE `update_one`), with `validate_replay` run first. SHIPPED Chat 5.10 (TD16). A rejected edit/delete writes no audit row.
+- "Signature of `validate_replay`?" → `validate_replay(transactions: list[dict]) -> tuple[bool, str|None]`; takes the full per-ISIN timeline including the proposed txn.
+- "Does `/sell` call `validate_replay`?" → Yes, since Chat 5.10 (TD17), before the ledger write; the `add_manual_transactions.py` SELL path does too (aborts with RuntimeError).
+- "What does add_buy/sell return if `recompute_holding` throws?" → 2xx `{status:"recorded_with_warning", isin, warning}` — the ledger write is preserved (TD19). None return is a separate legitimate full-exit success.
+- "How is `recompute_holding` serialized?" → per-ISIN advisory doc in `recompute_locks` (`_id==isin`, atomic insert, `finally` release, 60s TTL). NOT asyncio.Lock (handlers are sync). TD20.
+- "Are the holdings handlers async or sync?" → sync `def` (confirmed Chat 5.10).
+- "New collection added Chat 5.10?" → `recompute_locks` (TD20 advisory locks).
 
 ## Section 18: Tech debt registry
 
@@ -1211,11 +1279,11 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD13 | Frontend per-page reference doc (TanStack Query keys, mutation refetch patterns, endpoint-per-route mapping) | SHIPPED Chat 5.6 at frontend SHA `4f31b49` (content generated at `9edfc8f`, unchanged at HEAD). All 7 routes covered in frontend README §13. | — |
 | TD14 | Sunday 07:00 IST crontab line passed `--notify --run-type scheduled` to `run_weekly_suggestions.py`; NEITHER flag exists on the script's argparse, so argparse rejected every Sunday run before the heartbeat block — no digest, no heartbeat. AND `CRON_REGISTRY` named the job `run_weekly_suggestions` while the script writes `weekly_suggestions`, producing a phantom Sunday MISSING. | SHIPPED Chat 5.9 (2026-06-02): Part A — bogus flags removed from the Sunday crontab line (manual EC2; verified via `crontab -l`). Part B — `CRON_REGISTRY` entry renamed `run_weekly_suggestions` → `weekly_suggestions` (commit `c097b473`). Dual-transport health alerts confirmed healthy by inspection. (master_todo #1) | — |
 | TD15 | F-number fix registry reconciliation. The Chat-5.6 robustness pass left in-code F-references with no row in Section 18. | SHIPPED Chat 5.9 (2026-06-02): authored the "F-number fix registry" subsection below. 25 unique in-code F-numbers (app/ + scripts/, grepped at HEAD `c097b473`) reconciled across two namespaces (feature-F vs fix-Chat-5.5+-F). Chat 5.7's "~20" estimate was low; the fix-registry subset is 21. (master_todo #3) | — |
-| TD16 | PATCH/DELETE `/transactions/{id}` currently apply-then-audit; must write `transactions_audit` BEFORE applying (mirror the suggestions feedback handler / F10 pattern). `app/routers/transactions.py` ~196-205 and ~265-275. | OPEN | master_todo #4 (Phase 2) |
-| TD17 | `/portfolio/holdings/{isin}/sell` (`holdings.py` ~250-260) AND `scripts/add_manual_transactions.py` lack `validate_replay`; backdated SELLs producing negative quantity must 400, not silently log. | OPEN | master_todo #5 (Phase 2) |
-| TD18 | Duplicate route handler `list_transactions` in `holdings.py` (~329-335); keep `get_holding_transactions` (~163-180), delete the dup. | OPEN | master_todo #6 (Phase 2) |
-| TD19 | add_buy / sell non-atomic path (`holdings.py` ~222-280): wrap `recompute_holding` in try/except; on failure return success with a warning flag. (Mongo M10 transactions cleaner but heavier — confirm before that route.) | OPEN | master_todo #7 (Phase 2) |
-| TD20 | Serialize `recompute_holding` per-ISIN (`holdings_service.py` ~240-290): per-ISIN advisory-lock doc with TTL OR API-layer `asyncio.Lock` keyed by ISIN (asyncio.Lock simpler for single-user — confirm approach + verify handlers are async before committing, given Uvicorn sync mode). | OPEN | master_todo #8 (Phase 2) |
+| TD16 | PATCH/DELETE `/transactions/{id}` was apply-then-audit; must write `transactions_audit` BEFORE applying (mirror the suggestions feedback handler / F10 pattern). | SHIPPED Chat 5.10 (2026-06-06): both handlers now `log_change(...)` BEFORE `update_one(...)`; PATCH audits a computed `{**before, **update_fields}` after-state then applies then re-reads for the response; `validate_replay` still runs first so a rejected edit/delete writes no audit row. Verified on EC2 (200 + 1 audit row on a valid notes edit; impossible edit 400s with audit count unchanged). Commit `17f9f94`. (master_todo #4) | — |
+| TD17 | `/portfolio/holdings/{isin}/sell` AND `scripts/add_manual_transactions.py` lacked `validate_replay`; backdated SELLs producing negative quantity were only logged as oversell warnings, not rejected. | SHIPPED Chat 5.10 (2026-06-06): `/sell` replays `existing_txns + [proposed_sell]` and 400s before the ledger write; the manual-import SELL path replays the staging timeline + the proposed SELL and aborts with RuntimeError. Existing point-in-time `held_qty` check kept for the clearer common-case message. Verified: backdated SELL 400s with the replay reason, holding qty unchanged, no row written. Commit `5cf3087`. (master_todo #5) | — |
+| TD18 | Duplicate route handler `list_transactions` in `holdings.py`; keep `get_holding_transactions`, delete the dup. | SHIPPED Chat 5.10 (2026-06-06): deleted the shadowed EOF `list_transactions` handler; `get_holding_transactions` (now ~line 204) is the sole handler for `GET /portfolio/holdings/{isin}/transactions`. Behaviour-neutral. Verified: 0 hits for `def list_transactions`, route returns 200. Committed after `17f9f94`, before `5cf3087`. (master_todo #6) | — |
+| TD19 | add_buy / sell non-atomic path: a `recompute_holding` failure 500'd the request even though the ledger write had committed. | SHIPPED Chat 5.10 (2026-06-06): both handlers wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked. None return stays a legitimate full-exit success outside the except. Warning-flag chosen over Mongo M10 multi-doc transactions (user-confirmed: avoids per-step session latency on a single-user box). Added module logger. Verified via fault injection on both BUY and SELL paths (ledger persists, 2xx warning, not 500). Commit `fb23307`. (master_todo #7) | — |
+| TD20 | Serialize `recompute_holding` per-ISIN (concurrent same-ISIN writes could interleave their read-replay-overwrite cycles). | SHIPPED Chat 5.10 (2026-06-06): per-ISIN advisory lock — a doc in the new `recompute_locks` collection keyed `_id==isin`, acquired via atomic `insert_one` (unique `_id` index = exactly one winner), released in `finally`, TTL-reclaimed after 60s. Body renamed `_recompute_holding_impl`; the public `recompute_holding` is now the lock wrapper. Chosen over `asyncio.Lock` (user-confirmed) because every holdings handler is sync `def` under sync Uvicorn (confirmed at HEAD) and `threading.Lock` would be blind to the out-of-process scripts. Added `Collections.recompute_locks()` + `acquired_at` TTL index. Verified: 8 concurrent recomputes of one ISIN → exactly 1 correct holding, no leaked lock; mutual exclusion enforced (2nd acquire raises DuplicateKeyError). Commit `b34721e`. (master_todo #8) | — |
 | TD21 | Registry-generated crontab migration (NEW Chat 5.9). `CRON_REGISTRY` gains a parseable cron expr → `scripts/render_crontab.py` → committed `ops/crontab` installed by `deploy.sh` + drift validation. Version-controls the schedule, makes TD14-class drift structurally impossible, keeps process isolation + deploy-safety (chosen over in-process APScheduler on the 1 GB t3.micro). Update the F4 "no silent failures" triad in Section 9 when it lands. | OPEN (NEW Chat 5.9) | dedicated chat (master_todo #46) |
 | TD22 | `track_suggestion_outcomes` cron FAILS every weekday (19:45 IST; 0 success / 1 failure), firing the 21:00 IST health email daily. Separate from TD14. Root-cause + fix pending. | OPEN (NEW Chat 5.9) | next ops chat (master_todo #47) |
 
@@ -1281,6 +1349,7 @@ Notes:
 - **Chat 5.5 TD9 + TD11 + TD12** — closed Chat 5.5 2026-05-24 (commits 1, 2, 3).
 - **Chat 5.6 robustness pass** — Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13. Baked into HEAD `64d5ae3` (backend) / `4f31b49` (frontend). F-number registry reconciled Chat 5.9 (TD15).
 - **Chat 5.8 Project_State.md truncation** — the Chat 5.8 doc commit `8f74b50` silently dropped Sections 16-tail through 22 (655 lines); recovered Chat 5.9 from `c6b1437b`. Lesson encoded in Sections 14/15/16/19.
+- **Chat 5.10 Phase 2** — TD16 (write-before-apply), TD17 (validate_replay on /sell + manual import), TD18 (dup-handler delete), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). All SHIPPED + EC2-verified 2026-06-06. Commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`.
 
 ## Section 19: How to update this document
 
@@ -1318,6 +1387,8 @@ Chat 5.5 added rule: when reading Project_State.md via Glean for the purpose of 
 Chat 5.7 added rule: the canonical tree-listing command (embedded in Section 0) MUST be the very first thing run in every new chat, before scope description. The assistant requests it in the acknowledgement message. Every URL the assistant constructs for a file-read MUST use a SHA the user has supplied this chat (not a memory-resident SHA) and a path verified to exist in the tree listing. The URL form is `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`.
 
 Chat 5.9 added rule: the end-of-chat Project_State.md full-file artifact MUST end with the sentinel line `End of PROJECT_STATE.md.` and its line count MUST be >= the prior commit's (or the assistant explicitly states why it shrank) BEFORE the user commits. The Chat 5.8 doc commit silently truncated 655 lines (Sections 16-tail through 22) and it went undetected for a full chat cycle. When a truncation is discovered, recover the lost content from the prior doc commit via `git show <prior-sha>:docs/Project_State.md` (Glean's raw read sentence-wraps long lines — for byte-faithful recovery have the user paste the `git show` output) rather than re-authoring from memory. Since Glean's raw reader wraps, never reconstruct a full-file replacement from a wrapped read; anchor on a user-pasted byte-exact source.
+
+Chat 5.10 added rule: update master_todo.md status AND the matching Project_State.md Section 18 TD row AND Section 13 in the SAME end-of-chat doc commit as the code — never advance one without the others. When a chat ships multiple code commits, the doc commit pins each commit SHA next to its TD row so the audit trail survives. Continue to verify the sentinel + non-shrinking line count (the byte-exact source for this update was the user-pasted `git show b34721e:docs/Project_State.md`, per the Chat 5.9 guard).
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1393,6 +1464,14 @@ Chat 5.9 added rule: the end-of-chat Project_State.md full-file artifact MUST en
 - **Project_State.md recovered from `c6b1437b` rather than re-authored from memory**: the Chat 5.8 commit truncated the file mid-word at `Assistant summariz`. Git history (`git log -- docs/Project_State.md` with per-commit line counts) located the last complete copy; the byte-exact tail was recovered from a user-pasted `git show` rather than from the sentence-wrapping raw reader.
 - **TD15 mapped only after grepping at HEAD and stopping to scope when the count exceeded the agreed cap**: the count came in at 25 unique (over the 12-item cap), so the assistant reported the count + locations and got an explicit "map all 25" decision before building the table.
 
+### Chat 5.10 additions
+- **TD19 warning-flag over Mongo M10 multi-doc transactions**: a `with_transaction` wrapper would add a session + per-step round-trip latency on every synchronous add_buy/sell step, for a failure mode (recompute crash after a committed ledger write) that a 2xx warning surfaces just as safely on a single-user box. The immutable ledger is already the source of truth; the holding is a derived rebuild. (User-confirmed: "multi doc transaction adds latency since each step is synchronous.")
+- **TD20 Mongo advisory-lock doc over `threading.Lock` / `asyncio.Lock`**: asyncio.Lock is out (handlers are sync `def` under sync Uvicorn — confirmed at HEAD). threading.Lock would serialize the API process only and is blind to the out-of-process scripts (manual import, order-book promote, reconciliation) that also call recompute_holding. The advisory doc serializes across threads AND processes; the 60s TTL self-heals a crashed holder.
+- **TD20 lock placed at the service layer (inside recompute_holding), not the API layer**: covers every caller for free — API handlers AND scripts — with one code site, by renaming the body to `_recompute_holding_impl` and making the public function the lock wrapper.
+- **TD16 PATCH audits a computed `{**before, **update_fields}` after-state rather than the DB re-read**: writing the audit BEFORE the apply means the post-apply re-read doesn't exist yet; the computed after-state serializes identically and the response still re-reads from the DB after applying.
+- **TD16/TD17 ordering kept validate_replay FIRST (before the audit)**: a rejected edit/delete/sell isn't a real change and must not generate an audit row or a ledger write — so validate → audit → apply.
+- **Phase 2 items worked in master_todo order with #6 (dup-handler delete) done right after #4**: the smallest, lowest-risk change cleaned up `holdings.py` before #5 and #7 also edited it, reducing stale line-number drift between reads (user approved the sequencing implicitly by letting each item proceed).
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
@@ -1421,6 +1500,7 @@ So future chats don't accidentally try to add these:
 - `/calendar` page.
 - Loss-cutting sell pipeline (F2 is profit-booking only; `in_profit` gate enforces).
 - In-process application scheduler (APScheduler/lifespan jobs). The schedule stays in crontab; TD21 will version-control it via a registry-rendered `ops/crontab`, NOT by moving job execution into the API process (process-isolation + deploy-safety on the t3.micro).
+- Mongo multi-document (M10) transactions on the synchronous write path. Considered and rejected for TD19 — the immutable ledger is the source of truth and a recompute failure is surfaced via a `recorded_with_warning` flag, not rolled back, to avoid per-step session latency on a single-user box.
 
 ## Section 22: Glossary
 
@@ -1448,13 +1528,18 @@ So future chats don't accidentally try to add these:
 - **Logrotate (Chat 5 2026-05-24)**: weekly with rotate-4, copytruncate, su ubuntu ubuntu.
 - **`_format_raw` formatter kinds (Chat 5.5 TD11)**: existing kinds — `percent_decimal`, `percent_already`, `ratio`, `multiple`, `currency_inr_cr`, `score_only`. NEW kinds — `score_signed` (`f"{raw:+.1f}"`), `count` (`f"{int(raw)}"`).
 - **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 / TD15 (Chat 5.5–5.9)**: see Section 18. TD9 / TD11 / TD12 SHIPPED 2026-05-24; TD13 SHIPPED Chat 5.6; TD10 / TD14 / TD15 SHIPPED Chat 5.9.
+- **TD16 / TD17 / TD18 / TD19 / TD20 (Chat 5.10)**: see Section 18. All SHIPPED 2026-06-06. TD16 write-before-apply on transactions PATCH/DELETE; TD17 validate_replay on /sell + manual import; TD18 dup-handler delete; TD19 recompute warning-flag; TD20 per-ISIN recompute lock.
+- **`recompute_locks` (TD20, Chat 5.10)**: per-ISIN advisory-lock collection; `_id==isin`, `acquired_at` with 60s TTL; serializes `recompute_holding`. Acquired via atomic `insert_one`, released in `finally`. Accessor `Collections.recompute_locks()`; holder `_per_isin_recompute_lock`.
+- **`recorded_with_warning` (TD19, Chat 5.10)**: 2xx status returned by add_buy/sell when `recompute_holding` raises after the ledger write committed. Body `{status, isin, warning}`, no `_id`.
+- **`_recompute_holding_impl` (TD20, Chat 5.10)**: the original read-replay-overwrite body of `recompute_holding`, renamed; the public `recompute_holding` is now the per-ISIN lock wrapper around it.
 - **`weekly_suggestions` (CRON_REGISTRY name, Chat 5.9 TD14)**: the heartbeat job name the Sunday `run_weekly_suggestions.py` run writes (for both `buy` and `--direction=both`). Renamed from `run_weekly_suggestions` so the health check tracks it. The crontab COMMAND is still `run_weekly_suggestions.py`; only the in-code registry/heartbeat NAME is `weekly_suggestions`.
 - **F-number fix registry (Section 18, Chat 5.9 TD15)**: unified table disambiguating the two F-namespaces — feature-F (roadmap) vs fix-(Chat 5.5+)-F (robustness) — which collide on F1/F2/F3/F4/F5/F7/F8/F12/F14.
 - **Registry-generated crontab (TD21, NEW Chat 5.9)**: planned schedule-from-CRON_REGISTRY rendering → committed `ops/crontab` + `deploy.sh` install + drift validation. Keeps process isolation; not an in-process scheduler.
 - **Chat 5.6 robustness pass**: cross-cutting Pydantic round-trip hardening + `ge=0` validators + `preview_sell` SPLIT/BONUS lot-walk fix + frontend per-page reference. Baked into HEAD `64d5ae3` / `4f31b49`. F-number cross-refs reconciled Chat 5.9 (TD15).
 - **Chat 5.7**: Project_State.md doc reconciliation pass — Section 0 URL-construction rule, file-map repairs in Sections 5 + 6, Chat 5.6 capture in Section 13, TD13 SHIPPED, TD15 added.
 - **Chat 5.8**: comprehensive code review (28 findings) + `master_todo.md` created as canonical task list. NOTE: its doc commit silently truncated this file (recovered Chat 5.9).
-- **Chat 5.9 (THIS commit)**: Phase 1 ops + docs — TD14 (crontab flags + CRON_REGISTRY rename), TD10 (verified already satisfied), TD15 (F-number fix registry authored). Recovered Sections 16-tail + 17–22 truncated by the Chat 5.8 commit. Filed TD21 (registry-generated crontab) + TD22 (track_suggestion_outcomes daily failure).
+- **Chat 5.9**: Phase 1 ops + docs — TD14 (crontab flags + CRON_REGISTRY rename), TD10 (verified already satisfied), TD15 (F-number fix registry authored). Recovered Sections 16-tail + 17–22 truncated by the Chat 5.8 commit. Filed TD21 (registry-generated crontab) + TD22 (track_suggestion_outcomes daily failure).
+- **Chat 5.10 (THIS commit)**: Phase 2 closed — TD16 (write-before-apply on PATCH/DELETE), TD18 (dup handler delete), TD17 (validate_replay on /sell + manual import), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). Five code commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`. No frontend work; one open SellSheet follow-up noted in Section 6.
 - **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
 - **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 
