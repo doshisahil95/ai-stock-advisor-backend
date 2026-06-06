@@ -16,16 +16,17 @@ Simplicity > micro-optimization.
 """
 
 from __future__ import annotations
-
 import logging
+import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
 from pymongo import ASCENDING
-
+from pymongo.errors import DuplicateKeyError
 from app.db.client import Collections
 from app.models._common import _convert_decimals_to_decimal128, utcnow
 from app.models.holding import Holding
@@ -232,7 +233,61 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
     }
 
 
+# ─── TD20: per-ISIN recompute serialization ──────────────────────────────
+_RECOMPUTE_LOCK_WAIT_TIMEOUT = 10.0  # max seconds to wait for the lock
+_RECOMPUTE_LOCK_POLL_INTERVAL = 0.05  # seconds between acquire attempts
+
+
+@contextmanager
+def _per_isin_recompute_lock(isin: str):
+    """Advisory lock serializing recompute_holding for a single ISIN (TD20).
+
+    Acquire = insert a doc with _id == isin into recompute_locks; the unique
+    _id index makes the insert atomic, so exactly one holder wins. A
+    DuplicateKeyError means someone else holds it -> poll until free or time
+    out. Release = delete the doc in `finally`. A TTL index on acquired_at
+    (indexes.py) reclaims the lock if a holder crashes before releasing.
+    """
+    locks = Collections.recompute_locks()
+    deadline = time.monotonic() + _RECOMPUTE_LOCK_WAIT_TIMEOUT
+    acquired = False
+    while True:
+        try:
+            locks.insert_one({"_id": isin, "acquired_at": utcnow()})
+            acquired = True
+            break
+        except DuplicateKeyError:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Could not acquire recompute lock for {isin} within "
+                    f"{_RECOMPUTE_LOCK_WAIT_TIMEOUT}s "
+                    f"(another recompute for this ISIN is in progress)."
+                )
+            time.sleep(_RECOMPUTE_LOCK_POLL_INTERVAL)
+    try:
+        yield
+    finally:
+        if acquired:
+            locks.delete_one({"_id": isin})
+
+
 def recompute_holding(isin: str) -> Holding | None:
+    """Serialize recompute per-ISIN (TD20), then delegate to the impl.
+
+    Concurrent writes to the same ISIN (a BUY and a SELL, or two rapid SELLs)
+    could previously both insert their ledger row and then both run a full
+    read-replay-overwrite of the holding aggregate, interleaving and leaving a
+    stale/wrong holding. We take a per-ISIN advisory lock so recompute bodies
+    for the same ISIN run strictly one-at-a-time. The lock sits at the service
+    layer so EVERY caller is protected -- the API buy/sell handlers AND the
+    out-of-process scripts (manual import, order-book promote, reconciliation)
+    that also call recompute_holding. Different ISINs never contend.
+    """
+    with _per_isin_recompute_lock(isin):
+        return _recompute_holding_impl(isin)
+
+
+def _recompute_holding_impl(isin: str) -> Holding | None:
     """Rebuild the holding for `isin` from its transactions.
 
     Returns the recomputed Holding (after upsert).

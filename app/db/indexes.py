@@ -353,4 +353,19 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ─── recompute_locks (TD20) ──────────────────────────────────────
+    # Per-ISIN advisory locks serializing recompute_holding (one doc per
+    # in-flight recompute, _id == isin). The TTL index reclaims a lock if a
+    # holder process crashes mid-recompute; normal release is an explicit
+    # delete_one in the lock context manager. 60s is ~1000x a typical <50ms
+    # recompute, so it never reaps a legitimately-held lock.
+    results["recompute_locks"] = Collections.recompute_locks().create_indexes(
+        [
+            IndexModel(
+                [("acquired_at", ASCENDING)],
+                name="acquired_at_ttl",
+                expireAfterSeconds=60,
+            ),
+        ]
+    )
     return results

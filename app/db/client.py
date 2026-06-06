@@ -60,6 +60,17 @@ class Collections:
         return get_db()["holdings"]
 
     @staticmethod
+    def recompute_locks() -> Collection:
+        """TD20: per-ISIN advisory locks serializing recompute_holding.
+
+        One doc per in-flight recompute, _id == isin. Inserted to acquire,
+        deleted to release; a TTL index (indexes.py) reclaims the lock if a
+        holder process crashes mid-recompute. Keeps concurrent writes to the
+        same ISIN from interleaving their read-replay-overwrite cycles.
+        """
+        return get_db()["recompute_locks"]
+
+    @staticmethod
     def monitored_stocks() -> Collection:
         return get_db()["monitored_stocks"]
 
