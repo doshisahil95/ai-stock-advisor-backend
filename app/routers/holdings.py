@@ -1,7 +1,7 @@
 """Holdings API — read holdings, add via BUY transactions, edit metadata."""
 
 from __future__ import annotations
-
+import logging
 from datetime import datetime
 from decimal import Decimal
 from pydoc import doc
@@ -32,6 +32,7 @@ from app.services.price_service import (
 from app.services.yfinance_lookup import fetch_metadata
 
 router = APIRouter(prefix="/portfolio/holdings", tags=["portfolio"])
+log = logging.getLogger(__name__)
 
 # ── Request models ───────────────────────────────────────────────────────────
 
@@ -253,9 +254,25 @@ def add_buy(req: AddBuyRequest) -> dict:
         remaining_quantity=req.quantity,  # initially all of it
     )
     Collections.transactions().insert_one(tx.to_mongo())
-
-    # Recompute holding from full transaction history
-    holding = recompute_holding(isin)
+    # TD19: the BUY is now persisted to the immutable ledger (source of truth).
+    # recompute_holding rebuilds the *derived* holding aggregate and can fail
+    # independently (yfinance metadata fetch, transient Mongo error). Previously
+    # such a failure 500'd even though the ledger write had already succeeded,
+    # leaving the caller unsure whether the BUY landed. Wrap the recompute so a
+    # failure returns success-with-warning instead of masking a persisted write.
+    try:
+        holding = recompute_holding(isin)
+    except Exception:
+        log.exception("recompute_holding failed after BUY insert for %s", isin)
+        return {
+            "status": "recorded_with_warning",
+            "isin": isin,
+            "warning": (
+                "BUY recorded, but the holding aggregate could not be "
+                "recomputed and may be stale. Retry, or re-run recompute "
+                "for this ISIN to refresh."
+            ),
+        }
     if not holding:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -336,8 +353,25 @@ def sell(isin: str, req: SellRequest) -> dict:
         source="manual",
     )
     Collections.transactions().insert_one(tx.to_mongo())
-
-    new_holding = recompute_holding(isin)
+    # TD19: the SELL is now persisted to the immutable ledger. recompute_holding
+    # rebuilds the derived holding and can fail independently; previously that
+    # 500'd even though the SELL had already landed. Wrap so a recompute failure
+    # returns success-with-warning rather than masking a persisted write. NOTE:
+    # recompute_holding returning None is a *legitimate* success (full exit),
+    # handled by the `if not new_holding` branch below -- only exceptions here.
+    try:
+        new_holding = recompute_holding(isin)
+    except Exception:
+        log.exception("recompute_holding failed after SELL insert for %s", isin)
+        return {
+            "status": "recorded_with_warning",
+            "isin": isin,
+            "warning": (
+                "SELL recorded, but the holding aggregate could not be "
+                "recomputed and may be stale. Retry, or re-run recompute "
+                "for this ISIN to refresh."
+            ),
+        }
     if not new_holding:
         # Fully exited — F12 fix (Chat 5.5+): include realized_total so the
         # frontend's SellSheet onSuccess toast can show 'realized ₹X'
