@@ -18,6 +18,7 @@ from app.models.transaction import Transaction
 from app.services.holdings_service import (
     recompute_holding,
     preview_sell,
+    validate_replay,
 )
 from app.services.instrument_service import lookup_isin
 from app.services.price_service import (
@@ -305,7 +306,23 @@ def sell(isin: str, req: SellRequest) -> dict:
             status.HTTP_400_BAD_REQUEST,
             f"Cannot sell {req.quantity}: only {held_qty} held",
         )
-
+    # TD17: the held_qty check above only guards the current total. A BACKDATED
+    # SELL can pass it yet drive quantity negative at an intermediate point in
+    # the timeline -- which _fifo_replay would only log as an oversell warning,
+    # never reject. Replay the full per-ISIN timeline (existing non-deleted
+    # transactions + this proposed SELL) and 400 BEFORE writing to the ledger.
+    existing_txs = list(
+        Collections.transactions().find({"isin": isin, "deleted_at": None})
+    )
+    proposed_sell = {
+        "type": "SELL",
+        "quantity": req.quantity,
+        "price": req.price,
+        "trade_date": req.trade_date,
+    }
+    ok, reason = validate_replay(existing_txs + [proposed_sell])
+    if not ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
     tx = Transaction(
         isin=isin,
         symbol=holding["symbol"],

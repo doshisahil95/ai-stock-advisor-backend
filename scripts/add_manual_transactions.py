@@ -22,6 +22,7 @@ from decimal import Decimal
 
 from app.db.client import Collections
 from app.models._common import _convert_decimals_to_decimal128
+from app.services.holdings_service import validate_replay
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -298,7 +299,22 @@ def insert_manual_transactions() -> dict:
         doc["deleted_at"] = None
         if doc["type"] == "BUY":
             doc["remaining_quantity"] = doc["quantity"]
-
+        # TD17: a backdated manual SELL must not drive quantity negative at any
+        # point in the FIFO timeline. Replay the full per-ISIN timeline
+        # (order-book staging + manual entries inserted so far this run + this
+        # SELL) and ABORT rather than silently inserting a tx that recompute
+        # would later only log as an oversell. Gated on SELL so benign
+        # BUY/SPLIT/BONUS inserts are never blocked by unrelated staging data.
+        if doc["type"] == "SELL":
+            timeline = list(staging.find({"isin": doc["isin"], "deleted_at": None})) + [
+                doc
+            ]
+            ok, reason = validate_replay(timeline)
+            if not ok:
+                raise RuntimeError(
+                    f"Manual SELL rejected for {doc['symbol']} "
+                    f"({doc['source_ref']}): {reason}"
+                )
         staging.insert_one(_convert_decimals_to_decimal128(doc))
         inserted += 1
         log.info(
