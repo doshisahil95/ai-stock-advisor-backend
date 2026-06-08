@@ -119,6 +119,13 @@ CRON_REGISTRY: list[CronSpec] = [
         schedule_human="weekdays 19:45 IST",
         expected_weekdays=WEEKDAYS_MON_FRI,
     ),
+    # Daily news body purge — storage hygiene (P2-4 / #13 / TD27)
+    CronSpec(
+        cron_name="purge_news_bodies",
+        description="Purge classified news_articles body_text older than 30 days",
+        schedule_human="daily 02:30 IST",
+        expected_weekdays=WEEKDAYS_ALL,
+    ),
     # The health check itself (records its own heartbeat)
     CronSpec(
         cron_name="cron_health_check",
