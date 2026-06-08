@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from decimal import Decimal
-from pydoc import doc
 from typing import Annotated, Any
 
 from bson import Decimal128, ObjectId
