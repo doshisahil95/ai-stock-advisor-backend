@@ -200,6 +200,17 @@ def ensure_all_indexes() -> dict[str, list[str]]:
                 name="isin_captured_at_desc",
             ),
             IndexModel([("captured_at", DESCENDING)], name="captured_at_desc"),
+            # TTL: prices_intraday is append-only (~28 snapshots/holding/day).
+            # Expire snapshots after 90 days so the collection stays bounded
+            # before Chat 10 GO LIVE (P2-3 / master_todo #12 / TD26). Separate
+            # ASC index from captured_at_desc above — same field, different key
+            # direction, so both coexist (mirrors cron_heartbeats
+            # started_at_ttl + started_at_desc).
+            IndexModel(
+                [("captured_at", ASCENDING)],
+                name="captured_at_ttl",
+                expireAfterSeconds=90 * 86400,  # 90 days
+            ),
         ]
     )
 
