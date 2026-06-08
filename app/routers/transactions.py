@@ -106,9 +106,11 @@ def search_transactions(
     query: dict = {}
 
     if symbol:
-        # Prefix match (case-insensitive) — supports partial typing like "TR" → TRENT
+        # Prefix match — input is uppercased and symbols are stored uppercase, so
+        # this stays case-sensitive on purpose; an "i" flag disables the
+        # (symbol, trade_date) index. Supports partial typing like "TR" → TRENT.
         escaped = re.escape(symbol.upper())
-        query["symbol"] = {"$regex": f"^{escaped}", "$options": "i"}
+        query["symbol"] = {"$regex": f"^{escaped}"}
     if type:
         query["type"] = type
 
