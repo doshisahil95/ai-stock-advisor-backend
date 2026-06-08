@@ -237,7 +237,7 @@ def get_recent_feedback_audit(
 
 @router.get("/{isin}/audit")
 def get_feedback_audit_for_isin(
-    isin: str = Path(..., min_length=12, max_length=12),
+    isin: str = Path(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$"),
     limit: int = Query(50, ge=1, le=500),
 ) -> list[dict]:
     """Newest-first feedback audit history for one ISIN (F10).
@@ -257,7 +257,7 @@ class SuggestionFeedback(BaseModel):
 @router.post("/{isin}/feedback")
 def submit_feedback(
     payload: SuggestionFeedback,
-    isin: str = Path(..., min_length=12, max_length=12),
+    isin: str = Path(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$"),
 ) -> dict:
     """Record user feedback on a suggested candidate.
 
