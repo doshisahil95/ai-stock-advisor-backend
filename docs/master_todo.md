@@ -4,9 +4,9 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-08 (Chat 5.11 — Phase 3 closed)
+**Last updated:** 2026-06-08 (Chat 5.12 — Phase 4 closed)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 5.11 close):** `a2806cd` (Phase 3 TD23–TD25 shipped on this single code commit; HEAD advances after the Chat 5.11 doc commit)
+**Current backend SHA (Chat 5.12 close):** `49bf33f` (Phase 4 TD26–TD27 shipped on two code commits — TD26 `prices_intraday.captured_at` TTL in `app/db/indexes.py`, then TD27 `49bf33f` `purge_news_bodies` cron; the EC2 crontab line was added separately; HEAD advances after the Chat 5.12 doc commit). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
 
 > Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
@@ -14,9 +14,9 @@ This file is the canonical, ordered, end-to-end task list to reach product compl
 
 ## Current position
 
-**Next item to start: #12 (P2-3 / TD — TTL index on `prices_intraday.captured_at`).**
+**Next item to start: #14 (P2-2 / Phase 5 — frontend correctness: swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` + `refresh-button.tsx`).**
 
-Phase 1 + Phase 2 + Phase 3 are fully SHIPPED. Phase 3 (#9–#11 / TD23–TD25) shipped Chat 5.11, 2026-06-08, in one backend code commit (`a2806cd`). Per the standing rule, Phase 4 (#12–#13, storage hygiene) begins in a fresh chat to keep context clean.
+Phase 1 + Phase 2 + Phase 3 + Phase 4 are fully SHIPPED. Phase 4 (#12–#13 / TD26–TD27, storage hygiene) shipped Chat 5.12, 2026-06-08, in two backend code commits (TD26 `prices_intraday.captured_at` TTL, then TD27 `purge_news_bodies` cron; deployed code HEAD `49bf33f`) + one EC2 crontab line. Per the standing rule, Phase 5 (#14–#18, frontend correctness + quick wins) begins in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
@@ -30,6 +30,8 @@ Items completed since this file was created:
 - #9 (TD23) — SHIPPED 2026-06-08 (Chat 5.11)
 - #10 (TD24) — SHIPPED 2026-06-08 (Chat 5.11)
 - #11 (TD25) — SHIPPED 2026-06-08 (Chat 5.11)
+- #12 (TD26) — SHIPPED 2026-06-08 (Chat 5.12)
+- #13 (TD27) — SHIPPED 2026-06-08 (Chat 5.12)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -43,7 +45,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 2. **Phase 1** — Reconcile documentation (TD15) before any chat that reads files with F-comments; otherwise future chats hallucinate against unmapped F-numbers.
 3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
 4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
-5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps.
+5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps. SHIPPED Chat 5.12.
 6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched.
 7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume.
 8. **Phase 9** — Cross-cutting cleanup (`datetime.utcnow()` sweep, Python ceiling, pytest harness, ops gaps) right before GO LIVE so launch lands on one clean state.
@@ -101,12 +103,12 @@ All three items shipped in ONE backend code commit (`a2806cd`) + verified on EC2
 | 10 | P2-14 / TD24 | Align `price_stale` docstring vs code: doc says "4 trading days", code says `timedelta(days=6)`. Pick one; pragmatic fix is update docstring. **Chat 5.11 SHIPPED (CODE is canonical — user-delegated decision): kept `timedelta(days=6)`; updated the docstring "more than 4 trading days old" → "more than 6 calendar days old" and added an inline comment noting 6 calendar days ≈ 4 NSE trading days across a weekend (the clear original intent). Doc-/comment-only; zero behaviour change. Verified: `/portfolio/holdings` still returns `price_stale` correctly (false on a fresh price).** | `app/services/price_service.py` `price_stale` docstring + inline comment | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
 | 11 | P2-13 / TD25 | Rewrite `bulk_get_previous_closes` to push the filter into the Mongo pipeline (or loop `find_one` per ISIN). Currently pulls ~34k price docs per dashboard request. **Chat 5.11 SHIPPED (per-ISIN `find_one` — user-delegated decision): rewrote the body to delegate to the existing single-ISIN `get_previous_close` (an indexed `find_one({"date": {"$lt": latest}}, sort=[("date",-1)])` point-query per ISIN) instead of `$push`-ing every `{date, close}` for every ISIN into an in-memory `all_dates` array and filtering in Python. Eliminates the ~34k-doc pull per dashboard request; keeps the Decimal128/Decimal normalization in exactly one place. Chosen over an aggregation-pipeline rewrite because it evolves existing code (no new query pattern) and the `(isin, date)` index makes each call a single-doc point-query. Verified on EC2: `bulk_get_previous_closes` result is byte-identical to per-ISIN `get_previous_close` for all held ISINs.** | `app/services/price_service.py` `bulk_get_previous_closes` | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
 
-## PHASE 4 — Storage hygiene (must land BEFORE Chat 10 GO LIVE)
+## PHASE 4 — Storage hygiene (must land BEFORE Chat 10 GO LIVE) — SHIPPED Chat 5.12
 
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
-| 12 | P2-3 | Add TTL index on `prices_intraday.captured_at` with `expireAfterSeconds = 90 * 86400`. | `app/db/indexes.py` | OPEN |
-| 13 | P2-4 | New `scripts/purge_news_bodies.py` daily cron: `$unset: {body: ""}` on `news_articles` older than 30 days where `classified=True`; update `body_purged_at`. Register in `CRON_REGISTRY`. | `scripts/purge_news_bodies.py` (NEW) + crontab + `CRON_REGISTRY` | OPEN |
+| 12 | P2-3 | Add TTL index on `prices_intraday.captured_at` with `expireAfterSeconds = 90 * 86400`. **Chat 5.12 SHIPPED (TD26): confirmed at HEAD that `_intraday_row_from_df` writes `captured_at` as a BSON Date (`datetime.now(timezone.utc)`, serialized to UTC Date) so the TTL actually expires docs — a TTL silently no-ops on a string/Decimal field. Added `captured_at_ttl` (ASC, `expireAfterSeconds = 90*86400 = 7776000`) alongside the existing non-TTL `captured_at_desc` (ASC vs DESC are different key patterns, so both coexist — mirrors `cron_heartbeats` `started_at_ttl` + `started_at_desc`). `ensure_all_indexes` stays purely additive (no drop). Verified on EC2: `db.prices_intraday.getIndexes()` shows `captured_at_ttl` on `{captured_at:1}` with `expireAfterSeconds:7776000`; all four indexes intact.** | `app/db/indexes.py` | SHIPPED 2026-06-08 (Chat 5.12) |
+| 13 | P2-4 | New `scripts/purge_news_bodies.py` daily cron: `$unset {body_text: ""}` on classified `news_articles` whose `fetched_at` is older than 30 days; stamp `body_purged_at`. Register in `CRON_REGISTRY`. **Chat 5.12 SHIPPED (TD27): field corrections vs the original spec — the bulky field is `body_text` (NOT `body`), and age keys on `fetched_at` (always present via `default_factory=utcnow`; `published_at` is nullable so it would strand undated docs). Script mirrors `refresh_prices_intraday.py` (`cron_run("purge_news_bodies")` heartbeat, `hb.metadata[...]`, `hb.mark_skipped("no_expired_bodies")` on nothing-to-do); adds `--dry-run` (count-only). Filter `{classified:True, fetched_at:{$lt:cutoff}, body_purged_at:None, body_text:{$nin:["",None]}}`; write `{$unset:{body_text:""}, $set:{body_purged_at: now}}` (idempotent). `CronSpec.cron_name == cron_run() name == "purge_news_bodies"` (TD14 contract). Crontab line at 02:30 IST (`30 2 * * *`) with `>> cron-news-purge.log 2>&1`. Verified on EC2 against the real `portfolio` DB: dry-run reported 1 candidate, live run purged 1, sentinel returned `body_text` absent + `body_purged_at` a Date, success heartbeat `metadata.purged:1`; `/cron/heartbeats` shows it `healthy:true, expected_today:true`.** | `scripts/purge_news_bodies.py` (NEW) + crontab + `CRON_REGISTRY` | SHIPPED 2026-06-08 (Chat 5.12) |
 
 ## PHASE 5 — Frontend correctness & quick wins
 
@@ -198,8 +200,8 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 1 | 1-3 | Unblock ops + reconcile docs | No code — SHIPPED Chat 5.9 |
 | 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 — SHIPPED Chat 5.10 |
 | 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — SHIPPED Chat 5.11 |
-| 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data — next |
-| 5 | 14-18 | Frontend correctness + quick wins | Independent |
+| 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data — SHIPPED Chat 5.12 |
+| 5 | 14-18 | Frontend correctness + quick wins | Independent — next |
 | 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) |
 | 7 | 25-26 | Reconciliation alerting + feedback direction | Standalone |
 | 8 | 27-29 | New features (Chats 6, 7, 8) | Underlying surfaces correct |
