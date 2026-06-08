@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pymongo import ReturnDocument
-
+from pymongo.errors import DuplicateKeyError
 from app.config.settings import settings
 from app.db.client import Collections
 
@@ -50,28 +50,70 @@ def _today_utc_str() -> str:
 
 
 def _increment_quota(use_case: str, credits: int) -> int:
-    """Atomically bump today's call counter. Returns the NEW total calls today."""
+    """Atomically claim one Tavily call against today's quota.
+
+    Enforces the hard daily ceiling in a single round-trip: the call is only
+    counted when today's running total is still below TAVILY_DAILY_CALL_LIMIT.
+    This replaces the old read-then-check-then-increment sequence (a
+    get_today_quota() pre-check followed by a separate $inc), which had a
+    TOCTOU window where concurrent callers could both pass the pre-check at
+    calls_today == limit - 1 and push the counter past the ceiling (P2-5).
+
+    Mechanics:
+      - Filter is {date_utc: today, calls_today: {$lt: limit}} with upsert.
+      - Under the cap (or on the first call of the day) the filter matches an
+        existing doc / upserts a new one, and the $inc applies atomically.
+      - At/over the cap an existing same-day doc no longer matches the filter,
+        so upsert attempts to insert a SECOND doc for date_utc == today and the
+        unique `date_unique` index rejects it with DuplicateKeyError. That
+        collision IS the "quota exhausted" signal, which we surface as
+        TavilyQuotaExceeded.
+
+    Returns the NEW total calls today. Raises TavilyQuotaExceeded at the cap.
+    """
     today = _today_utc_str()
-    result = Collections.tavily_quota().find_one_and_update(
-        {"date_utc": today},
-        {
-            "$inc": {
-                "calls_today": 1,
-                "credits_today": credits,
-                f"per_use_case.{use_case}.calls": 1,
-                f"per_use_case.{use_case}.credits": credits,
-            },
-            "$setOnInsert": {
+    now = datetime.now(timezone.utc)
+    try:
+        result = Collections.tavily_quota().find_one_and_update(
+            {
                 "date_utc": today,
-                "first_call_at": datetime.now(timezone.utc),
+                "calls_today": {"$lt": settings.TAVILY_DAILY_CALL_LIMIT},
             },
-            "$set": {
-                "last_call_at": datetime.now(timezone.utc),
+            {
+                "$inc": {
+                    "calls_today": 1,
+                    "credits_today": credits,
+                    f"per_use_case.{use_case}.calls": 1,
+                    f"per_use_case.{use_case}.credits": credits,
+                },
+                "$setOnInsert": {
+                    "date_utc": today,
+                    "first_call_at": now,
+                },
+                "$set": {
+                    "last_call_at": now,
+                },
             },
-        },
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
-    )
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+    except DuplicateKeyError as exc:
+        # A same-day doc already exists at/above the ceiling, so it did not
+        # match the {$lt: limit} filter; upsert then tried to insert a duplicate
+        # date_utc and the unique index rejected it. No credit was consumed.
+        raise TavilyQuotaExceeded(
+            f"Daily Tavily call ceiling hit: >= {settings.TAVILY_DAILY_CALL_LIMIT}. "
+            f"Resets at 00:00 UTC."
+        ) from exc
+
+    # Defensive: with upsert=True a match or insert should always return a doc.
+    # If a future schema/index change ever makes this None, treat it as the cap
+    # being hit rather than silently returning a bad value.
+    if result is None:
+        raise TavilyQuotaExceeded(
+            f"Daily Tavily call ceiling hit: >= {settings.TAVILY_DAILY_CALL_LIMIT}. "
+            f"Resets at 00:00 UTC."
+        )
     return result["calls_today"]
 
 
@@ -130,13 +172,10 @@ def search(
     )
     credits = 2 if depth == "advanced" else 1
 
-    pre_check = get_today_quota()
-    if pre_check["calls_today"] >= settings.TAVILY_DAILY_CALL_LIMIT:
-        raise TavilyQuotaExceeded(
-            f"Daily Tavily call ceiling hit: {pre_check['calls_today']} >= "
-            f"{settings.TAVILY_DAILY_CALL_LIMIT}. Resets at 00:00 UTC."
-        )
-
+    # Atomically claim one call against today's ceiling. This raises
+    # TavilyQuotaExceeded at the cap with no TOCTOU window (P2-5 / #19); the old
+    # get_today_quota() pre-check + separate increment has been collapsed into
+    # the single conditional find_one_and_update inside _increment_quota.
     new_total = _increment_quota(use_case, credits)
     log.info(
         "Tavily search [%s, %s, topic=%s, %d credits] (%d/%d today): %s",
