@@ -4,9 +4,9 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-08 (Chat 5.12 — Phase 4 closed)
+**Last updated:** 2026-06-08 (Chat 5.13 — Phase 5 closed)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 5.12 close):** `49bf33f` (Phase 4 TD26–TD27 shipped on two code commits — TD26 `prices_intraday.captured_at` TTL in `app/db/indexes.py`, then TD27 `49bf33f` `purge_news_bodies` cron; the EC2 crontab line was added separately; HEAD advances after the Chat 5.12 doc commit). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
+**Current backend SHA (Chat 5.13 close):** deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Phase 5 TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop shipped on three backend code commits; HEAD advances after the Chat 5.13 doc commit). **Current frontend SHA (Chat 5.13 close):** `f59958015b8b07b6e84e3add7b4a302d32b43490` (Phase 5 TD28 refetchQueries swap shipped on one frontend commit). Chat 5.13 opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit) and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
 
 > Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
@@ -14,9 +14,9 @@ This file is the canonical, ordered, end-to-end task list to reach product compl
 
 ## Current position
 
-**Next item to start: #14 (P2-2 / Phase 5 — frontend correctness: swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` + `refresh-button.tsx`).**
+**Next item to start: #19 (P2-5 / Phase 6 — external-service hardening: replace the Tavily quota check-then-act with an atomic `find_one_and_update`).**
 
-Phase 1 + Phase 2 + Phase 3 + Phase 4 are fully SHIPPED. Phase 4 (#12–#13 / TD26–TD27, storage hygiene) shipped Chat 5.12, 2026-06-08, in two backend code commits (TD26 `prices_intraday.captured_at` TTL, then TD27 `purge_news_bodies` cron; deployed code HEAD `49bf33f`) + one EC2 crontab line. Per the standing rule, Phase 5 (#14–#18, frontend correctness + quick wins) begins in a fresh chat to keep context clean.
+Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 are fully SHIPPED. Phase 5 (#14–#18 / TD28–TD32, frontend correctness + quick wins) shipped Chat 5.13, 2026-06-08, across BOTH repos — one frontend code commit (TD28, frontend HEAD `f59958`) + three backend code commits (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options`; deployed code HEAD `090d96c`); TD30 was a doc-drift confirmation (no code). Per the standing rule, Phase 6 (#19–#24, external-service hardening) begins in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
@@ -32,6 +32,11 @@ Items completed since this file was created:
 - #11 (TD25) — SHIPPED 2026-06-08 (Chat 5.11)
 - #12 (TD26) — SHIPPED 2026-06-08 (Chat 5.12)
 - #13 (TD27) — SHIPPED 2026-06-08 (Chat 5.12)
+- #14 (TD28) — SHIPPED 2026-06-08 (Chat 5.13)
+- #15 (TD29) — SHIPPED 2026-06-08 (Chat 5.13)
+- #16 (TD30) — SHIPPED 2026-06-08 (Chat 5.13)
+- #17 (TD31) — SHIPPED 2026-06-08 (Chat 5.13)
+- #18 (TD32) — SHIPPED 2026-06-08 (Chat 5.13)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -46,7 +51,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
 4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
 5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps. SHIPPED Chat 5.12.
-6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched.
+6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched. Phase 5 SHIPPED Chat 5.13.
 7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume.
 8. **Phase 9** — Cross-cutting cleanup (`datetime.utcnow()` sweep, Python ceiling, pytest harness, ops gaps) right before GO LIVE so launch lands on one clean state.
 9. **Phase 10** — Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss wiring).
@@ -110,15 +115,17 @@ All three items shipped in ONE backend code commit (`a2806cd`) + verified on EC2
 | 12 | P2-3 | Add TTL index on `prices_intraday.captured_at` with `expireAfterSeconds = 90 * 86400`. **Chat 5.12 SHIPPED (TD26): confirmed at HEAD that `_intraday_row_from_df` writes `captured_at` as a BSON Date (`datetime.now(timezone.utc)`, serialized to UTC Date) so the TTL actually expires docs — a TTL silently no-ops on a string/Decimal field. Added `captured_at_ttl` (ASC, `expireAfterSeconds = 90*86400 = 7776000`) alongside the existing non-TTL `captured_at_desc` (ASC vs DESC are different key patterns, so both coexist — mirrors `cron_heartbeats` `started_at_ttl` + `started_at_desc`). `ensure_all_indexes` stays purely additive (no drop). Verified on EC2: `db.prices_intraday.getIndexes()` shows `captured_at_ttl` on `{captured_at:1}` with `expireAfterSeconds:7776000`; all four indexes intact.** | `app/db/indexes.py` | SHIPPED 2026-06-08 (Chat 5.12) |
 | 13 | P2-4 | New `scripts/purge_news_bodies.py` daily cron: `$unset {body_text: ""}` on classified `news_articles` whose `fetched_at` is older than 30 days; stamp `body_purged_at`. Register in `CRON_REGISTRY`. **Chat 5.12 SHIPPED (TD27): field corrections vs the original spec — the bulky field is `body_text` (NOT `body`), and age keys on `fetched_at` (always present via `default_factory=utcnow`; `published_at` is nullable so it would strand undated docs). Script mirrors `refresh_prices_intraday.py` (`cron_run("purge_news_bodies")` heartbeat, `hb.metadata[...]`, `hb.mark_skipped("no_expired_bodies")` on nothing-to-do); adds `--dry-run` (count-only). Filter `{classified:True, fetched_at:{$lt:cutoff}, body_purged_at:None, body_text:{$nin:["",None]}}`; write `{$unset:{body_text:""}, $set:{body_purged_at: now}}` (idempotent). `CronSpec.cron_name == cron_run() name == "purge_news_bodies"` (TD14 contract). Crontab line at 02:30 IST (`30 2 * * *`) with `>> cron-news-purge.log 2>&1`. Verified on EC2 against the real `portfolio` DB: dry-run reported 1 candidate, live run purged 1, sentinel returned `body_text` absent + `body_purged_at` a Date, success heartbeat `metadata.purged:1`; `/cron/heartbeats` shows it `healthy:true, expected_today:true`.** | `scripts/purge_news_bodies.py` (NEW) + crontab + `CRON_REGISTRY` | SHIPPED 2026-06-08 (Chat 5.12) |
 
-## PHASE 5 — Frontend correctness & quick wins
+## PHASE 5 — Frontend correctness & quick wins — SHIPPED Chat 5.13
+
+Spans BOTH repos: #14 is frontend (one commit, frontend HEAD `f59958`); #15/#17/#18 are backend (three commits, deployed code HEAD `090d96c`); #16 is a doc-drift confirmation (no code). All verified on EC2 — frontend via `~/deploy-ui.sh` + `npm run build`; backend via `ssh ubuntu@100.112.20.41` + `curl localhost:8000` with positive landed-assertions per item.
 
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
-| 14 | P2-2 | Swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` (lines 43, 46) and `refresh-button.tsx` (lines 17-19). | `components/notes-panel.tsx`, `components/refresh-button.tsx` | OPEN |
-| 15 | P3-3 | Remove unused `from pydoc import doc` import. | `app/routers/holdings.py` line 6 | OPEN |
-| 16 | P3-6 | Fix doc drift: `Project_State.md` Section 10 says `MONGODB_URL`, code uses `MONGODB_URI`. | `docs/Project_State.md` | OPEN |
-| 17 | P3-7 | Add `pattern=r"^[A-Z0-9]{12}$"` to ISIN Path params on `/suggestions/{isin}/audit` and `/suggestions/{isin}/feedback`. | `app/routers/suggestions.py` ~245 | OPEN |
-| 18 | P3-8 | Drop `"$options": "i"` from `transactions/search` regex — symbols already uppercased pre-query; "i" disables the index. | `app/routers/transactions.py` ~102-115 | OPEN |
+| 14 | P2-2 | Swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` (lines 43, 46) and `refresh-button.tsx` (lines 17-19). **Chat 5.13 SHIPPED (TD28): minimal name-swap (no `async`/`await` reorder). At HEAD the two `notes-panel.tsx` calls were at lines 42 + 45 (`["holding", holding.isin]`, `["dashboard"]`); the three `refresh-button.tsx` calls were at lines 17-19 inside the existing `await Promise.all([...])` (`["dashboard"]`, `["reconciliation"]`, `["cost-basis"]`). Aligns these two outliers with the project-wide synchronous-refetch convention (Project_State Section 14). Verified on frontend HEAD `f59958`: `grep invalidateQueries` → 0; `refetchQueries` counts notes-panel:2 + refresh-button:3 = 5; `~/deploy-ui.sh` build clean.** | `components/notes-panel.tsx`, `components/refresh-button.tsx` | SHIPPED 2026-06-08 (Chat 5.13) — frontend HEAD `f59958` |
+| 15 | P3-3 | Remove unused `from pydoc import doc` import. **Chat 5.13 SHIPPED (TD29): dead import at line 6, immediately shadowed by local `doc` variables in the serializer helpers. Behaviour-neutral. Verified on backend HEAD `090d96c`: `grep "from pydoc import doc"` → empty (literal string, true negative).** | `app/routers/holdings.py` line 6 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
+| 16 | P3-6 | Fix doc drift: `Project_State.md` Section 10 says `MONGODB_URL`, code uses `MONGODB_URI`. **Chat 5.13 SHIPPED (TD30): confirmed at HEAD that Project_State Section 10 already reads `MONGODB_URI` (with the explicit master_todo #16 note that earlier versions said `MONGODB_URL`) — the correction had landed in the Chat 5.12 Project_State. Row closed with no further code/doc edit beyond stamping it SHIPPED here. Doc-only confirmation; zero behaviour change.** | `docs/Project_State.md` | SHIPPED 2026-06-08 (Chat 5.13) |
+| 17 | P3-7 | Add `pattern=r"^[A-Z0-9]{12}$"` to ISIN Path params on `/suggestions/{isin}/audit` and `/suggestions/{isin}/feedback`. **Chat 5.13 SHIPPED (TD31): added `pattern=r"^[A-Z0-9]{12}$"` alongside the existing `min_length=12, max_length=12` on the two ISIN `Path(...)` params — `get_feedback_audit_for_isin` (line 240, GET `/suggestions/{isin}/audit`) and `submit_feedback` (line 260, POST `/suggestions/{isin}/feedback`). `/runs/{run_id}` left untouched (it's an ObjectId, not an ISIN). Malformed ISINs now 422 at the boundary instead of reaching Mongo. Verified on backend HEAD `090d96c`: `grep -F 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; a 12-char lowercase ISIN `INE002a01018` → 422 (rejected by pattern, not length); valid `INE002A01018` → 200.** | `app/routers/suggestions.py` ~245 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
+| 18 | P3-8 | Drop `"$options": "i"` from `transactions/search` regex — symbols already uppercased pre-query; "i" disables the index. **Chat 5.13 SHIPPED (TD32): the regex was at lines 91-92 in `search_transactions` (not ~102-115; that range is the date-bound block). Input is already `symbol.upper()` and symbols are stored uppercase, so the `"i"` flag was pure redundancy that disabled the `(symbol, trade_date)` index on the prefix regex. Dropped the flag (`query["symbol"] = {"$regex": f"^{escaped}"}`) and corrected the now-false "(case-insensitive)" inline comment. Behaviour-neutral for callers; restores index use. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex present at line 113; `GET /transactions/search?symbol=tr` returns `total: 20` (parity with pre-change).** | `app/routers/transactions.py` ~102-115 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
 
 ## PHASE 6 — External-service hardening
 
@@ -201,13 +208,13 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 — SHIPPED Chat 5.10 |
 | 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — SHIPPED Chat 5.11 |
 | 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data — SHIPPED Chat 5.12 |
-| 5 | 14-18 | Frontend correctness + quick wins | Independent — next |
-| 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) |
+| 5 | 14-18 | Frontend correctness + quick wins | Independent — SHIPPED Chat 5.13 |
+| 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) — next |
 | 7 | 25-26 | Reconciliation alerting + feedback direction | Standalone |
 | 8 | 27-29 | New features (Chats 6, 7, 8) | Underlying surfaces correct |
 | 9 | 30-38 | Pre-launch sweep + ops gaps | Last clean state before GO LIVE |
 | 10 | 39-41 | Chat 9 pre-launch cleanup | TD6 + F11 + realized P&L hide |
-| 11 | 42 | Chat 10 GO LIVE (F7) | Everything else done |
+| 11 | 42 | Chat 10 GO LIVE (F7 real data import) | Everything else done |
 | 12 | 43-45 | Deferred TDs (TD1, TD3, TD7) | After launch stable |
 | NEW | 46-47 | TD21 scheduler migration + TD22 outcomes-cron failure | Filed Chat 5.9; schedule independently |
 

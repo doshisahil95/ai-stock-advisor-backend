@@ -62,7 +62,8 @@ Hard rules:
   block in chat, ready to paste, written in the project's commit-message style.
 - Every test block MUST begin with `ssh ubuntu@100.112.20.41` and run curls
   against `localhost:8000` from inside the box (not against the Tailscale IP
-  from the laptop).
+  from the laptop). For frontend-only changes, tests run with `npm run build` /
+  lint on EC2 via `~/deploy-ui.sh`.
 - In every mapping table, the Action column must say NEW FILE, REPLACE
   EXISTING, or PATCH.
 - BEFORE constructing any class or dataclass via `Foo(field=...)`, run
@@ -128,7 +129,7 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - Every mapping table must use Action column values: NEW FILE, REPLACE EXISTING, or PATCH.
 - The user edits on Mac, commits, pushes. EC2 is for build/test/deploy/debug. The assistant should not edit Mac files directly; it produces artifacts the user pastes.
 - Every code/file delivery in chat MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block in the project's existing commit-message style.
-- Every test block in chat MUST start with `ssh ubuntu@100.112.20.41` and run subsequent curls against `localhost:8000`. Do not give curls against the Tailscale IP from the Mac.
+- Every test block in chat MUST start with `ssh ubuntu@100.112.20.41` and run subsequent curls against `localhost:8000`. Do not give curls against the Tailscale IP from the Mac. (Frontend-only changes test via `~/deploy-ui.sh` + `npm run build`/lint on EC2.)
 - Project_State.md AND master_todo.md are ALWAYS delivered as complete full-file replacements, never patches/diffs/find-and-replace. No exceptions.
 - ASK FOR CURRENT BACKEND SHA BEFORE PROPOSING ANY CODE CHANGE. Re-read the file at that SHA before writing the patch. (Chat 5 standing convention; see Section 14.)
 - BEFORE documenting what a script does, read its body at HEAD; before documenting a cron line, verify the script's argparse accepts the flags. (Chat 5.5 standing conventions; see Section 14.)
@@ -140,7 +141,7 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 ### Backend
 - Python 3.12
 - FastAPI
-- Pydantic v2 (every Query() in routers uses `pattern=` not `regex=` post Chat 5 A19; round-trip / `ge=0` validator hardening across models post Chat 5.6)
+- Pydantic v2 (every Query() in routers uses `pattern=` not `regex=` post Chat 5 A19; round-trip / `ge=0` validator hardening across models post Chat 5.6; ISIN `Path()` params on the two `/suggestions/{isin}` endpoints carry `pattern=r"^[A-Z0-9]{12}$"` post Chat 5.13 TD31)
 - MongoDB Atlas, M10 cluster, ap-south-1 region
 - uv (package manager — replaces pip/poetry)
 - yfinance (price + fundamentals + earnings calendar data; free tier)
@@ -156,7 +157,7 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - Tailwind v4
 - shadcn/ui Nova preset
 - Recharts (price charts)
-- TanStack Query (server state)
+- TanStack Query (server state — mutations use `refetchQueries`, synchronous; the two `invalidateQueries` outliers in `notes-panel.tsx` + `refresh-button.tsx` were swapped to `refetchQueries` in Chat 5.13 TD28)
 - react-hook-form + zod (forms)
 - sonner (toasts)
 - next-themes (dark mode)
@@ -239,14 +240,15 @@ Chat 5.12 note: the daily 02:30 IST `purge_news_bodies` cron (TD27) writes to `/
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.12 closed, 2026-06-08):
-- Backend: `49bf33f` (Chat 5.12 Phase-4 close: deployed code HEAD after TWO code commits — TD26 `prices_intraday.captured_at` TTL on `app/db/indexes.py`, then TD27 `scripts/purge_news_bodies.py` + the `purge_news_bodies` `CronSpec` on `app/services/cron_heartbeat_service.py`; the crontab line was added on EC2 separately. HEAD advances after this Chat 5.12 doc commit — pin in next chat). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
+Last verified SHAs (Chat 5.13 closed, 2026-06-08):
+- Backend: `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Chat 5.13 Phase-5 close: deployed code HEAD after THREE backend code commits — TD29 dead-import removal in `app/routers/holdings.py`, TD31 ISIN `pattern=` on the two `/suggestions/{isin}` Path params in `app/routers/suggestions.py`, TD32 `$options:i` drop on the transactions/search regex in `app/routers/transactions.py`. HEAD advances after this Chat 5.13 doc commit — pin in next chat). Chat 5.13 opened at `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit).
+- Frontend: `f59958015b8b07b6e84e3add7b4a302d32b43490` (Chat 5.13 Phase-5 close: ONE frontend code commit — TD28 `invalidateQueries` → `refetchQueries` swap in `components/notes-panel.tsx` + `components/refresh-button.tsx`). Chat 5.13 opened at `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.12).
+- Backend (Chat 5.12 close): `49bf33f` (deployed code HEAD after TWO code commits — TD26 `prices_intraday.captured_at` TTL on `app/db/indexes.py`, then TD27 `scripts/purge_news_bodies.py` + the `purge_news_bodies` `CronSpec` on `app/services/cron_heartbeat_service.py`; the crontab line was added on EC2 separately). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
 - Backend (Chat 5.11 close): `a2806cd` (the single TD23–TD25 code commit). Chat 5.11 opened at `f22eb9a4719422e238d4c462534c5b45164f6e78` (the Chat 5.10 doc commit) and shipped ONE code commit `a2806cd` carrying all three Phase-3 items (TD23 holiday guard + TD24 price_stale alignment + TD25 bulk_get_previous_closes rewrite). The prior Chat 5.10 close was `b34721e8251bb21ad59c0f111f1c8022528844b6` (TD20 advisory-lock); Chat 5.10 shipped five code commits in master_todo order: `17f9f94` (TD16 write-before-apply) → TD18 dup-handler delete → `5cf3087` (TD17 validate_replay on /sell + manual import) → `fb23307` (TD19 recompute warning-flag) → `b34721e` (TD20 per-ISIN recompute lock).
-- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.12; no frontend work in Chat 5.12; TD13 per-page reference shipped at this SHA).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`; Chat 5.13 touched holdings.py + suggestions.py + transactions.py, code HEAD `090d96c`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
@@ -314,14 +316,19 @@ app/
                               master_todo #7 SHIPPED (Chat 5.10): try/except around
                               recompute_holding -> recorded_with_warning
                               Chat 5.10: `import logging` + module `log` added
-                              master_todo #15: remove `from pydoc import doc`
+                              master_todo #15 SHIPPED (Chat 5.13, TD29): dead
+                              `from pydoc import doc` (line 6) removed
     portfolio.py              /portfolio/summary
                               master_todo #30: utcnow() sweep (line 43)
     transactions.py           /transactions/search, CRUD, audit endpoints
                               F21 (fix): `reason` required on PATCH/DELETE
                               master_todo #4 SHIPPED (Chat 5.10): write-before-apply on
                               PATCH/DELETE (audit-then-apply)
-                              master_todo #18: drop $options:i on regex
+                              master_todo #18 SHIPPED (Chat 5.13, TD32): dropped
+                              $options:i on the search regex (now line 113
+                              query["symbol"]={"$regex": f"^{escaped}"}); input is
+                              uppercased + symbols stored uppercase, so case-sensitive
+                              on purpose and the (symbol, trade_date) index is used
                               master_todo #31: tz-aware datetime sweep
     reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
     instruments.py            /instruments (symbol_overrides CRUD)
@@ -331,7 +338,11 @@ app/
                               F2: ?direction=buy|sell on read endpoints
                               Chat 5 A1: writer uses MonitoredStockFeedbackPatch
                               Chat 5 A19: Query() pattern= migration
-                              master_todo #17: ISIN pattern validator on Path
+                              master_todo #17 SHIPPED (Chat 5.13, TD31): ISIN
+                              pattern=r"^[A-Z0-9]{12}$" added (alongside
+                              min_length/max_length=12) to the Path params on
+                              get_feedback_audit_for_isin (line 240, /audit) and
+                              submit_feedback (line 260, /feedback)
                               master_todo #26: direction-aware feedback relabel
     cron.py                   /cron/heartbeats (F4)
   services/
@@ -470,7 +481,7 @@ tests/
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 Chat 5.5 TD12: universe paragraph corrected
-  Project_State.md              THIS FILE (Chat 5.12 doc commit; recovered from
+  Project_State.md              THIS FILE (Chat 5.13 doc commit; recovered from
                                 Chat 5.8 truncation in Chat 5.9 — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
@@ -483,7 +494,7 @@ README.md                       Chat 5 doc deliverable 2/4 SHIPPED
 
 ## Section 6: Frontend file map
 
-Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12):
+Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12; Chat 5.13 touched notes-panel.tsx + refresh-button.tsx, frontend HEAD `f59958`):
 ```
 app/
   layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
@@ -519,7 +530,10 @@ components/
                               stop_loss edit field)
   price-chart.tsx
   transactions-list.tsx
-  notes-panel.tsx             master_todo #14: refetchQueries (lines 43, 46)
+  notes-panel.tsx             master_todo #14 SHIPPED (Chat 5.13, TD28): the two
+                              mutation onSuccess invalidateQueries (holding + dashboard
+                              keys) swapped to refetchQueries (synchronous). Minimal
+                              name-swap, no async/await reorder.
   recent-activity-card.tsx
   sector-breakdown.tsx
   stat-card.tsx
@@ -528,7 +542,10 @@ components/
   reconciliation-badge.tsx
   theme-provider.tsx
   theme-toggle.tsx
-  refresh-button.tsx          master_todo #14: refetchQueries (lines 17-19)
+  refresh-button.tsx          master_todo #14 SHIPPED (Chat 5.13, TD28): the three
+                              invalidateQueries inside the existing await Promise.all
+                              (dashboard + reconciliation + cost-basis keys) swapped to
+                              refetchQueries.
   suggestion-card.tsx         F6: CollapsedFeedbackRow when user_action != null
                               F2 SHIPPED: isSellSide branch
   explain-popover.tsx
@@ -586,6 +603,7 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 - INVARIANT: never directly UPDATEd or DELETEd; PATCH/DELETE require reason, write to `transactions_audit` first, then apply, then `recompute_holding`. **master_todo #4 / TD16 SHIPPED Chat 5.10: order flipped to audit-then-apply; `validate_replay` still runs first so a rejected change writes no audit row.**
 - Indexes: `(isin, trade_date)`, `(symbol, trade_date)`, `trade_date`
 - Chat 5.6: `ge=0` validators on quantity / price / total_fees; SPLIT/BONUS preview covered in `preview_sell`
+- Chat 5.13 (TD32 / master_todo #18): `GET /transactions/search` prefix-matches `symbol` with `{"$regex": f"^{escaped}"}` (NO `$options:i`). Input is `symbol.upper()` and symbols are stored uppercase, so the match is case-sensitive on purpose and the `(symbol, trade_date)` index is used (an `"i"` flag would disable it).
 
 #### `transactions_staging`
 - Holding area for ICICI order book imports. Same shape as `transactions`.
@@ -717,7 +735,8 @@ GET    /portfolio/holdings/{isin}/transactions       Transaction[]
                                                      (master_todo #6 SHIPPED Chat 5.10: dup handler deleted)
 GET    /portfolio/summary                            PortfolioSummary
 GET    /transactions/search?...                      {results, total}
-                                                     (master_todo #18: drop $options:i)
+                                                     (master_todo #18 SHIPPED Chat 5.13: dropped $options:i;
+                                                      case-sensitive prefix uses the (symbol, trade_date) index)
 GET    /transactions/{id}                            Transaction
 PATCH  /transactions/{id}                            Transaction (requires reason)
                                                      (master_todo #4 SHIPPED Chat 5.10: write-before-apply)
@@ -742,10 +761,10 @@ GET    /suggestions/runs?direction=buy|sell&...      {runs, total, limit, skip}
 GET    /suggestions/runs/{run_id}                    SuggestionRun + enrichment
 GET    /suggestions/performance?direction=buy|sell   SuggestionPerformance with by_bucket
 POST   /suggestions/{isin}/feedback                  {isin, action, status, previous_status}
-                                                     (master_todo #17: ISIN pattern validator)
+                                                     (master_todo #17 SHIPPED Chat 5.13: ISIN pattern validator)
                                                      (master_todo #26: direction-aware relabel)
 GET    /suggestions/{isin}/audit?limit=N             MonitoredStocksAuditEntry[]   (F10)
-                                                     (master_todo #17: ISIN pattern validator)
+                                                     (master_todo #17 SHIPPED Chat 5.13: ISIN pattern validator)
 GET    /suggestions/feedback/audit/recent?limit=N    MonitoredStocksAuditEntry[]   (F10)
 GET    /cron/heartbeats?limit=N                      {heartbeats, health_summary}
 ```
@@ -834,7 +853,7 @@ Configured in `app/config/settings.py` via pydantic-settings. All required unles
 
 ### MongoDB
 - `MONGODB_URI` (required) — URL-encode special chars in the password
-  - **Note (master_todo #16):** earlier versions of this section said `MONGODB_URL`. Code uses `MONGODB_URI`.
+  - **Note (master_todo #16, SHIPPED Chat 5.13 / TD30):** earlier versions of this section said `MONGODB_URL`. Code uses `MONGODB_URI`. Confirmed at HEAD `090d96c` and the master_todo row closed.
 - `MONGODB_DB_NAME` (required) — the live value is `portfolio` (NOT `portfolio_advisor`). Confirmed Chat 5.12 at HEAD (`settings.MONGODB_DB_NAME: str = "portfolio"`); a mongosh verification must `getSiblingDB("portfolio")`.
 
 ### Tavily
@@ -871,6 +890,7 @@ From `docs/data_flow.md`. Hard rules.
 - `holdings.deleted_at = None` filter is universal.
 - Cost basis is IT-Act-correct, not broker-nominal.
 - `prices_intraday` writes are append-only within a day. **Chat 5.11 (master_todo #9 / TD23): `_intraday_row_from_df` now drops a holiday-stale bar (latest 5m bar's IST date != today's IST date → return None), so a market-holiday quote never gets written or surfaced as a "current price".** Chat 5.12 (TD26): a 90-day `captured_at_ttl` now bounds this append-only collection; it works because `captured_at` is written as a BSON Date.
+- Symbol search (`GET /transactions/search`) is case-sensitive by construction: the input is uppercased (`symbol.upper()`) and symbols are stored uppercase, so the prefix regex carries NO `$options:i` and uses the `(symbol, trade_date)` index. **Chat 5.13 (master_todo #18 / TD32): the redundant `"i"` flag was dropped; do not reintroduce it (it disables the index).**
 - ICICI portfolio display shows TMPV ~₹813 and TMCV ~₹253 — cosmetically wrong vs our tax-correct numbers; does not affect actual money or tax filing.
 - Chat 5.6 robustness: `preview_sell` correctly folds SPLIT/BONUS adjustments into the lot walk.
 
@@ -889,6 +909,7 @@ From `docs/data_flow.md`. Hard rules.
 - **Chat 5 A1**: `monitored_stocks` writes go through `MonitoredStockFeedbackPatch(...).model_dump(exclude_none=True)`. `extra="forbid"` catches drift.
 - The `notes` field on a `SuggestionRun` is a JSON string containing `{dossiers: [...]}`. The router parses it and exposes `dossiers` at the top level.
 - **Chat 5.6 round-trip invariant**: every Phase-2 Pydantic model loads cleanly from any historical persisted doc.
+- **Chat 5.13 (master_todo #17 / TD31)**: the ISIN `Path()` params on `GET /suggestions/{isin}/audit` and `POST /suggestions/{isin}/feedback` carry `pattern=r"^[A-Z0-9]{12}$"` alongside `min_length=12, max_length=12`, so a malformed ISIN 422s at the boundary before reaching `monitored_stocks` / the audit collection.
 
 ### F2 / F14 invariants (Chat 4)
 - `SuggestionDirection` literal = `"buy" | "sell"`. Defaults to `"buy"`.
@@ -926,16 +947,18 @@ Phase 1 (all shipped, all locked):
 - ICICI Order Book import → staging → reconcile → promote pipeline
 - Manual transaction entry for IPOs, demergers, bonuses, splits (Chat 5.10: manual SELL path now validate_replay-guarded)
 - Transaction edit/delete with mandatory reason + audit log (Chat 5.10: reordered to write-before-apply / audit-then-apply, master_todo #4)
+- Transaction search (Chat 5.13: case-sensitive prefix uses the (symbol, trade_date) index, master_todo #18)
 - Preview-sell endpoint (Chat 5.6 hardened SPLIT/BONUS handling)
 - Reconciliation snapshots (manual + auto) with drift detection
 - Cost basis adjustments (TMPV/TMCV demerger seeded)
 - EOD + intraday price refresh (Chat 5.11: intraday holiday-guarded, master_todo #9; Chat 5.12: 90-day TTL on prices_intraday, master_todo #12)
 - Tax view vs broker view in portfolio summary
-- Single-holding drill-down page with chart, transactions, notes panel
+- Single-holding drill-down page with chart, transactions, notes panel (Chat 5.13: notes-panel mutations use refetchQueries, master_todo #14)
 - Audit log page
 - Dark mode toggle
 - Reconciliation badge in header
 - Recent activity card
+- Global refresh button (Chat 5.13: uses refetchQueries, master_todo #14)
 
 Phase 2 Suggestions Engine:
 - Unit 1: foundations
@@ -945,6 +968,7 @@ Phase 2 Suggestions Engine:
 - Commit A.5 (feedback correctness)
 - Commit A.5.1 (re-label correctness)
 - Commit B (frontend explainability)
+- Suggestions feedback/audit endpoints (Chat 5.13: ISIN charset pattern validators, master_todo #17)
 
 Chat 2 (F4 + F5a) — Cron observability shipped 2026-05-16.
 Chat 3 (F6 + F5b + F10) — Stateful feedback shipped 2026-05-17.
@@ -976,6 +1000,13 @@ Chat 5.12 (Phase 4 — storage hygiene) — SHIPPED 2026-06-08. Two backend code
 - TD26 / master_todo #12 (P2-3): TTL index on `prices_intraday.captured_at`. Confirmed at HEAD that `_intraday_row_from_df` writes `captured_at` as a BSON Date (`datetime.now(timezone.utc)`), so the TTL actually expires docs. Added `captured_at_ttl` (ASC, `expireAfterSeconds = 90*86400 = 7776000`) alongside the existing non-TTL `captured_at_desc` (ASC vs DESC coexist — mirrors `cron_heartbeats` `started_at_ttl` + `started_at_desc`); `ensure_all_indexes` stays additive. Verified: `getIndexes()` shows the TTL on `{captured_at:1}` with `expireAfterSeconds:7776000`; all four indexes intact.
 - TD27 / master_todo #13 (P2-4): new `scripts/purge_news_bodies.py` daily cron (02:30 IST). Corrected the spec — `$unset {body_text:""}` (NOT `body`), age on `fetched_at` (NOT the nullable `published_at`); idempotent filter excludes already-purged docs; stamps `body_purged_at`. Mirrors `refresh_prices_intraday.py` (`cron_run("purge_news_bodies")` heartbeat + `mark_skipped`); adds `--dry-run`. Registered the F4 triad: `CronSpec(cron_name="purge_news_bodies", expected_weekdays=WEEKDAYS_ALL)` (name == `cron_run()` string, TD14 contract) + crontab line `30 2 * * *` with `>> cron-news-purge.log 2>&1`. Verified on EC2 against `portfolio` (a first pass mistakenly seeded `portfolio_advisor` and proved nothing — the app DB is `portfolio`): dry-run 1 candidate, live run purged 1, sentinel `body_text` absent + `body_purged_at` a Date, success heartbeat `metadata.purged:1`, `/cron/heartbeats` `healthy:true`.
 - No frontend work. The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-4 scope).
+Chat 5.13 (Phase 5 — frontend correctness + quick wins) — SHIPPED 2026-06-08. Spanned BOTH repos: one frontend code commit (frontend HEAD `f59958`) + three backend code commits (deployed code HEAD `090d96c`); all verified on EC2:
+- TD28 / master_todo #14 (P2-2): `invalidateQueries` → `refetchQueries` swap in `components/notes-panel.tsx` (the two mutation `onSuccess` calls — `["holding", holding.isin]` + `["dashboard"]`) and `components/refresh-button.tsx` (the three calls inside the existing `await Promise.all([...])` — `["dashboard"]` + `["reconciliation"]` + `["cost-basis"]`). At HEAD the notes-panel calls were lines 42 + 45, the refresh-button calls lines 17-19. Minimal name-swap only (no `async`/`await` reorder — kept to the master_todo text). Aligns these two outliers with the project-wide synchronous-refetch convention. Verified on frontend HEAD `f59958`: `grep invalidateQueries` → 0; `refetchQueries` counts notes-panel:2 + refresh-button:3 = 5; `~/deploy-ui.sh` build clean.
+- TD29 / master_todo #15 (P3-3): removed the dead `from pydoc import doc` import (line 6) in `app/routers/holdings.py` — immediately shadowed by local `doc` variables in the serializer helpers. Behaviour-neutral. Verified on backend HEAD `090d96c`: `grep "from pydoc import doc"` → empty.
+- TD30 / master_todo #16 (P3-6): doc-drift confirmation — Project_State Section 10 already read `MONGODB_URI` (the correction landed in the Chat 5.12 Project_State, with the explicit master_todo #16 note). Row closed; no code/doc edit beyond stamping SHIPPED.
+- TD31 / master_todo #17 (P3-7): added `pattern=r"^[A-Z0-9]{12}$"` (alongside the existing `min_length=12, max_length=12`) to the ISIN `Path()` params on `get_feedback_audit_for_isin` (line 240, GET `/suggestions/{isin}/audit`) and `submit_feedback` (line 260, POST `/suggestions/{isin}/feedback`) in `app/routers/suggestions.py`. `/runs/{run_id}` left alone (ObjectId, not ISIN). Verified on backend HEAD `090d96c`: `grep -F 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; 12-char lowercase `INE002a01018` → 422 (pattern, not length); valid `INE002A01018` → 200.
+- TD32 / master_todo #18 (P3-8): dropped `"$options": "i"` from the `transactions/search` regex in `app/routers/transactions.py` (the regex was at lines 91-92, not the ~102-115 date-bound block) and corrected the now-false "(case-insensitive)" inline comment. Input is `symbol.upper()` and symbols are stored uppercase, so the match is case-sensitive on purpose and the `(symbol, trade_date)` index is restored. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex at line 113; `GET /transactions/search?symbol=tr` → `total: 20` (parity).
+- No frontend work beyond TD28. The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-5 scope). Optional non-scope touches (notes-panel `async`/`await` reorder; the stale `symbol` `Query(description=… case-insensitive)` wording) were considered and NOT applied — minimal-only.
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -987,8 +1018,8 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 2 | master_todo #4-8 | Transactions/holdings/audit invariants (TD16-TD20) | SHIPPED (Chat 5.10) |
 | 3 | master_todo #9-11 | Intraday & price correctness (TD23-TD25) | SHIPPED (Chat 5.11) |
 | 4 | master_todo #12-13 | Storage hygiene (TD26-TD27) | SHIPPED (Chat 5.12) |
-| 5 | master_todo #14-18 | Frontend correctness + quick wins | OPEN — next |
-| 6 | master_todo #19-24 | External-service hardening | OPEN |
+| 5 | master_todo #14-18 | Frontend correctness + quick wins (TD28-TD32) | SHIPPED (Chat 5.13) |
+| 6 | master_todo #19-24 | External-service hardening | OPEN — next |
 | 7 | master_todo #25-26 | Reconciliation alerting + feedback direction | OPEN |
 | 8 | master_todo #27-29 | Chat 6 (F1+F3), Chat 7 (F12+F15), Chat 8 (F13 watchlist) | OPEN |
 | 9 | master_todo #30-38 | Cross-cutting cleanup before GO LIVE | OPEN |
@@ -997,28 +1028,28 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.12
+### Open items CARRIED FORWARD past Chat 5.13
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 closed; pointer now at #14):
-- **master_todo #14 (P2-2):** swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` (lines 43, 46) and `refresh-button.tsx` (lines 17-19). Phase 5 frontend correctness.
-- **master_todo #15-18:** remove the dead `from pydoc import doc` import (`holdings.py`); fix the `MONGODB_URL`→`MONGODB_URI` doc drift; add ISIN `pattern=` validators on the `/suggestions/{isin}` Path params; drop `$options:i` on the transactions search regex. Phase 5 quick wins.
+The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 + 5 closed; pointer now at #19):
+- **master_todo #19 (P2-5):** replace the Tavily quota check-then-act with an atomic `find_one_and_update` against `tavily_quota` (`app/services/tavily_client.py` ~110-145). Phase 6 external-service hardening — next.
+- **master_todo #20-24:** retry on transient 5xx/429 in `notify.email()`; persist suggestion run_id BEFORE digest formatting; reject NaN in `_to_decimal`; fallback log on heartbeat-insert failure; harden `cron_health_check.main` against Mongo being unreachable. Phase 6.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
 The assistant has confused these multiple times. Memorize them.
 
 - Port 8001 (Mac local), port 8000 (EC2). Always specify which.
-- SSH-first for tests: every test block MUST begin with `ssh ubuntu@100.112.20.41` and run curls against `localhost:8000`.
-- Commit-block-after-code: every code/file delivery MUST be followed by a paste-ready `git add .` + `git commit -m "..."` block.
+- SSH-first for tests: every test block MUST begin with `ssh ubuntu@100.112.20.41` and run curls against `localhost:8000`. (Frontend-only changes test via `~/deploy-ui.sh` + `npm run build`/lint on EC2.)
+- Commit-block-after-code: every code/file delivery MUST be followed by a paste-ready `git add .` + `git commit -m` block.
 - Project_State.md AND master_todo.md are ALWAYS complete full-file replacements.
 - F6 two-mechanism feedback exclusion: `get_excluded_isins` at run-build AND `_build_user_action` at serialization. Both required.
 - The 90-day rejected cooldown and 30-day acted soft-exclude are intentionally NOT env-configurable.
 - F10 write-before-apply: `monitored_stocks_audit_service.log_change(...)` BEFORE `monitored_stocks.update_one(...)`. **The corresponding invariant for transactions is now satisfied too — master_todo #4 SHIPPED Chat 5.10.**
 - Secrets path on EC2 is `/etc/portfolio-advisor/secrets.env`.
 - `lib/api.ts` is hand-typed; `lib/api-types.ts` is gitignored.
-- Mutations in frontend use `refetchQueries` (synchronous), NOT `invalidateQueries`. **Two outliers exist — master_todo #14.**
+- Mutations in frontend use `refetchQueries` (synchronous), NOT `invalidateQueries`. **The two known outliers (notes-panel + refresh-button) were swapped to `refetchQueries` in Chat 5.13 (TD28 / master_todo #14); the convention now holds project-wide.**
 - `cn` helper at `@/lib/utils`. Format helpers at `@/lib/format`.
 - Collections accessor: `from app.db.client import Collections`.
 - Decimal128 vs Decimal: helpers in `app/models/_common.py`.
@@ -1029,6 +1060,8 @@ The assistant has confused these multiple times. Memorize them.
 - Tailwind v4 + shadcn `.dark` class pickup is automatic.
 - Every cron script: `cron_run()` wrapper AND `CronSpec` entry AND crontab line with log redirection. **AND the `CronSpec.cron_name` MUST equal the `cron_name` the script passes to `cron_run()` (Chat 5.9 TD14; re-confirmed Chat 5.12 for `purge_news_bodies`).**
 - Direction-aware display layer: branch on direction at the display layer, not by forking the model.
+- Symbol search regex is case-sensitive on purpose (input uppercased, symbols stored uppercase); NO `$options:i` (it disables the `(symbol, trade_date)` index). (Chat 5.13 TD32.)
+- ISIN `Path()` params validate charset with `pattern=r"^[A-Z0-9]{12}$"` in addition to `min_length/max_length=12`. (Chat 5.13 TD31.)
 
 ### Chat 4 additions
 - DO NOT trust Glean snippets or memory for dataclass / Pydantic model field names. Grep first.
@@ -1094,6 +1127,14 @@ The assistant has confused these multiple times. Memorize them.
 - The app DB is `portfolio`, NOT `portfolio_advisor`. `settings.MONGODB_DB_NAME` defaults to `"portfolio"`; `Collections.*()` → `get_db()` → `client["portfolio"]`. A mongosh verification MUST `getSiblingDB("portfolio")` — seeding `portfolio_advisor` writes to an empty phantom DB the app never reads (it cost a wasted #13 verification pass this chat). Tell: `cron_heartbeats` was `[]` in `portfolio_advisor` while `/cron/heartbeats` (which reads through the app) showed the runs.
 - `news_articles`' bulky field is `body_text`, not `body`. `$unset {body:""}` would silently no-op. Always read the model (`app/models/news.py`) for the real field name before writing a purge/update.
 - For a "older than N days" purge, key on `fetched_at` (always present via `default_factory=utcnow`, monotonic), not `published_at` (nullable). Age-by-published strands every doc with a null publisher date forever.
+
+### Chat 5.13 additions
+- **A "~line N" pointer in the scope is a hint, not ground truth — re-read and re-anchor at HEAD.** Every Phase-5 line pointer was off: the `notes-panel` `invalidateQueries` were at 42/45 (scope said 43/46), the `transactions/search` regex was at 91-92 (scope said ~102-115, which is actually the date-bound block), and the two `/suggestions` ISIN Path params were at 240/260. Always grep the real lines before writing a find-and-replace whose `original_text` must match on-disk bytes.
+- **A grep that contains regex metacharacters can be self-defeating — use `grep -F` for literal strings.** The first #17 verification used `grep -n 'pattern=r"\^[A-Z0-9]{12}\$"'`; in BRE the `[A-Z0-9]` in the SEARCH pattern matches a single alphanumeric, but the file's character after `^` is a literal `[`, so the grep could never match. The empty result proved nothing. `grep -Fn 'pattern=r"^[A-Z0-9]{12}$"'` returned the true 2 matches.
+- **A pass/fail test must DISCRIMINATE the thing under test from pre-existing behaviour.** The first #17 curls (`inE0001a010` 11 chars, `INE0001A01` 10 chars) both 422'd on the pre-existing `min_length=12` — they could not distinguish the new `pattern` from the old length check. The discriminating input is a 12-char string with a lowercase/illegal char (`INE002a01018` → 422 means the pattern landed; 200 would mean only length is enforced).
+- **`pydoc.doc` is a real importable name** — `from pydoc import doc` is valid Python that silently shadows nothing harmful but is dead. Don't assume an odd-looking import is a typo; confirm it's unused (immediately reassigned local `doc` vars here) before deleting.
+- **Phase boundaries can span both repos.** Phase 5 had #14 in the frontend repo and #15/#17/#18 in the backend repo. Ask for BOTH HEAD SHAs up front, deploy/test each repo with its own harness (`~/deploy-ui.sh` + `npm run build` for frontend; `~/deploy.sh` + `curl localhost:8000` for backend), and assert the specific change landed in each (a green `/health` proves nothing).
+- **Keep `min_length`/`max_length` when ADDING `pattern`.** The charset `pattern=r"^[A-Z0-9]{12}$"` already constrains length to exactly 12, but leaving the explicit `min_length=12, max_length=12` is additive (clearer 422 messages, no behaviour change) and matches "evolve existing code, don't redesign." Don't strip the length constraints in the name of dedup.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
@@ -1171,6 +1212,12 @@ The assistant has confused these multiple times. Memorize them.
 - `$unset`-ing a guessed field name (`body`) instead of the real model field (`body_text`).
 - Filtering a time-based purge on a nullable date field (`published_at`) instead of the always-present `fetched_at`.
 
+### Chat 5.13 additions
+- **Trusting a "~line N" pointer instead of grepping the real line at HEAD.** Every Phase-5 line pointer was off; a find-and-replace anchored on the wrong line would have failed silently or matched the wrong block.
+- **Writing a verification grep with regex metacharacters when a literal match is intended.** `grep -n 'pattern=r"\^[A-Z0-9]{12}\$"'` can never match the on-disk line; `grep -Fn` (literal) is the correct tool and returned the true 2 matches. An empty grep is NOT proof of absence when the search pattern itself is malformed.
+- **Declaring a validator verified with a test that the pre-existing constraint already explains.** Both first-pass #17 curls 422'd on `min_length=12` alone — they could not distinguish the new charset `pattern`. The discriminating input is a 12-char string with a lowercase/illegal character.
+- **Treating a green `/health` (or a single repo's deploy) as proof for a both-repos phase.** Phase 5 spanned both repos; each needed its own deploy + landed-assertion (`grep` for the specific change + a discriminating functional curl/build).
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1182,7 +1229,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1218,6 +1265,9 @@ I AM LOSING CONTEXT
 - **Chat 5.12 trigger: about to add a cron whose `CronSpec.cron_name` != the string the script passes to `cron_run()` (TD14 contract).**
 - **Chat 5.12 trigger: about to run a mongosh verification against `portfolio_advisor` instead of the real app DB `portfolio`.**
 - **Chat 5.12 trigger: about to `$unset` or `$set` a field name not confirmed against the model at HEAD (e.g. `body` vs `body_text`).**
+- **Chat 5.13 trigger: about to write a find-and-replace anchored on a "~line N" pointer without having grepped the real line at the current HEAD SHA.**
+- **Chat 5.13 trigger: about to declare a change verified on a grep that contains regex metacharacters (use `grep -F` for literals) or on a functional test that the pre-existing constraint already explains.**
+- **Chat 5.13 trigger: about to declare a both-repos phase done on the strength of one repo's deploy / a green `/health` without a per-repo landed-assertion.**
 
 ### What "switching chats" means
 The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
@@ -1240,7 +1290,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "What's the F10 write-before-apply rule?" → `log_change(...)` BEFORE `update_one(...)` in `submit_feedback`.
 - "What's the Q/V/M/N weight breakdown?" → 30/25/25/20, version `"1.0.0-unit2"`.
 - "Is `lib/api-types.ts` checked in?" → No.
-- "refetchQueries or invalidateQueries?" → refetchQueries.
+- "refetchQueries or invalidateQueries?" → refetchQueries (the two notes-panel + refresh-button outliers were swapped in Chat 5.13 TD28; convention now holds everywhere).
 - "Sell endpoint response shape?" → full Holding (partial sell) OR `{message, realized_total}` (full exit) OR `{status:"recorded_with_warning", isin, warning}` (TD19 recompute-failed).
 - "Dividend tracking?" → No.
 - "When does F7 run?" → Last (Chat 10).
@@ -1250,7 +1300,9 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Healthy/unhealthy rule?" → Healthy iff (not expected today) OR (`success+skipped >= min` AND `failure == 0`).
 - "How is PROJECT_STATE.md delivered?" → Always full-file canvas artifact, verified to end with `End of PROJECT_STATE.md.`
 - "What must accompany every code/file delivery?" → A paste-ready `git add .` + commit block.
-- "How do test blocks start?" → `ssh ubuntu@100.112.20.41`, then curls against `localhost:8000`.
+- "How do test blocks start?" → `ssh ubuntu@100.112.20.41`, then curls against `localhost:8000`. (Frontend-only changes: `~/deploy-ui.sh` + `npm run build`/lint.)
+- "Is the transactions/search regex case-insensitive?" → No. Input is uppercased, symbols stored uppercase; NO `$options:i` (Chat 5.13 TD32) — it would disable the `(symbol, trade_date)` index.
+- "Do the `/suggestions/{isin}` Path params validate charset?" → Yes — `pattern=r"^[A-Z0-9]{12}$"` plus `min_length/max_length=12` (Chat 5.13 TD31).
 
 ### Chat 4 additions
 - "Fields on `CronSpec`?" → `cron_name`, `description`, `schedule_human`, `expected_weekdays`, `min_runs_per_day` (default 1).
@@ -1264,7 +1316,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "How does `compute_system_performance(direction='sell')` handle excess_return?" → SIGN-FLIPS at aggregation time.
 
 ### Chat 5 additions
-- "Is F2 frontend shipped?" → Yes, verified at frontend SHA `e34e126`; README rewrite at `9edfc8f`; unchanged at HEAD `4f31b49`.
+- "Is F2 frontend shipped?" → Yes, verified at frontend SHA `e34e126`; README rewrite at `9edfc8f`; unchanged at HEAD `4f31b49` (Chat 5.13 touched only notes-panel + refresh-button → `f59958`).
 - "Is the Q/V/M/N=0 sell-digest cosmetic bug fixed?" → Yes, 2026-05-20 commit `cea8eee`.
 - "Is `target_price` consumed anywhere?" → Yes, F2 sell-side `target_price_proximity`. `stop_loss` deferred to Chat 9 (TD6).
 - "Has `digest_delivery._send_email` been reconciled with `notify.email()`?" → Yes (Chat 5 A2 part 1).
@@ -1330,6 +1382,14 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Which field does `purge_news_bodies.py` unset and on what age key?" → `$unset {body_text:""}` (NOT `body`) on classified docs whose `fetched_at` (NOT `published_at`) is older than 30 days; stamps `body_purged_at`. Idempotent.
 - "What's `purge_news_bodies`'s schedule and heartbeat name?" → daily 02:30 IST (`30 2 * * *`); `cron_run("purge_news_bodies")` with a matching `CronSpec(cron_name="purge_news_bodies")`.
 
+### Chat 5.13 additions
+- "refetchQueries or invalidateQueries — any outliers left?" → No outliers. The two known `invalidateQueries` (notes-panel + refresh-button) were swapped to `refetchQueries` in Chat 5.13 (TD28); the convention holds project-wide.
+- "Is the transactions/search regex case-insensitive?" → No (Chat 5.13 TD32). Input uppercased + symbols stored uppercase; NO `$options:i` so the `(symbol, trade_date)` index is used. `GET /transactions/search?symbol=tr` returns the same result as uppercase.
+- "What validates the ISIN on the two `/suggestions/{isin}` endpoints?" → `pattern=r"^[A-Z0-9]{12}$"` plus `min_length=12, max_length=12` on the `Path()` params of `get_feedback_audit_for_isin` (audit) and `submit_feedback` (feedback) (Chat 5.13 TD31). A 12-char lowercase ISIN 422s.
+- "Was the dead `from pydoc import doc` import removed?" → Yes, from `app/routers/holdings.py` line 6 (Chat 5.13 TD29).
+- "Was the Section 10 `MONGODB_URL` doc drift fixed?" → Yes — Section 10 reads `MONGODB_URI`; the correction landed in the Chat 5.12 Project_State and the master_todo #16 row was closed as TD30 in Chat 5.13.
+- "What SHAs did Chat 5.13 close at?" → frontend code HEAD `f59958` (TD28), backend code HEAD `090d96c` (TD29 + TD31 + TD32); the doc commit advances both past those.
+
 ## Section 18: Tech debt registry
 
 | ID | Item | Status | Chat target |
@@ -1376,6 +1436,11 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD25 | `bulk_get_previous_closes` `$push`-ed every `{date, close}` for every requested ISIN into an in-memory array (no date filter/limit) then filtered in Python — ~34k price docs pulled per dashboard request. | SHIPPED Chat 5.11 (2026-06-08): rewrote the body to delegate to the existing single-ISIN `get_previous_close` (indexed `find_one({"date": {"$lt": latest}}, sort=[("date",-1)])` point-query per ISIN). Eliminates the ~34k-doc pull; keeps Decimal128/Decimal normalization in one place. Chosen over an aggregation-pipeline rewrite (evolves existing code, no new query pattern; index makes each a point-query). Verified on EC2: bulk result byte-identical to per-ISIN `get_previous_close` for all held ISINs. Commit `a2806cd`. (master_todo #11 / P2-13) | — |
 | TD26 | `prices_intraday` had no TTL — an append-only intraday collection (~28 snapshots/holding/day) that would grow unbounded once real ICICI data lands at Chat 10 GO LIVE. | SHIPPED Chat 5.12 (2026-06-08): added `captured_at_ttl` (ASC, `expireAfterSeconds = 90*86400 = 7776000`) to the `prices_intraday` index list in `app/db/indexes.py`. Confirmed at HEAD that `_intraday_row_from_df` writes `captured_at` as a BSON Date (`datetime.now(timezone.utc)` threaded through `insert_intraday_quotes`), so the TTL actually expires docs — a TTL silently no-ops on a string/Decimal field. Kept the existing non-TTL `captured_at_desc` (ASC vs DESC are different key patterns, so both coexist — mirrors `cron_heartbeats` `started_at_ttl` + `started_at_desc`); `ensure_all_indexes` stays purely additive (no drop). Verified on EC2: `db.prices_intraday.getIndexes()` shows `captured_at_ttl` on `{captured_at:1}` with `expireAfterSeconds:7776000`; all four indexes intact. Commit shipped Chat 5.12 (the indexes.py commit preceding deployed HEAD `49bf33f`). (master_todo #12 / P2-3) | — |
 | TD27 | `news_articles.body_text` was never purged — the raw article body (only needed until the Haiku classifier has run) would accumulate unbounded. | SHIPPED Chat 5.12 (2026-06-08): new `scripts/purge_news_bodies.py` daily cron (02:30 IST). Field corrections vs the original spec — the bulky field is `body_text` (NOT `body`), and age keys on `fetched_at` (always present via `default_factory=utcnow`; `published_at` is nullable and would strand undated docs). Filter `{classified:True, fetched_at:{$lt: now-30d}, body_purged_at:None, body_text:{$nin:["",None]}}`; write `{$unset:{body_text:""}, $set:{body_purged_at: now}}` (idempotent — re-runs are no-ops). Mirrors `refresh_prices_intraday.py` (`cron_run("purge_news_bodies")` heartbeat, `hb.metadata[...]`, `hb.mark_skipped("no_expired_bodies")`); adds `--dry-run` count-only mode. Registered the F4 triad: `CronSpec(cron_name="purge_news_bodies", ..., expected_weekdays=WEEKDAYS_ALL)` in `CRON_REGISTRY` (name byte-identical to the `cron_run()` string — TD14 contract) + crontab line `30 2 * * *` with `>> cron-news-purge.log 2>&1`. Verified on EC2 against the real `portfolio` DB (NOT `portfolio_advisor` — the app DB is `portfolio`; a first test pass seeded the wrong DB and proved nothing): dry-run reported 1 candidate, live run purged 1, sentinel returned `body_text` absent + `body_purged_at` a Date, success heartbeat `metadata.purged:1`, `/cron/heartbeats` shows `healthy:true, expected_today:true`. Commit `49bf33f` (script + CronSpec) + the EC2 crontab line. (master_todo #13 / P2-4) | — |
+| TD28 | `notes-panel.tsx` + `refresh-button.tsx` used lazy `invalidateQueries` instead of the project-wide synchronous `refetchQueries` convention — the two known outliers (Section 14). | SHIPPED Chat 5.13 (2026-06-08): swapped both `invalidateQueries` in `components/notes-panel.tsx` (mutation `onSuccess` — `["holding", holding.isin]` line 42 + `["dashboard"]` line 45) and all three in `components/refresh-button.tsx` (inside the existing `await Promise.all([...])` — `["dashboard"]`/`["reconciliation"]`/`["cost-basis"]` lines 17-19) to `refetchQueries`. Minimal name-swap only (no `async`/`await` reorder — kept to the master_todo text). Verified on frontend HEAD `f59958`: `grep invalidateQueries` → 0; `refetchQueries` counts notes-panel:2 + refresh-button:3 = 5; `~/deploy-ui.sh` build clean. (master_todo #14 / P2-2) | — |
+| TD29 | Dead `from pydoc import doc` import in `app/routers/holdings.py` (line 6), immediately shadowed by local `doc` variables in the serializer helpers. | SHIPPED Chat 5.13 (2026-06-08): removed the import. Behaviour-neutral. Verified on backend HEAD `090d96c`: `grep "from pydoc import doc"` → empty. (master_todo #15 / P3-3) | — |
+| TD30 | Doc drift — Project_State Section 10 historically said `MONGODB_URL` while the code uses `MONGODB_URI`. | SHIPPED Chat 5.13 (2026-06-08): confirmed at HEAD `090d96c` that the code reads `MONGODB_URI` and that Section 10 already reflected this (the correction landed in the Chat 5.12 Project_State, with the explicit master_todo #16 note). Row closed; doc-only confirmation, no further edit. (master_todo #16 / P3-6) | — |
+| TD31 | The two `/suggestions/{isin}` ISIN `Path()` params (`get_feedback_audit_for_isin`, `submit_feedback`) constrained only length (`min_length=12, max_length=12`), not charset — a malformed 12-char ISIN reached Mongo. | SHIPPED Chat 5.13 (2026-06-08): added `pattern=r"^[A-Z0-9]{12}$"` alongside the existing length constraints on both Path params (lines 240 + 260) in `app/routers/suggestions.py`. `/runs/{run_id}` left untouched (ObjectId, not ISIN). Now a malformed ISIN 422s at the boundary. Verified on backend HEAD `090d96c`: `grep -Fn 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; 12-char lowercase `INE002a01018` → 422 (charset, not length); valid `INE002A01018` → 200. (master_todo #17 / P3-7) | — |
+| TD32 | `GET /transactions/search` prefix regex carried `"$options": "i"` even though the input is uppercased (`symbol.upper()`) and symbols are stored uppercase — the redundant flag disabled the `(symbol, trade_date)` index (forced a COLLSCAN). | SHIPPED Chat 5.13 (2026-06-08): dropped the flag (`query["symbol"] = {"$regex": f"^{escaped}"}`, line 113) in `app/routers/transactions.py` and corrected the now-false "(case-insensitive)" inline comment. The regex was at lines 91-92 (NOT the ~102-115 date-bound block). Case-sensitive on purpose; index restored. Behaviour-neutral for callers. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex at line 113; `GET /transactions/search?symbol=tr` → `total: 20` (parity). (master_todo #18 / P3-8) | — |
 
 ### F-number fix registry (TD15 deliverable — Chat 5.9)
 
@@ -1442,6 +1507,7 @@ Notes:
 - **Chat 5.10 Phase 2** — TD16 (write-before-apply), TD17 (validate_replay on /sell + manual import), TD18 (dup-handler delete), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). All SHIPPED + EC2-verified 2026-06-06. Commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`.
 - **Chat 5.11 Phase 3** — TD23 (intraday holiday guard), TD24 (price_stale docstring alignment), TD25 (bulk_get_previous_closes per-ISIN rewrite). All SHIPPED + EC2-verified 2026-06-08 in one commit `a2806cd`.
 - **Chat 5.12 Phase 4** — TD26 (prices_intraday.captured_at 90-day TTL), TD27 (purge_news_bodies daily cron). Both SHIPPED + EC2-verified 2026-06-08. Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line.
+- **Chat 5.13 Phase 5** — TD28 (refetchQueries swap, frontend `f59958`), TD29 (dead pydoc import removal), TD30 (MONGODB_URI doc-drift confirmation), TD31 (ISIN charset pattern on the two /suggestions Path params), TD32 ($options:i drop on transactions/search). All SHIPPED + verified 2026-06-08. One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`).
 
 ## Section 19: How to update this document
 
@@ -1485,6 +1551,8 @@ Chat 5.10 added rule: update master_todo.md status AND the matching Project_Stat
 Chat 5.11 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). When the sandbox/canvas tooling is unavailable mid-rebuild, the full-file replacement is still delivered as a canvas (.md) artifact built from the user-pasted byte-exact source — never from a wrapped read, and never as a patch. All Chat 5.11 doc changes were strictly additive (new TD23–TD25 rows, new Section 13 Chat-5.11 entry, new Chat-5.11 subsections in Sections 14–17 + 20 + 22, price_service annotations in Section 5, the prices_intraday writer note in Section 7, and the Phase-1 intraday invariant in Section 11), so the line count grows vs the prior commit; the sentinel below is preserved.
 
 Chat 5.12 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). All Chat 5.12 doc changes were strictly additive (new TD26–TD27 rows, new Section 13 Chat-5.12 entry, new Chat-5.12 subsections in Sections 14–17 + 20 + 22, the indexes.py + cron_heartbeat_service.py + purge_news_bodies.py annotations in Section 5, the prices_intraday TTL + news_articles `body_text` purge notes in Section 7, the 02:30 IST crontab line + 11-entry registry count in Section 9, the `MONGODB_DB_NAME=portfolio` note in Section 10, and the prices_intraday TTL note in Section 11), so the line count grows vs the prior commit; the sentinel below is preserved. Storage-hygiene lessons encoded for posterity: a TTL no-ops on a non-Date field; a same-field TTL and non-TTL index coexist only when their key direction differs; a mongosh verification must target the real app DB `portfolio` (NOT `portfolio_advisor`); the bulky news field is `body_text` (NOT `body`); and a time-based purge keys on `fetched_at` (NOT the nullable `published_at`).
+
+Chat 5.13 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). Phase 5 spanned BOTH repos, so Section 4 now pins TWO close SHAs (backend code HEAD `090d96c`, frontend code HEAD `f59958`) and the doc commit advances both. All Chat 5.13 doc changes were strictly additive (new TD28–TD32 rows, new Section 13 Chat-5.13 entry, new Chat-5.13 subsections in Sections 14–17 + 20 + 22, the holdings.py/suggestions.py/transactions.py annotations in Section 5, the notes-panel/refresh-button annotations in Section 6, the transactions search-regex note in Section 7, the /transactions/search + /suggestions endpoint notes in Section 8, the MONGODB_URI TD30 note in Section 10, the case-sensitive-search invariant in Section 11, and the ISIN-pattern invariant in Section 12), so the line count grows vs the prior commit; the sentinel below is preserved. Verification lessons encoded for posterity: a "~line N" pointer is a hint, re-anchor at HEAD; `grep -F` for literal strings (a metacharacter-bearing grep can be self-defeating); a pass/fail test must DISCRIMINATE the change under test from pre-existing constraints; and a both-repos phase needs a per-repo deploy + landed-assertion (a green `/health` proves nothing).
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1581,6 +1649,13 @@ Chat 5.12 added rule: the byte-exact source for this doc rebuild was the user-pa
 - **TD27 adds a `--dry-run` count-only mode** despite `refresh_prices_intraday.py` having no argparse: the job is destructive, so a preview path is worth the small divergence from the mirrored script (README convention is "most scripts support `--dry-run`").
 - **TD27 verification re-run against the correct DB after the first pass seeded `portfolio_advisor`**: the green path is only meaningful against the real app DB `portfolio`. The contradiction (empty `cron_heartbeats` in `portfolio_advisor` while `/cron/heartbeats` showed the runs) was the tell that exposed the wrong-DB harness bug — fixed by `getSiblingDB("portfolio")`, not by changing code.
 
+### Chat 5.13 additions
+- **TD28 minimal name-swap over the `async`/`await`-before-toast reorder** (offered, declined-by-omission): the master_todo text said "swap invalidateQueries → refetchQueries," nothing more. The canonical `/suggestions` pattern makes `onSuccess` async and awaits the refetch before the toast, but adding that here would exceed the item's scope and change toast timing. Kept it to the literal swap; the reorder is noted as an available follow-up, not shipped.
+- **TD31 added `pattern` alongside `min_length`/`max_length`, not in place of them**: the charset regex already implies length 12, but leaving the explicit length constraints is additive (clearer 422s, zero behaviour change) and matches "evolve, don't redesign." Stripping them for dedup would have been a needless redesign.
+- **TD32 also corrected the inline "(case-insensitive)" comment, not just the flag**: leaving a now-false comment is a future-drift trap. The one-line comment fix rode in the same minimal commit as the `$options` drop.
+- **Phase 5 grouped into a per-repo deploy/test boundary**: one frontend commit tested via `~/deploy-ui.sh` + `npm run build`; three backend commits (one per item) deployed together and tested in a single EC2 pass with a discriminating landed-assertion per item — rather than four separate deploy cycles.
+- **TD30 closed as a confirmation, not an edit**: the `MONGODB_URL`→`MONGODB_URI` correction had already landed in the Chat 5.12 Project_State; re-editing would have been churn. Verified at HEAD and closed the row.
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
@@ -1612,6 +1687,7 @@ So future chats don't accidentally try to add these:
 - Mongo multi-document (M10) transactions on the synchronous write path. Considered and rejected for TD19 — the immutable ledger is the source of truth and a recompute failure is surfaced via a `recorded_with_warning` flag, not rolled back, to avoid per-step session latency on a single-user box.
 - DST-aware timezone handling for IST. India observes no DST; IST is a fixed UTC+5:30 (`timezone(timedelta(hours=5, minutes=30))`). Chat 5.11 codified this in `price_service.IST` — do not introduce a zoneinfo/DST lookup.
 - Dropping/replacing a same-field index to add a TTL when an ASC-vs-DESC direction split lets both coexist. Chat 5.12 added `captured_at_ttl` (ASC) ALONGSIDE `captured_at_desc` (DESC); `ensure_all_indexes` stays additive with no `drop_index`.
+- Case-insensitive symbol search. Symbols are uppercased on input and stored uppercase, so `GET /transactions/search` uses a case-sensitive prefix regex with NO `$options:i` (Chat 5.13 TD32) — an `"i"` flag would disable the `(symbol, trade_date)` index. Do not reintroduce it.
 
 ## Section 22: Glossary
 
@@ -1642,8 +1718,11 @@ So future chats don't accidentally try to add these:
 - **TD16 / TD17 / TD18 / TD19 / TD20 (Chat 5.10)**: see Section 18. All SHIPPED 2026-06-06. TD16 write-before-apply on transactions PATCH/DELETE; TD17 validate_replay on /sell + manual import; TD18 dup-handler delete; TD19 recompute warning-flag; TD20 per-ISIN recompute lock.
 - **TD23 / TD24 / TD25 (Chat 5.11)**: see Section 18. All SHIPPED 2026-06-08 in one commit `a2806cd`. TD23 intraday holiday guard (`_intraday_row_from_df`); TD24 `price_stale` docstring aligned to code (6 calendar days canonical); TD25 `bulk_get_previous_closes` rewritten to per-ISIN `find_one`.
 - **TD26 / TD27 (Chat 5.12)**: see Section 18. Both SHIPPED 2026-06-08. TD26 `prices_intraday.captured_at` 90-day TTL (`captured_at_ttl`); TD27 `scripts/purge_news_bodies.py` daily cron.
+- **TD28 / TD29 / TD30 / TD31 / TD32 (Chat 5.13)**: see Section 18. All SHIPPED 2026-06-08. TD28 `refetchQueries` swap (frontend `f59958`); TD29 dead `pydoc` import removal; TD30 `MONGODB_URI` doc-drift confirmation; TD31 ISIN charset `pattern` on the two `/suggestions/{isin}` Path params; TD32 `$options:i` drop on `transactions/search`.
 - **`captured_at_ttl` (TD26, Chat 5.12)**: ASC TTL index on `prices_intraday.captured_at`, `expireAfterSeconds = 90*86400 = 7776000`. Coexists with the DESC `captured_at_desc` (different key directions). Works because `captured_at` is written as a BSON Date.
 - **`purge_news_bodies` (TD27, Chat 5.12)**: daily 02:30 IST cron (`scripts/purge_news_bodies.py`) that `$unset`s `body_text` and stamps `body_purged_at` on classified `news_articles` whose `fetched_at` is older than 30 days. `cron_run("purge_news_bodies")` heartbeat + matching `CronSpec`. `--dry-run` count-only mode. Idempotent.
+- **ISIN charset pattern (TD31, Chat 5.13)**: `pattern=r"^[A-Z0-9]{12}$"` on the `Path()` params of `GET /suggestions/{isin}/audit` (`get_feedback_audit_for_isin`) and `POST /suggestions/{isin}/feedback` (`submit_feedback`), alongside `min_length/max_length=12`. A malformed 12-char ISIN 422s at the boundary.
+- **Case-sensitive transaction search (TD32, Chat 5.13)**: `GET /transactions/search` prefix-matches `symbol` with `{"$regex": f"^{escaped}"}` (NO `$options:i`); input is `symbol.upper()` and symbols are stored uppercase, so the `(symbol, trade_date)` index is used.
 - **`portfolio` (app DB name)**: the application's MongoDB database is `portfolio` (`MONGODB_DB_NAME` default), NOT `portfolio_advisor`. mongosh verifications must `getSiblingDB("portfolio")`. (Chat 5.12 lesson.)
 - **`IST` / `_to_ist()` (Chat 5.11, TD23)**: module-level `IST = timezone(timedelta(hours=5, minutes=30))` (fixed UTC+5:30; India has no DST) and `_to_ist()` helper in `price_service.py` (tz-aware → `astimezone`; tz-naive → treated as UTC first). Used by the intraday holiday guard.
 - **`recompute_locks` (TD20, Chat 5.10)**: per-ISIN advisory-lock collection; `_id==isin`, `acquired_at` with 60s TTL; serializes `recompute_holding`. Acquired via atomic `insert_one`, released in `finally`. Accessor `Collections.recompute_locks()`; holder `_per_isin_recompute_lock`.
@@ -1658,7 +1737,8 @@ So future chats don't accidentally try to add these:
 - **Chat 5.9**: Phase 1 ops + docs — TD14 (crontab flags + CRON_REGISTRY rename), TD10 (verified already satisfied), TD15 (F-number fix registry authored). Recovered Sections 16-tail + 17–22 truncated by the Chat 5.8 commit. Filed TD21 (registry-generated crontab) + TD22 (track_suggestion_outcomes daily failure).
 - **Chat 5.10**: Phase 2 closed — TD16 (write-before-apply on PATCH/DELETE), TD18 (dup handler delete), TD17 (validate_replay on /sell + manual import), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). Five code commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`. No frontend work; one open SellSheet follow-up noted in Section 6.
 - **Chat 5.11**: Phase 3 closed — TD23 (intraday holiday guard + IST/_to_ist helpers), TD24 (price_stale docstring aligned to code), TD25 (bulk_get_previous_closes per-ISIN rewrite). ONE code commit `a2806cd`, only `app/services/price_service.py`. No frontend work; the Chat 5.10 SellSheet follow-up remains open.
-- **Chat 5.12 (THIS commit)**: Phase 4 closed — TD26 (`prices_intraday.captured_at` 90-day TTL in `app/db/indexes.py`), TD27 (`scripts/purge_news_bodies.py` daily 02:30 IST cron + `CronSpec`). Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line. No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a TTL no-ops on a non-Date field; the app DB is `portfolio` not `portfolio_advisor`; the bulky news field is `body_text` not `body`; purge age keys on `fetched_at` not `published_at`.
+- **Chat 5.12**: Phase 4 closed — TD26 (`prices_intraday.captured_at` 90-day TTL in `app/db/indexes.py`), TD27 (`scripts/purge_news_bodies.py` daily 02:30 IST cron + `CronSpec`). Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line. No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a TTL no-ops on a non-Date field; the app DB is `portfolio` not `portfolio_advisor`; the bulky news field is `body_text` not `body`; purge age keys on `fetched_at` not `published_at`.
+- **Chat 5.13 (THIS commit)**: Phase 5 closed — TD28 (`refetchQueries` swap in `notes-panel.tsx` + `refresh-button.tsx`, frontend `f59958`), TD29 (dead `from pydoc import doc` removal in `holdings.py`), TD30 (`MONGODB_URI` doc-drift confirmation), TD31 (ISIN charset `pattern` on the two `/suggestions/{isin}` Path params in `suggestions.py`), TD32 (`$options:i` drop on `transactions/search` in `transactions.py`). One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`). No frontend work beyond TD28; the Chat 5.10 SellSheet follow-up remains open. Lessons: a "~line N" pointer is a hint (re-anchor at HEAD); use `grep -F` for literal verification strings; a pass/fail test must discriminate the change from pre-existing constraints; a both-repos phase needs a per-repo deploy + landed-assertion.
 - **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
 - **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 
