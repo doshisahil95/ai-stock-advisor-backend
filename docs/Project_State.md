@@ -237,13 +237,13 @@ TD10 / master_todo #2 (SHIPPED Chat 5.9, 2026-06-02): the pre-existing `0 0 * * 
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.10 closed, 2026-06-06):
-- Backend: `b34721e8251bb21ad59c0f111f1c8022528844b6` (Chat 5.10 Phase-2 close: TD20 advisory-lock commit; advances after this Chat 5.10 doc commit — pin in next chat). Chat 5.10 opened at `ce5e74616bb811a132843d266e78bccbc1cdad90` (the Chat 5.9 doc commit) and shipped five code commits in master_todo order: `17f9f94` (TD16 write-before-apply) → TD18 dup-handler delete → `5cf3087` (TD17 validate_replay on /sell + manual import) → `fb23307` (TD19 recompute warning-flag) → `b34721e` (TD20 per-ISIN recompute lock).
-- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.10; no frontend work in Chat 5.10; TD13 per-page reference shipped at this SHA).
+Last verified SHAs (Chat 5.11 closed, 2026-06-08):
+- Backend: `a2806cd` (Chat 5.11 Phase-3 close: the single TD23–TD25 code commit; HEAD advances after this Chat 5.11 doc commit — pin in next chat). Chat 5.11 opened at `f22eb9a4719422e238d4c462534c5b45164f6e78` (the Chat 5.10 doc commit) and shipped ONE code commit `a2806cd` carrying all three Phase-3 items (TD23 holiday guard + TD24 price_stale alignment + TD25 bulk_get_previous_closes rewrite). The prior Chat 5.10 close was `b34721e8251bb21ad59c0f111f1c8022528844b6` (TD20 advisory-lock); Chat 5.10 shipped five code commits in master_todo order: `17f9f94` (TD16 write-before-apply) → TD18 dup-handler delete → `5cf3087` (TD17 validate_replay on /sell + manual import) → `fb23307` (TD19 recompute warning-flag) → `b34721e` (TD20 per-ISIN recompute lock).
+- Frontend: `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.11; no frontend work in Chat 5.11; TD13 per-page reference shipped at this SHA).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
@@ -334,10 +334,14 @@ app/
                               throws through yfinance)
     price_service.py          EOD + intraday fetch, bulk_get_latest_prices,
                               annotate_with_current_price, get_previous_close
+                              IST + _to_ist() helpers (TD23 / master_todo #9, Chat 5.11)
                               F7/F8 (fix): NaN-guard revival + multi-column NaN drop
-                              master_todo #9: holiday guard in _intraday_row_from_df
-                              master_todo #10: align price_stale docstring vs code
-                              master_todo #11: rewrite bulk_get_previous_closes
+                              master_todo #9 SHIPPED (Chat 5.11, TD23): holiday guard in
+                              _intraday_row_from_df (latest bar IST date != today -> None)
+                              master_todo #10 SHIPPED (Chat 5.11, TD24): price_stale
+                              docstring aligned to code (6 calendar days canonical)
+                              master_todo #11 SHIPPED (Chat 5.11, TD25): bulk_get_previous_closes
+                              rewritten to per-ISIN find_one (delegates to get_previous_close)
                               master_todo #31: tz-aware datetime sweep (line 155)
     holdings_service.py       recompute_holding (per-ISIN advisory-lock wrapper) +
                               _recompute_holding_impl (the read-replay-overwrite body) +
@@ -446,7 +450,7 @@ tests/
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 Chat 5.5 TD12: universe paragraph corrected
-  Project_State.md              THIS FILE (Chat 5.10 doc commit; recovered from
+  Project_State.md              THIS FILE (Chat 5.11 doc commit; recovered from
                                 Chat 5.8 truncation in Chat 5.9 — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
@@ -459,7 +463,7 @@ README.md                       Chat 5 doc deliverable 2/4 SHIPPED
 
 ## Section 6: Frontend file map
 
-Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10):
+Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.11):
 ```
 app/
   layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
@@ -587,7 +591,7 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 - Key fields: `isin`, `symbol`, `date`, `captured_at`, OHLCV, `source="yfinance_5m_latest"`
 - INVARIANT: append-only within a day
 - **No TTL configured yet — master_todo #12 will add 90-day TTL**
-- Writer: `scripts/refresh_prices_intraday.py`. master_todo #9: needs holiday guard.
+- Writer: `scripts/refresh_prices_intraday.py` → `_intraday_row_from_df`. master_todo #9 / TD23 SHIPPED Chat 5.11: holiday guard added — a bar whose latest-IST date != today returns None, so a holiday-stale bar never lands here (nor becomes a bogus "current price" via the intraday read path).
 
 #### `reconciliation_snapshots`
 - Daily comparisons of our totals vs ICICI Direct
@@ -754,7 +758,7 @@ The frontend discriminates via type guard on the `_id` field. NOTE (Chat 5.10 op
 
 Run `crontab -l` to see current state. Every script below is heartbeat-instrumented via `cron_run()`. The daily `cron_health_check` at 21:00 IST consumes those heartbeats. `CRON_REGISTRY` in `cron_heartbeat_service.py` is the in-code mirror of this schedule — keep both in sync.
 
-Current live crontab (verified 2026-06-02, Chat 5.9 — 9 active lines; unchanged Chat 5.10):
+Current live crontab (verified 2026-06-02, Chat 5.9 — 9 active lines; unchanged Chats 5.10–5.11):
 
 ```cron
 # Phase 1 crons (heartbeat-instrumented Chat 2)
@@ -841,7 +845,7 @@ From `docs/data_flow.md`. Hard rules.
   - **RESOLVED Chat 5.10 (master_todo #5 / TD17):** `/portfolio/holdings/{isin}/sell` and the `add_manual_transactions.py` SELL path now call `validate_replay`; a backdated SELL that would go negative mid-timeline 400s (API) / aborts with RuntimeError (script) BEFORE the ledger write, instead of being only logged as an oversell warning by `_fifo_replay`.
 - `holdings.deleted_at = None` filter is universal.
 - Cost basis is IT-Act-correct, not broker-nominal.
-- `prices_intraday` writes are append-only within a day.
+- `prices_intraday` writes are append-only within a day. **Chat 5.11 (master_todo #9 / TD23): `_intraday_row_from_df` now drops a holiday-stale bar (latest 5m bar's IST date != today's IST date → return None), so a market-holiday quote never gets written or surfaced as a "current price".**
 - ICICI portfolio display shows TMPV ~₹813 and TMCV ~₹253 — cosmetically wrong vs our tax-correct numbers; does not affect actual money or tax filing.
 - Chat 5.6 robustness: `preview_sell` correctly folds SPLIT/BONUS adjustments into the lot walk.
 
@@ -900,7 +904,7 @@ Phase 1 (all shipped, all locked):
 - Preview-sell endpoint (Chat 5.6 hardened SPLIT/BONUS handling)
 - Reconciliation snapshots (manual + auto) with drift detection
 - Cost basis adjustments (TMPV/TMCV demerger seeded)
-- EOD + intraday price refresh
+- EOD + intraday price refresh (Chat 5.11: intraday holiday-guarded, master_todo #9)
 - Tax view vs broker view in portfolio summary
 - Single-holding drill-down page with chart, transactions, notes panel
 - Audit log page
@@ -938,6 +942,11 @@ Chat 5.10 (Phase 2 — transactions/holdings/audit consistency) — SHIPPED 2026
 - TD19 / master_todo #7 (commit `fb23307`): `add_buy` + `sell` wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked by a recompute failure. `recompute_holding` returning None stays a legitimate full-exit success outside the except. Added module logger. Warning-flag chosen over Mongo M10 multi-doc transactions (user-confirmed: avoids per-step session latency on the single-user box). Verified via fault injection on BOTH paths: ledger row persists despite a forced recompute crash and the caller gets a 2xx warning, not a 500.
 - TD20 / master_todo #8 (commit `b34721e`): `recompute_holding` serialized per-ISIN via a `recompute_locks` advisory doc (atomic `insert_one`, `finally` release, 60s TTL reclaim); body renamed `_recompute_holding_impl`. Chosen over `asyncio.Lock` (user-confirmed) because every holdings handler is sync `def` under sync Uvicorn (confirmed at HEAD) and a `threading.Lock` would be blind to the out-of-process scripts. Added `Collections.recompute_locks()` + `acquired_at` TTL index. Verified: 8 concurrent recomputes of one ISIN → exactly 1 correct holding, no thread errors, no leaked lock; lock primitive enforces mutual exclusion (second acquire raises DuplicateKeyError).
 - No frontend work. One open follow-up noted (NOT actioned): the SellSheet discriminates on absence of `_id`, so a `recorded_with_warning` response (no `_id`) falls through its non-holding branch — rare failure path, deferred.
+Chat 5.11 (Phase 3 — intraday & price correctness) — SHIPPED 2026-06-08. ONE backend code commit `a2806cd`; all three items verified on EC2 against localhost:8000; all touch only `app/services/price_service.py`:
+- TD23 / master_todo #9 (P1-4): holiday guard in `_intraday_row_from_df`. The function now reads the latest 5m bar's index timestamp and returns None when its IST date != today's IST date (yfinance `period="1d"` returns the prior trading day's bars on an NSE holiday — a stale bar). Added module-level `IST = timezone(UTC+5:30)` (India has no DST) + `_to_ist()` helper (tz-aware → `astimezone`; tz-naive → treated as UTC first, matching the existing `_df_to_rows` / `annotate_with_current_price` naive→UTC convention); "today" derives from the passed-in `captured_at`. Verified: a today-dated synthetic bar returns a dict, a yesterday-dated bar returns None.
+- TD24 / master_todo #10 (P2-14): `price_stale` docstring aligned to code. CODE (`timedelta(days=6)`) chosen canonical (user-delegated); docstring "more than 4 trading days old" → "more than 6 calendar days old" + inline comment noting 6 calendar days ≈ 4 NSE trading days across a weekend. Doc-/comment-only; zero behaviour change.
+- TD25 / master_todo #11 (P2-13): `bulk_get_previous_closes` rewritten to per-ISIN `find_one`, delegating to the existing single-ISIN `get_previous_close` (indexed point-query per ISIN) instead of `$push`-ing every price doc per ISIN into an in-memory array and filtering in Python. Eliminates the ~34k-doc pull per dashboard request; Decimal128/Decimal normalization stays in one place. Chosen over an aggregation-pipeline rewrite (evolves existing code, no new query pattern). Verified: bulk result byte-identical to per-ISIN `get_previous_close` for all held ISINs.
+- No frontend work. The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-3 scope).
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -947,8 +956,8 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 |---|---|---|---|
 | 1 | master_todo #1-3 | Ops unblock + doc reconciliation (TD14, TD10, TD15) | SHIPPED (Chat 5.9) |
 | 2 | master_todo #4-8 | Transactions/holdings/audit invariants (TD16-TD20) | SHIPPED (Chat 5.10) |
-| 3 | master_todo #9-11 | Intraday & price correctness | OPEN — next |
-| 4 | master_todo #12-13 | Storage hygiene | OPEN |
+| 3 | master_todo #9-11 | Intraday & price correctness (TD23-TD25) | SHIPPED (Chat 5.11) |
+| 4 | master_todo #12-13 | Storage hygiene | OPEN — next |
 | 5 | master_todo #14-18 | Frontend correctness + quick wins | OPEN |
 | 6 | master_todo #19-24 | External-service hardening | OPEN |
 | 7 | master_todo #25-26 | Reconciliation alerting + feedback direction | OPEN |
@@ -959,14 +968,13 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.10
+### Open items CARRIED FORWARD past Chat 5.11
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The three highest-priority items per master_todo current position (Phases 1 + 2 closed; pointer now at #9):
-- **master_todo #9 (P1-4):** holiday guard on `_intraday_row_from_df` — if the bar's IST date != today, return None. Phase 3.
-- **master_todo #10 (P2-14):** align `price_stale` docstring vs code (doc "4 trading days" vs code `timedelta(days=6)`). Phase 3.
-- **master_todo #11 (P2-13):** rewrite `bulk_get_previous_closes` to push the filter into Mongo (currently pulls ~34k price docs per dashboard request). Phase 3.
+The two highest-priority items per master_todo current position (Phases 1 + 2 + 3 closed; pointer now at #12):
+- **master_todo #12 (P2-3):** add a 90-day TTL index on `prices_intraday.captured_at` (`expireAfterSeconds = 90 * 86400`). Phase 4 storage hygiene — must land before Chat 10 GO LIVE.
+- **master_todo #13 (P2-4):** new `scripts/purge_news_bodies.py` daily cron — `$unset {body}` on classified `news_articles` older than 30 days, set `body_purged_at`, register in `CRON_REGISTRY`. Phase 4.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
@@ -1044,6 +1052,13 @@ The assistant has confused these multiple times. Memorize them.
 - **`fetch_metadata` (yfinance_lookup) swallows all exceptions** and returns a safe-default dict, so a first-time recompute on an unknown symbol won't throw through yfinance — useful when constructing deterministic happy-path tests on fake ISINs.
 - **When a test grabs "the newest BUY" it can land on an exited/soft-deleted holding** — `validate_replay` then rejects even a notes-only edit (the timeline replays to 0). Seed test data from an ACTIVE holding (`/portfolio/holdings` then its `/transactions`), and use DISTINCT trade dates for BUY-before-SELL so a same-instant ordering ambiguity doesn't false-trip `validate_replay`.
 
+### Chat 5.11 additions
+- **India has no DST — IST is a fixed UTC+5:30.** For any IST conversion in backend code use `timezone(timedelta(hours=5, minutes=30))`, NOT a DST-aware zoneinfo lookup. Chat 5.11 added module-level `IST` + `_to_ist()` to `price_service.py`; reuse them rather than re-deriving the offset.
+- **`price_service.py`'s tz convention is "treat tz-naive datetimes as UTC first, then convert."** `_df_to_rows`, `annotate_with_current_price`, and now `_to_ist` all follow it. When you add any new tz-aware comparison in this module, match that convention (tz-aware → `astimezone`; tz-naive → `.replace(tzinfo=utc)` first) so the master_todo #31 sweep doesn't have to special-case your code.
+- **NSE intraday bars (09:15–15:30 IST) sit comfortably inside one IST calendar day**, so the TD23 `.date()`-level holiday guard is robust even if yfinance's naive-tz interpretation were slightly off — the date comparison can't flip within a single session. Don't over-engineer it into a timestamp-tolerance check.
+- **`bulk_get_previous_closes` now delegates to `get_previous_close` per ISIN (TD25).** It is NO LONGER a single aggregation; do not "optimize" it back into a `$push`-everything pipeline — that was the ~34k-doc regression we removed. If you need a true bulk pipeline later, push the `date < latest` filter into Mongo (`$lookup`/`$facet` per ISIN), never pull full per-ISIN history into memory.
+- **Deploy lesson (process, not code): a green `/health` + green dashboard endpoints do NOT prove a code change landed.** In Chat 5.11 the dashboard curls returned 200 with populated `day_gain`/`price_stale` while the patch wasn't on the box yet (the deploy `git pull` had been skipped / the change wasn't committed). The only check that actually probed the change was `hasattr(ps, "_to_ist")`. Always include a positive existence/behaviour assertion for the specific new symbol, and confirm `deploy.sh` actually pulled the expected SHA, before trusting "all green."
+
 ## Section 15: Anti-patterns the assistant has fallen into
 
 - Full-file rewrites instead of additive patches. EXCEPTION: Project_State.md and master_todo.md are always full-file.
@@ -1108,6 +1123,11 @@ The assistant has confused these multiple times. Memorize them.
 - **Pasting a long Python heredoc into an SSH session and having it truncate mid-block** — write the script to a file (`cat > /tmp/x.py <<'PY' … PY`) then run the file, rather than streaming a 30-line heredoc through the terminal.
 - **Building a full-file Project_State.md / master_todo.md from Glean's sentence-wrapped raw read** — Section 19 guard: anchor on a user-pasted `git show` byte-exact source.
 
+### Chat 5.11 additions
+- **Trusting green dashboard endpoints as proof a code change deployed.** In Chat 5.11 the first test run looked partly green (`/health` ok, `/portfolio/holdings` 200 with populated `day_gain`/`price_stale`) but the patch wasn't on the box — those endpoints exercise the OLD code paths and prove nothing about the change. The `AttributeError: no attribute '_to_ist'` was the only honest signal. Always assert the specific new symbol exists / behaves, and verify the deploy actually pulled the expected SHA.
+- **Skipping `git pull` (or running a curl block before `./deploy.sh`).** A redeploy that doesn't pull leaves stale code with a green health check. Lead every post-deploy test with a SHA / symbol-existence check, not a 200.
+- **Reverting `bulk_get_previous_closes` toward a `$push`-everything aggregation in the name of "one query."** That single aggregation WAS the ~34k-doc perf bug (TD25). N indexed point-queries via `get_previous_close` is the intended shape on this single-user box; don't undo it.
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1119,7 +1139,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1149,6 +1169,8 @@ I AM LOSING CONTEXT
 - **Chat 5.10 trigger: about to write a test block that doesn't start with `ssh ubuntu@100.112.20.41`, or that curls the Tailscale IP instead of `localhost:8000`.**
 - **Chat 5.10 trigger: about to recommend `asyncio.Lock` for a sync-`def` handler under sync Uvicorn.**
 - **Chat 5.10 trigger: about to update master_todo.md status without also updating the matching Project_State.md Section 18 TD row + Section 13 in the same doc commit.**
+- **Chat 5.11 trigger: about to declare a deployed code change verified on the strength of a 200 / green dashboard endpoint, WITHOUT a positive existence/behaviour assertion for the specific new symbol AND a confirmation that the deploy pulled the expected SHA.**
+- **Chat 5.11 trigger: about to use a DST-aware tz lookup for IST instead of the fixed UTC+5:30 offset, or about to add a tz comparison in `price_service.py` that ignores the module's naive→UTC convention.**
 
 ### What "switching chats" means
 The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
@@ -1245,6 +1267,14 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Are the holdings handlers async or sync?" → sync `def` (confirmed Chat 5.10).
 - "New collection added Chat 5.10?" → `recompute_locks` (TD20 advisory locks).
 
+### Chat 5.11 additions
+- "What guards `_intraday_row_from_df` against market-holiday bars?" → It reads the latest 5m bar's index timestamp, converts to IST via `_to_ist`, and returns None if that date != today's IST date (TD23 / master_todo #9). yfinance `period="1d"` returns the prior trading day's bars on an NSE holiday.
+- "How does `price_service.py` get IST and what's the offset?" → module-level `IST = timezone(timedelta(hours=5, minutes=30))` (fixed; India has no DST) + `_to_ist()` helper (tz-aware → astimezone; tz-naive → treated as UTC first). Added Chat 5.11 (TD23).
+- "What's canonical for `price_stale` — docstring or code?" → CODE (`timedelta(days=6)`); the docstring was wrong ("4 trading days") and was aligned to "6 calendar days" Chat 5.11 (TD24). 6 calendar days ≈ 4 NSE trading days across a weekend.
+- "How does `bulk_get_previous_closes` work now?" → per-ISIN `get_previous_close` (indexed `find_one({date:{$lt:latest}})` point-query), NOT the old `$push`-everything aggregation that pulled ~34k docs per dashboard load. TD25 / master_todo #11, Chat 5.11.
+- "Did Chat 5.11 touch the frontend or any non-price file?" → No. One backend commit `a2806cd`, only `app/services/price_service.py`.
+- "How many code commits did Chat 5.11 ship and what SHA?" → ONE, `a2806cd`, carrying all of TD23/TD24/TD25.
+
 ## Section 18: Tech debt registry
 
 | ID | Item | Status | Chat target |
@@ -1286,6 +1316,9 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD20 | Serialize `recompute_holding` per-ISIN (concurrent same-ISIN writes could interleave their read-replay-overwrite cycles). | SHIPPED Chat 5.10 (2026-06-06): per-ISIN advisory lock — a doc in the new `recompute_locks` collection keyed `_id==isin`, acquired via atomic `insert_one` (unique `_id` index = exactly one winner), released in `finally`, TTL-reclaimed after 60s. Body renamed `_recompute_holding_impl`; the public `recompute_holding` is now the lock wrapper. Chosen over `asyncio.Lock` (user-confirmed) because every holdings handler is sync `def` under sync Uvicorn (confirmed at HEAD) and `threading.Lock` would be blind to the out-of-process scripts. Added `Collections.recompute_locks()` + `acquired_at` TTL index. Verified: 8 concurrent recomputes of one ISIN → exactly 1 correct holding, no leaked lock; mutual exclusion enforced (2nd acquire raises DuplicateKeyError). Commit `b34721e`. (master_todo #8) | — |
 | TD21 | Registry-generated crontab migration (NEW Chat 5.9). `CRON_REGISTRY` gains a parseable cron expr → `scripts/render_crontab.py` → committed `ops/crontab` installed by `deploy.sh` + drift validation. Version-controls the schedule, makes TD14-class drift structurally impossible, keeps process isolation + deploy-safety (chosen over in-process APScheduler on the 1 GB t3.micro). Update the F4 "no silent failures" triad in Section 9 when it lands. | OPEN (NEW Chat 5.9) | dedicated chat (master_todo #46) |
 | TD22 | `track_suggestion_outcomes` cron FAILS every weekday (19:45 IST; 0 success / 1 failure), firing the 21:00 IST health email daily. Separate from TD14. Root-cause + fix pending. | OPEN (NEW Chat 5.9) | next ops chat (master_todo #47) |
+| TD23 | `_intraday_row_from_df` did not guard against yfinance returning the prior trading day's bars on an NSE market holiday (a stale bar) — a holiday-stale quote could be written to `prices_intraday` and surface as a bogus "current price". | SHIPPED Chat 5.11 (2026-06-08): the function now reads the latest 5m bar's index timestamp and returns None when its IST date != today's IST date. Added module-level `IST = timezone(UTC+5:30)` (India has no DST) + `_to_ist()` helper (tz-aware → `astimezone`; tz-naive → treated as UTC first, matching the existing `_df_to_rows` / `annotate_with_current_price` convention); "today" derives from the passed-in `captured_at`. Verified on EC2: today-dated synthetic bar → dict; yesterday-dated bar → None. Commit `a2806cd`. (master_todo #9 / P1-4) | — |
+| TD24 | `price_stale` docstring/code mismatch — docstring said "more than 4 trading days old" while the code used `timedelta(days=6)`. | SHIPPED Chat 5.11 (2026-06-08): CODE chosen canonical (user-delegated); kept `timedelta(days=6)` and aligned the docstring "more than 4 trading days old" → "more than 6 calendar days old" + added an inline comment (6 calendar days ≈ 4 NSE trading days across a weekend). Doc-/comment-only; zero behaviour change. Verified `/portfolio/holdings` still returns `price_stale` correctly. Commit `a2806cd`. (master_todo #10 / P2-14) | — |
+| TD25 | `bulk_get_previous_closes` `$push`-ed every `{date, close}` for every requested ISIN into an in-memory array (no date filter/limit) then filtered in Python — ~34k price docs pulled per dashboard request. | SHIPPED Chat 5.11 (2026-06-08): rewrote the body to delegate to the existing single-ISIN `get_previous_close` (indexed `find_one({"date": {"$lt": latest}}, sort=[("date",-1)])` point-query per ISIN). Eliminates the ~34k-doc pull; keeps Decimal128/Decimal normalization in one place. Chosen over an aggregation-pipeline rewrite (evolves existing code, no new query pattern; index makes each a point-query). Verified on EC2: bulk result byte-identical to per-ISIN `get_previous_close` for all held ISINs. Commit `a2806cd`. (master_todo #11 / P2-13) | — |
 
 ### F-number fix registry (TD15 deliverable — Chat 5.9)
 
@@ -1350,6 +1383,7 @@ Notes:
 - **Chat 5.6 robustness pass** — Pydantic round-trip + ge=0 + SPLIT/BONUS preview + TD13. Baked into HEAD `64d5ae3` (backend) / `4f31b49` (frontend). F-number registry reconciled Chat 5.9 (TD15).
 - **Chat 5.8 Project_State.md truncation** — the Chat 5.8 doc commit `8f74b50` silently dropped Sections 16-tail through 22 (655 lines); recovered Chat 5.9 from `c6b1437b`. Lesson encoded in Sections 14/15/16/19.
 - **Chat 5.10 Phase 2** — TD16 (write-before-apply), TD17 (validate_replay on /sell + manual import), TD18 (dup-handler delete), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). All SHIPPED + EC2-verified 2026-06-06. Commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`.
+- **Chat 5.11 Phase 3** — TD23 (intraday holiday guard), TD24 (price_stale docstring alignment), TD25 (bulk_get_previous_closes per-ISIN rewrite). All SHIPPED + EC2-verified 2026-06-08 in one commit `a2806cd`.
 
 ## Section 19: How to update this document
 
@@ -1389,6 +1423,8 @@ Chat 5.7 added rule: the canonical tree-listing command (embedded in Section 0) 
 Chat 5.9 added rule: the end-of-chat Project_State.md full-file artifact MUST end with the sentinel line `End of PROJECT_STATE.md.` and its line count MUST be >= the prior commit's (or the assistant explicitly states why it shrank) BEFORE the user commits. The Chat 5.8 doc commit silently truncated 655 lines (Sections 16-tail through 22) and it went undetected for a full chat cycle. When a truncation is discovered, recover the lost content from the prior doc commit via `git show <prior-sha>:docs/Project_State.md` (Glean's raw read sentence-wraps long lines — for byte-faithful recovery have the user paste the `git show` output) rather than re-authoring from memory. Since Glean's raw reader wraps, never reconstruct a full-file replacement from a wrapped read; anchor on a user-pasted byte-exact source.
 
 Chat 5.10 added rule: update master_todo.md status AND the matching Project_State.md Section 18 TD row AND Section 13 in the SAME end-of-chat doc commit as the code — never advance one without the others. When a chat ships multiple code commits, the doc commit pins each commit SHA next to its TD row so the audit trail survives. Continue to verify the sentinel + non-shrinking line count (the byte-exact source for this update was the user-pasted `git show b34721e:docs/Project_State.md`, per the Chat 5.9 guard).
+
+Chat 5.11 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). When the sandbox/canvas tooling is unavailable mid-rebuild, the full-file replacement is still delivered as a canvas (.md) artifact built from the user-pasted byte-exact source — never from a wrapped read, and never as a patch. All Chat 5.11 doc changes were strictly additive (new TD23–TD25 rows, new Section 13 Chat-5.11 entry, new Chat-5.11 subsections in Sections 14–17 + 20 + 22, price_service annotations in Section 5, the prices_intraday writer note in Section 7, and the Phase-1 intraday invariant in Section 11), so the line count grows vs the prior commit; the sentinel below is preserved.
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1472,6 +1508,12 @@ Chat 5.10 added rule: update master_todo.md status AND the matching Project_Stat
 - **TD16/TD17 ordering kept validate_replay FIRST (before the audit)**: a rejected edit/delete/sell isn't a real change and must not generate an audit row or a ledger write — so validate → audit → apply.
 - **Phase 2 items worked in master_todo order with #6 (dup-handler delete) done right after #4**: the smallest, lowest-risk change cleaned up `holdings.py` before #5 and #7 also edited it, reducing stale line-number drift between reads (user approved the sequencing implicitly by letting each item proceed).
 
+### Chat 5.11 additions
+- **TD24: code chosen canonical over the docstring**: `timedelta(days=6)` is what production has run on; "6 calendar days" ≈ "4 trading days" across a weekend was clearly the original intent, so aligning the docstring to the code is the zero-risk, zero-behaviour-change fix. Switching to true trading-day counting would be over-engineering a staleness boolean (rejected).
+- **TD25: per-ISIN `find_one` over an aggregation pipeline**: it evolves existing code (delegates to the already-correct `get_previous_close`), the `(isin, date)` index makes each call a single-doc point-query, and the Decimal128/Decimal normalization stays in one place. On a single-user box the N point-queries are trivially cheap; a `$facet`/`$lookup` pipeline would be a new query pattern for no benefit (rejected).
+- **TD23: IST resolved as fixed UTC+5:30 with bar-timestamp tz handled defensively**: "today" derives from `captured_at` in IST; the bar timestamp is `astimezone`-converted if tz-aware and treated as UTC-first if tz-naive (the module convention). Because NSE intraday bars sit inside one IST calendar day, the `.date()` comparison is robust to the tz ambiguity — no timestamp-tolerance logic needed.
+- **All three Phase-3 items shipped in ONE commit** (`a2806cd`) since they all touch the same file and are individually tiny; the holiday guard + helper, the docstring/comment alignment, and the bulk rewrite were read-at-HEAD then patched together, with a single EC2 verification pass (the `_to_ist` existence check + #11 parity check + dashboard 200s).
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
@@ -1501,6 +1543,7 @@ So future chats don't accidentally try to add these:
 - Loss-cutting sell pipeline (F2 is profit-booking only; `in_profit` gate enforces).
 - In-process application scheduler (APScheduler/lifespan jobs). The schedule stays in crontab; TD21 will version-control it via a registry-rendered `ops/crontab`, NOT by moving job execution into the API process (process-isolation + deploy-safety on the t3.micro).
 - Mongo multi-document (M10) transactions on the synchronous write path. Considered and rejected for TD19 — the immutable ledger is the source of truth and a recompute failure is surfaced via a `recorded_with_warning` flag, not rolled back, to avoid per-step session latency on a single-user box.
+- DST-aware timezone handling for IST. India observes no DST; IST is a fixed UTC+5:30 (`timezone(timedelta(hours=5, minutes=30))`). Chat 5.11 codified this in `price_service.IST` — do not introduce a zoneinfo/DST lookup.
 
 ## Section 22: Glossary
 
@@ -1529,6 +1572,8 @@ So future chats don't accidentally try to add these:
 - **`_format_raw` formatter kinds (Chat 5.5 TD11)**: existing kinds — `percent_decimal`, `percent_already`, `ratio`, `multiple`, `currency_inr_cr`, `score_only`. NEW kinds — `score_signed` (`f"{raw:+.1f}"`), `count` (`f"{int(raw)}"`).
 - **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 / TD15 (Chat 5.5–5.9)**: see Section 18. TD9 / TD11 / TD12 SHIPPED 2026-05-24; TD13 SHIPPED Chat 5.6; TD10 / TD14 / TD15 SHIPPED Chat 5.9.
 - **TD16 / TD17 / TD18 / TD19 / TD20 (Chat 5.10)**: see Section 18. All SHIPPED 2026-06-06. TD16 write-before-apply on transactions PATCH/DELETE; TD17 validate_replay on /sell + manual import; TD18 dup-handler delete; TD19 recompute warning-flag; TD20 per-ISIN recompute lock.
+- **TD23 / TD24 / TD25 (Chat 5.11)**: see Section 18. All SHIPPED 2026-06-08 in one commit `a2806cd`. TD23 intraday holiday guard (`_intraday_row_from_df`); TD24 `price_stale` docstring aligned to code (6 calendar days canonical); TD25 `bulk_get_previous_closes` rewritten to per-ISIN `find_one`.
+- **`IST` / `_to_ist()` (Chat 5.11, TD23)**: module-level `IST = timezone(timedelta(hours=5, minutes=30))` (fixed UTC+5:30; India has no DST) and `_to_ist()` helper in `price_service.py` (tz-aware → `astimezone`; tz-naive → treated as UTC first). Used by the intraday holiday guard.
 - **`recompute_locks` (TD20, Chat 5.10)**: per-ISIN advisory-lock collection; `_id==isin`, `acquired_at` with 60s TTL; serializes `recompute_holding`. Acquired via atomic `insert_one`, released in `finally`. Accessor `Collections.recompute_locks()`; holder `_per_isin_recompute_lock`.
 - **`recorded_with_warning` (TD19, Chat 5.10)**: 2xx status returned by add_buy/sell when `recompute_holding` raises after the ledger write committed. Body `{status, isin, warning}`, no `_id`.
 - **`_recompute_holding_impl` (TD20, Chat 5.10)**: the original read-replay-overwrite body of `recompute_holding`, renamed; the public `recompute_holding` is now the per-ISIN lock wrapper around it.
@@ -1539,7 +1584,8 @@ So future chats don't accidentally try to add these:
 - **Chat 5.7**: Project_State.md doc reconciliation pass — Section 0 URL-construction rule, file-map repairs in Sections 5 + 6, Chat 5.6 capture in Section 13, TD13 SHIPPED, TD15 added.
 - **Chat 5.8**: comprehensive code review (28 findings) + `master_todo.md` created as canonical task list. NOTE: its doc commit silently truncated this file (recovered Chat 5.9).
 - **Chat 5.9**: Phase 1 ops + docs — TD14 (crontab flags + CRON_REGISTRY rename), TD10 (verified already satisfied), TD15 (F-number fix registry authored). Recovered Sections 16-tail + 17–22 truncated by the Chat 5.8 commit. Filed TD21 (registry-generated crontab) + TD22 (track_suggestion_outcomes daily failure).
-- **Chat 5.10 (THIS commit)**: Phase 2 closed — TD16 (write-before-apply on PATCH/DELETE), TD18 (dup handler delete), TD17 (validate_replay on /sell + manual import), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). Five code commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`. No frontend work; one open SellSheet follow-up noted in Section 6.
+- **Chat 5.10**: Phase 2 closed — TD16 (write-before-apply on PATCH/DELETE), TD18 (dup handler delete), TD17 (validate_replay on /sell + manual import), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). Five code commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`. No frontend work; one open SellSheet follow-up noted in Section 6.
+- **Chat 5.11 (THIS commit)**: Phase 3 closed — TD23 (intraday holiday guard + IST/_to_ist helpers), TD24 (price_stale docstring aligned to code), TD25 (bulk_get_previous_closes per-ISIN rewrite). ONE code commit `a2806cd`, only `app/services/price_service.py`. No frontend work; the Chat 5.10 SellSheet follow-up remains open.
 - **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
 - **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 

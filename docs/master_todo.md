@@ -4,9 +4,9 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-06 (Chat 5.10 — Phase 2 closed)
+**Last updated:** 2026-06-08 (Chat 5.11 — Phase 3 closed)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 5.10 close):** `b34721e8251bb21ad59c0f111f1c8022528844b6` (Phase 2 TD16–TD20 shipped; advances after the Chat 5.10 doc commit)
+**Current backend SHA (Chat 5.11 close):** `a2806cd` (Phase 3 TD23–TD25 shipped on this single code commit; HEAD advances after the Chat 5.11 doc commit)
 
 > Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
@@ -14,9 +14,9 @@ This file is the canonical, ordered, end-to-end task list to reach product compl
 
 ## Current position
 
-**Next item to start: #9 (P1-4 / TD — holiday guard on `_intraday_row_from_df`).**
+**Next item to start: #12 (P2-3 / TD — TTL index on `prices_intraday.captured_at`).**
 
-Phase 1 + Phase 2 are fully SHIPPED. Phase 2 (#4–#8 / TD16–TD20) shipped Chat 5.10, 2026-06-06. Per the standing rule, Phase 3 (#9–#11) begins in a fresh chat to keep context clean.
+Phase 1 + Phase 2 + Phase 3 are fully SHIPPED. Phase 3 (#9–#11 / TD23–TD25) shipped Chat 5.11, 2026-06-08, in one backend code commit (`a2806cd`). Per the standing rule, Phase 4 (#12–#13, storage hygiene) begins in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
@@ -27,6 +27,9 @@ Items completed since this file was created:
 - #5 (TD17) — SHIPPED 2026-06-06 (Chat 5.10)
 - #7 (TD19) — SHIPPED 2026-06-06 (Chat 5.10)
 - #8 (TD20) — SHIPPED 2026-06-06 (Chat 5.10)
+- #9 (TD23) — SHIPPED 2026-06-08 (Chat 5.11)
+- #10 (TD24) — SHIPPED 2026-06-08 (Chat 5.11)
+- #11 (TD25) — SHIPPED 2026-06-08 (Chat 5.11)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -39,7 +42,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 1. **Phase 1** — Unblock ops first (no code; immediate value; restores weekly digest).
 2. **Phase 1** — Reconcile documentation (TD15) before any chat that reads files with F-comments; otherwise future chats hallucinate against unmapped F-numbers.
 3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
-4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it.
+4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
 5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps.
 6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched.
 7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume.
@@ -54,17 +57,17 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 ## Item legend
 
 - **Source column codes:**
-  - `TD<N>` — Tech debt registry row in `Project_State.md` Section 18
-  - `P0/P1/P2/P3-<N>` — Code review finding (see `code_review_findings_chat_6_audit.md` if archived, or the Chat 5.8 review)
-  - `Chat <N>` — Pre-existing chat in the Section 13 chat split plan
-  - `F<N>` — Feature ticket (mirrored from external registry; see TD15)
-  - `Ops gap` — Operational gap called out in the review's ops-gaps section
+ - `TD<N>` — Tech debt registry row in `Project_State.md` Section 18
+ - `P0/P1/P2/P3-<N>` — Code review finding (see `code_review_findings_chat_6_audit.md` if archived, or the Chat 5.8 review)
+ - `Chat <N>` — Pre-existing chat in the Section 13 chat split plan
+ - `F<N>` — Feature ticket (mirrored from external registry; see TD15)
+ - `Ops gap` — Operational gap called out in the review's ops-gaps section
 - **Status column codes:**
-  - `OPEN` — Not started
-  - `IN PROGRESS (Chat <N>)` — Being worked in the named chat
-  - `SHIPPED <YYYY-MM-DD> (Chat <N>)` — Done; commit landed
-  - `DEFERRED` — Acknowledged and intentionally pushed to a later phase
-  - `DROPPED` — Explicitly de-scoped; note rationale in the row
+ - `OPEN` — Not started
+ - `IN PROGRESS (Chat <N>)` — Being worked in the named chat
+ - `SHIPPED <YYYY-MM-DD> (Chat <N>)` — Done; commit landed
+ - `DEFERRED` — Acknowledged and intentionally pushed to a later phase
+ - `DROPPED` — Explicitly de-scoped; note rationale in the row
 
 ---
 
@@ -88,13 +91,15 @@ Fix this surface before Chat 9 touches it. All five items shipped + verified on 
 | 7 | P2-9 | Make `add_buy` / `sell` non-atomic path safer: wrap `recompute_holding` in try/except, return success with a warning flag if recompute fails. Or use Mongo M10 transactions for atomicity. **Chat 5.10 SHIPPED (warning-flag path, user-confirmed): both handlers wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked. `recompute_holding` returning None stays a legitimate full-exit success outside the except. M10 multi-doc transactions explicitly REJECTED — per-step session latency on a single-user box not worth it.** | `app/routers/holdings.py` `add_buy` + `sell` (+ module logger) | SHIPPED 2026-06-06 (Chat 5.10) — commit `fb23307` |
 | 8 | P2-10 | Serialize `recompute_holding` per-ISIN: per-ISIN advisory lock doc with TTL, OR API-layer mutex keyed by ISIN. **Chat 5.10 SHIPPED (advisory-lock doc, user-confirmed): `recompute_holding` wraps its body (renamed `_recompute_holding_impl`) in `_per_isin_recompute_lock`, a CM that inserts a doc keyed `_id==isin` into the new `recompute_locks` collection (atomic via unique `_id` index), releases in `finally`, and is TTL-reclaimed after 60s. `asyncio.Lock` REJECTED — confirmed at HEAD that every holdings handler is sync `def` under sync Uvicorn, so asyncio.Lock wouldn't apply; `threading.Lock` rejected because it's blind to the out-of-process scripts. Lock lives at the service layer so all callers (API + scripts) are covered.** | `app/services/holdings_service.py`; `app/db/client.py`; `app/db/indexes.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `b34721e` |
 
-## PHASE 3 — Intraday & price correctness
+## PHASE 3 — Intraday & price correctness — SHIPPED Chat 5.11
+
+All three items shipped in ONE backend code commit (`a2806cd`) + verified on EC2 against localhost:8000. All three touch only `app/services/price_service.py`.
 
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
-| 9 | P1-4 | Guard `_intraday_row_from_df` against yfinance returning yesterday's bar on market holidays: if bar timestamp's IST date != today, return None. | `app/services/price_service.py` ~430-470 | OPEN |
-| 10 | P2-14 | Align `price_stale` docstring vs code: doc says "4 trading days", code says `timedelta(days=6)`. Pick one; pragmatic fix is update docstring. | `app/services/price_service.py` ~340-360 | OPEN |
-| 11 | P2-13 | Rewrite `bulk_get_previous_closes` to push the filter into the Mongo pipeline (or loop `find_one` per ISIN). Currently pulls ~34k price docs per dashboard request. | `app/services/price_service.py` ~265-300 | OPEN |
+| 9 | P1-4 / TD23 | Guard `_intraday_row_from_df` against yfinance returning yesterday's bar on market holidays: if bar timestamp's IST date != today, return None. **Chat 5.11 SHIPPED: the function now reads the latest 5m bar's index timestamp (`clean.index[-1]`) and returns None when its IST date != today's IST date — yfinance `period="1d"` returns the prior trading day's bars on an NSE holiday. Added module-level `IST = timezone(UTC+5:30)` (India has no DST) + `_to_ist()` helper (tz-aware → `astimezone`; tz-naive → treated as UTC first, matching the existing `_df_to_rows` / `annotate_with_current_price` naive→UTC convention). "today" is derived from the passed-in `captured_at`. Verified on EC2: a today-dated synthetic bar returns a dict; a yesterday-dated bar returns None.** | `app/services/price_service.py` `_intraday_row_from_df` (+ new `IST`/`_to_ist` helpers) | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
+| 10 | P2-14 / TD24 | Align `price_stale` docstring vs code: doc says "4 trading days", code says `timedelta(days=6)`. Pick one; pragmatic fix is update docstring. **Chat 5.11 SHIPPED (CODE is canonical — user-delegated decision): kept `timedelta(days=6)`; updated the docstring "more than 4 trading days old" → "more than 6 calendar days old" and added an inline comment noting 6 calendar days ≈ 4 NSE trading days across a weekend (the clear original intent). Doc-/comment-only; zero behaviour change. Verified: `/portfolio/holdings` still returns `price_stale` correctly (false on a fresh price).** | `app/services/price_service.py` `price_stale` docstring + inline comment | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
+| 11 | P2-13 / TD25 | Rewrite `bulk_get_previous_closes` to push the filter into the Mongo pipeline (or loop `find_one` per ISIN). Currently pulls ~34k price docs per dashboard request. **Chat 5.11 SHIPPED (per-ISIN `find_one` — user-delegated decision): rewrote the body to delegate to the existing single-ISIN `get_previous_close` (an indexed `find_one({"date": {"$lt": latest}}, sort=[("date",-1)])` point-query per ISIN) instead of `$push`-ing every `{date, close}` for every ISIN into an in-memory `all_dates` array and filtering in Python. Eliminates the ~34k-doc pull per dashboard request; keeps the Decimal128/Decimal normalization in exactly one place. Chosen over an aggregation-pipeline rewrite because it evolves existing code (no new query pattern) and the `(isin, date)` index makes each call a single-doc point-query. Verified on EC2: `bulk_get_previous_closes` result is byte-identical to per-ISIN `get_previous_close` for all held ISINs.** | `app/services/price_service.py` `bulk_get_previous_closes` | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
 
 ## PHASE 4 — Storage hygiene (must land BEFORE Chat 10 GO LIVE)
 
@@ -192,8 +197,8 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 |---|---|---|---|
 | 1 | 1-3 | Unblock ops + reconcile docs | No code — SHIPPED Chat 5.9 |
 | 2 | 4-8 | Transactions/holdings/audit invariants | Foundation for Chat 9 + 10 — SHIPPED Chat 5.10 |
-| 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — next |
-| 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data |
+| 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — SHIPPED Chat 5.11 |
+| 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data — next |
 | 5 | 14-18 | Frontend correctness + quick wins | Independent |
 | 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) |
 | 7 | 25-26 | Reconciliation alerting + feedback direction | Standalone |
