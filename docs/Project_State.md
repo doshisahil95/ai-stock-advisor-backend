@@ -146,7 +146,7 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - uv (package manager — replaces pip/poetry)
 - yfinance (price + fundamentals + earnings calendar data; free tier)
 - Anthropic Claude SDK (Sonnet 4.5 for dossiers, Haiku 4.5 for classification)
-- Tavily (news search; free tier, daily quota enforced)
+- Tavily (news search; free tier, daily quota enforced — atomically as of Chat 5.14 TD33)
 - Resend (transactional email for digests, drift alerts, smoke tests, cron-health alerts — all routed through `notify.email()` as of Chat 5 A2)
 - ntfy (push notifications — public ntfy.sh for all paths; self-hosted private service decommissioned TD8)
 
@@ -221,7 +221,7 @@ API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 or skip — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`). NOTE (Chat 5.10): because there is no `--workers` and the route handlers are sync `def`, concurrent requests run in Uvicorn's threadpool — i.e. THREADS within one process. This is why TD20's per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock` (event-loop-only, useless for sync handlers).
+- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`). NOTE (Chat 5.10): because there is no `--workers` and the route handlers are sync `def`, concurrent requests run in Uvicorn's threadpool — i.e. THREADS within one process. This is why TD20's per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock` (event-loop-only, useless for sync handlers). (Chat 5.14: this same threadpool concurrency is why the Tavily check-then-act was a real TOCTOU race even on this single-process box — TD33.)
 - `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
 
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
@@ -240,15 +240,17 @@ Chat 5.12 note: the daily 02:30 IST `purge_news_bodies` cron (TD27) writes to `/
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.13 closed, 2026-06-08):
-- Backend: `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Chat 5.13 Phase-5 close: deployed code HEAD after THREE backend code commits — TD29 dead-import removal in `app/routers/holdings.py`, TD31 ISIN `pattern=` on the two `/suggestions/{isin}` Path params in `app/routers/suggestions.py`, TD32 `$options:i` drop on the transactions/search regex in `app/routers/transactions.py`. HEAD advances after this Chat 5.13 doc commit — pin in next chat). Chat 5.13 opened at `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit).
-- Frontend: `f59958015b8b07b6e84e3add7b4a302d32b43490` (Chat 5.13 Phase-5 close: ONE frontend code commit — TD28 `invalidateQueries` → `refetchQueries` swap in `components/notes-panel.tsx` + `components/refresh-button.tsx`). Chat 5.13 opened at `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.12).
+Last verified SHAs (Chat 5.14 closed, 2026-06-09):
+- Backend: `4ac2c955782490818eefa6024c9daead92b0b0eb` (Chat 5.14 Phase-6 #19 close: deployed code HEAD after ONE backend code commit — TD33 atomic Tavily quota claim in `app/services/tavily_client.py` (the `get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index). HEAD advances after this Chat 5.14 doc commit — pin in next chat). Chat 5.14 opened at `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Backend-only chat.
+- Frontend: `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged since Chat 5.13 — Chat 5.14 was backend-only).
+- Backend (Chat 5.13 close): `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Chat 5.13 Phase-5 close: deployed code HEAD after THREE backend code commits — TD29 dead-import removal in `app/routers/holdings.py`, TD31 ISIN `pattern=` on the two `/suggestions/{isin}` Path params in `app/routers/suggestions.py`, TD32 `$options:i` drop on the transactions/search regex in `app/routers/transactions.py`). Chat 5.13 opened at `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit).
+- Frontend (Chat 5.13 close): `f59958015b8b07b6e84e3add7b4a302d32b43490` (Chat 5.13 Phase-5 close: ONE frontend code commit — TD28 `invalidateQueries` → `refetchQueries` swap in `components/notes-panel.tsx` + `components/refresh-button.tsx`). Chat 5.13 opened at `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.12).
 - Backend (Chat 5.12 close): `49bf33f` (deployed code HEAD after TWO code commits — TD26 `prices_intraday.captured_at` TTL on `app/db/indexes.py`, then TD27 `scripts/purge_news_bodies.py` + the `purge_news_bodies` `CronSpec` on `app/services/cron_heartbeat_service.py`; the crontab line was added on EC2 separately). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
 - Backend (Chat 5.11 close): `a2806cd` (the single TD23–TD25 code commit). Chat 5.11 opened at `f22eb9a4719422e238d4c462534c5b45164f6e78` (the Chat 5.10 doc commit) and shipped ONE code commit `a2806cd` carrying all three Phase-3 items (TD23 holiday guard + TD24 price_stale alignment + TD25 bulk_get_previous_closes rewrite). The prior Chat 5.10 close was `b34721e8251bb21ad59c0f111f1c8022528844b6` (TD20 advisory-lock); Chat 5.10 shipped five code commits in master_todo order: `17f9f94` (TD16 write-before-apply) → TD18 dup-handler delete → `5cf3087` (TD17 validate_replay on /sell + manual import) → `fb23307` (TD19 recompute warning-flag) → `b34721e` (TD20 per-ISIN recompute lock).
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`; Chat 5.13 touched holdings.py + suggestions.py + transactions.py, code HEAD `090d96c`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`; Chat 5.13 touched holdings.py + suggestions.py + transactions.py, code HEAD `090d96c`; Chat 5.14 touched only tavily_client.py, code HEAD `4ac2c95`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
@@ -271,6 +273,8 @@ app/
                               Chat 5.12 (TD26 / master_todo #12): prices_intraday
                               captured_at_ttl (ASC, expireAfterSeconds=90*86400) added
                               alongside captured_at_desc (additive; no drop)
+                              tavily_quota carries a unique date_unique index on date_utc —
+                              the primitive the Chat 5.14 atomic quota claim relies on (TD33)
   models/
     _common.py                utcnow(), Decimal128 helpers, ObjectId helpers
                               (master_todo #22: reject NaN in _to_decimal)
@@ -390,9 +394,20 @@ app/
                               F14: earnings calendar refresh
                               master_todo #30: utcnow() sweep (lines 370, 485, 505)
     tavily_client.py          quota-tracked wrapper, TavilyQuotaExceeded
-                              master_todo #19: atomic find_one_and_update for quota
+                              master_todo #19 SHIPPED (Chat 5.14, TD33): quota guard
+                              is now ONE atomic find_one_and_update in _increment_quota
+                              filtered on calls_today < TAVILY_DAILY_CALL_LIMIT (upsert);
+                              cap-hit detected via DuplicateKeyError on the unique
+                              date_unique index, surfaced as TavilyQuotaExceeded. The
+                              get_today_quota() pre-check in search() was removed (it was
+                              the TOCTOU window). Added `from pymongo.errors import
+                              DuplicateKeyError`. Cap stays calls-only (credits tracked,
+                              not capped). get_today_quota/get_quota_history kept (read-only)
                               master_todo #31: tz-aware datetime sweep (lines 50, ~55)
     news_fetcher.py           fetch_for_instrument, fetch_for_universe
+                              (imports tavily_client.search / TavilyError /
+                              TavilyQuotaExceeded — all preserved across the Chat 5.14
+                              TD33 internal refactor; no caller change)
     news_classifier.py        Haiku batch classifier, retry pass
                               F27 (fix): caller id merge + positional fallback removed
                               Chat 5.12 (TD27 / master_todo #13): news body purge cron
@@ -428,7 +443,7 @@ app/
     notify.py                 push_public, email
                               Chat 5 A2 part 1: email returns {ok,id,error}, optional text=
                               Chat 5 TD8: push_private / PrivateTopic removed
-                              master_todo #20: retry on transient 5xx/429 in email()
+                              master_todo #20: retry on transient 5xx/429 in email() — NEXT
     cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
                               get_recent_heartbeats, ist_today_window_utc
                               Chat 5 A6/A6.5/A7 fixes
@@ -458,6 +473,8 @@ scripts/
                                 Chat 8 / master_todo #29 will extend for watchlist
   fetch_news_for_universe.py    Chat 5 A16: --include-held on EC2 crontab
                                 Chat 8 / master_todo #29 will extend for watchlist
+                                (the only production path that exercises the Tavily quota
+                                guard — Sunday 06:30 IST; TD33 atomic claim, Chat 5.14)
   run_weekly_suggestions.py     F2: --direction=buy|sell|both (default "buy")
                                 argparse accepts ONLY --direction / --no-notify /
                                 --skip-dossiers (run_type hardcoded "scheduled")
@@ -481,20 +498,24 @@ tests/
 docs/
   data_flow.md                  Chat 5 doc deliverable 1/4 SHIPPED
                                 Chat 5.5 TD12: universe paragraph corrected
-  Project_State.md              THIS FILE (Chat 5.13 doc commit; recovered from
+                                (Chat 5.14 NOTE: its Tavily "monthly" wording is STALE —
+                                the code is daily; flagged, not yet corrected)
+  Project_State.md              THIS FILE (Chat 5.14 doc commit; recovered from
                                 Chat 5.8 truncation in Chat 5.9 — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
 uv.lock
 README.md                       Chat 5 doc deliverable 2/4 SHIPPED
                                 Chat 5.5 TD12: §8 + §11 + §5 corrections
+                                (Chat 5.14 NOTE: its Tavily "monthly" wording is STALE —
+                                the code is daily; flagged, not yet corrected)
 ```
 
 (Frontend file map in Section 6.)
 
 ## Section 6: Frontend file map
 
-Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12; Chat 5.13 touched notes-panel.tsx + refresh-button.tsx, frontend HEAD `f59958`):
+Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12; Chat 5.13 touched notes-panel.tsx + refresh-button.tsx, frontend HEAD `f59958`; Chat 5.14 was backend-only — frontend unchanged):
 ```
 app/
   layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
@@ -689,9 +710,10 @@ All collections live in MongoDB Atlas M10. DB name set by env (`MONGODB_DB_NAME`
 - master_todo #26: feedback relabel should filter by direction (currently doesn't)
 
 #### `tavily_quota`
-- One doc per UTC day; counters incremented
-- INVARIANT: `TAVILY_DAILY_CALL_LIMIT` enforced
-- **master_todo #19: replace check-then-act with atomic find_one_and_update**
+- One doc per UTC day; counters incremented. Key fields: `date_utc` (YYYY-MM-DD), `calls_today`, `credits_today`, `per_use_case.<uc>.calls|credits`, `first_call_at`, `last_call_at`
+- INVARIANT: `TAVILY_DAILY_CALL_LIMIT` (default 200) enforced as a hard ceiling on `calls_today` per UTC day; `credits_today` is tracked, NOT capped. Resets 00:00 UTC (the README/data_flow "monthly" wording is STALE — the code is daily).
+- Indexes: unique `date_unique` on `date_utc` (the mutual-exclusion primitive the atomic claim relies on)
+- **master_todo #19 SHIPPED Chat 5.14 (TD33): the quota guard is now a SINGLE atomic `find_one_and_update`.** `_increment_quota` filters on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True, return_document=AFTER` and the existing `$inc`/`$setOnInsert`/`$set` blocks. Under the cap (or on the day's first call) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches, so the upsert attempts a second `date_utc==today` insert and the unique `date_unique` index raises `DuplicateKeyError`, which is caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). The old `get_today_quota()` pre-check in `search()` was removed — it was the TOCTOU window where two callers at `calls_today == limit-1` could both pass and push the counter past the ceiling.
 
 #### `digest_deliveries`
 - Audit log of weekly digests
@@ -838,6 +860,8 @@ No silent failures: every cron registration must include log file paths AND hear
 
 Cron-health dual transport (Chat 5 commit 8): `cron_health_check.py` sends every anomaly batch on TWO independent transports — `push_public("errors", ...)` + `notify.email(subject, html, text)` — and raises (so `cron_run` marks the run as failed) ONLY when BOTH fail. **Chat 5.9 confirmed healthy by inspection: the 21:00 IST email + ntfy are both arriving daily, so there is no second silent failure in dual-transport.**
 
+Chat 5.14 note: the Tavily daily quota guard (TD33) is exercised in production ONLY through the Sunday 06:30 IST `fetch_news_for_universe.py` run (and any ad-hoc news fetch). It has no HTTP surface, so it is regression-covered at deploy time via the import graph (`/health` boot + the `/suggestions` endpoints that import `news_fetcher` → `tavily_client`), not via a curl against the guard itself.
+
 ### Open scheduling work (NEW Chat 5.9 — tracked in master_todo)
 - **TD21 / master_todo #46 (registry-generated crontab migration)**: deferred scheduler architecture work. `CRON_REGISTRY` gains a parseable cron expression per `CronSpec` → `scripts/render_crontab.py` renders a committed `ops/crontab` → `deploy.sh` installs it + a drift-validation step (`crontab -l` diff vs rendered). Version-controls the schedule and makes TD14-class drift structurally impossible, while keeping process isolation + deploy-safety (chosen over in-process APScheduler, which on the t3.micro's 1 GB RAM would let the ~5-min Sunday dossier run compete with the live API and die on every `systemctl restart`). Update the F4 "no silent failures" triad above when it lands. Its own dedicated chat.
 - **TD22 / master_todo #47 (`track_suggestion_outcomes` daily FAILURE)**: this weekday 19:45 IST cron has been FAILING every day (0 success / 1 failure), which is what fires the 21:00 IST health email every evening — separate from TD14. Root-cause + fix pending in a future ops chat.
@@ -858,7 +882,7 @@ Configured in `app/config/settings.py` via pydantic-settings. All required unles
 
 ### Tavily
 - `TAVILY_API_KEY` (required)
-- `TAVILY_DAILY_CALL_LIMIT` (default 200)
+- `TAVILY_DAILY_CALL_LIMIT` (default 200) — hard ceiling on `calls_today` per UTC day. Enforced atomically as of Chat 5.14 (TD33); see Section 7 `tavily_quota` + Section 12.
 - `TAVILY_SEARCH_DEPTH` (default `"basic"`)
 - `TAVILY_MAX_RESULTS_PER_QUERY` (default 5)
 
@@ -897,7 +921,7 @@ From `docs/data_flow.md`. Hard rules.
 ## Section 12: Phase 2 INVARIANTS
 
 - `suggestion_runs` are append-only.
-- `tavily_quota` is one doc per UTC day with `$inc` counters. Hard ceiling enforced. **master_todo #19: currently check-then-act, race-prone.**
+- `tavily_quota` is one doc per UTC day with `$inc` counters. Hard ceiling on `calls_today` enforced (`credits_today` tracked, not capped). **Chat 5.14 (master_todo #19 / TD33): enforced ATOMICALLY via a single `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; the cap-hit is detected by a `DuplicateKeyError` on the unique `date_unique` index (the upsert can't insert a second same-day doc) and surfaced as `TavilyQuotaExceeded`. No TOCTOU window; the prior check-then-act pre-check in `search()` was removed.**
 - Confidence score is deterministic, NOT LLM-generated.
 - The dossier prompt requires narrative-only output. Forbids "buy"/"sell" imperatives and inventing facts.
 - `gate_meta`, `group_meta`, `signal_meta`, `confidence_meta`, `feedback_meta`, `page_intro`, `user_action` are PRESENTATION metadata, added by `_serialize_run` via `enrich_run`. Never in the persistent model.
@@ -969,6 +993,7 @@ Phase 2 Suggestions Engine:
 - Commit A.5.1 (re-label correctness)
 - Commit B (frontend explainability)
 - Suggestions feedback/audit endpoints (Chat 5.13: ISIN charset pattern validators, master_todo #17)
+- Tavily news-search quota tracking (Chat 5.14: daily call ceiling enforced atomically, master_todo #19)
 
 Chat 2 (F4 + F5a) — Cron observability shipped 2026-05-16.
 Chat 3 (F6 + F5b + F10) — Stateful feedback shipped 2026-05-17.
@@ -1007,6 +1032,9 @@ Chat 5.13 (Phase 5 — frontend correctness + quick wins) — SHIPPED 2026-06-08
 - TD31 / master_todo #17 (P3-7): added `pattern=r"^[A-Z0-9]{12}$"` (alongside the existing `min_length=12, max_length=12`) to the ISIN `Path()` params on `get_feedback_audit_for_isin` (line 240, GET `/suggestions/{isin}/audit`) and `submit_feedback` (line 260, POST `/suggestions/{isin}/feedback`) in `app/routers/suggestions.py`. `/runs/{run_id}` left alone (ObjectId, not ISIN). Verified on backend HEAD `090d96c`: `grep -F 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; 12-char lowercase `INE002a01018` → 422 (pattern, not length); valid `INE002A01018` → 200.
 - TD32 / master_todo #18 (P3-8): dropped `"$options": "i"` from the `transactions/search` regex in `app/routers/transactions.py` (the regex was at lines 91-92, not the ~102-115 date-bound block) and corrected the now-false "(case-insensitive)" inline comment. Input is `symbol.upper()` and symbols are stored uppercase, so the match is case-sensitive on purpose and the `(symbol, trade_date)` index is restored. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex at line 113; `GET /transactions/search?symbol=tr` → `total: 20` (parity).
 - No frontend work beyond TD28. The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-5 scope). Optional non-scope touches (notes-panel `async`/`await` reorder; the stale `symbol` `Query(description=… case-insensitive)` wording) were considered and NOT applied — minimal-only.
+Chat 5.14 (Phase 6 — external-service hardening, #19) — SHIPPED 2026-06-09. ONE backend code commit `4ac2c95`; backend-only, single file `app/services/tavily_client.py`; verified on EC2 against localhost:8000:
+- TD33 / master_todo #19 (P2-5): replaced the Tavily quota check-then-act with an atomic `find_one_and_update`. Collapsed the `get_today_quota()` pre-check + the separate `_increment_quota()` `$inc` into ONE conditional `find_one_and_update` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True`. Under the cap (or first call of the day) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches the filter, so the upsert attempts a second `date_utc==today` insert and the unique `date_unique` index raises `DuplicateKeyError`, caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). Added `from pymongo.errors import DuplicateKeyError`; removed the now-redundant pre-check block in `search()`. Cap stays calls-only (`credits_today` tracked, not capped) — race fix, not a new ceiling (user-delegated). Callers untouched (`news_fetcher.py` imports only `search`/`TavilyError`/`TavilyQuotaExceeded`, all preserved). Verified on EC2 at backend HEAD `4ac2c95`: `/health` ok/ok (clean Pydantic boot → the new import + refactor loaded), `/suggestions/latest?direction=buy` + `?direction=sell` + `/cron/heartbeats` all 200 (the `tavily_client` import chain via `news_fetcher` is intact). The quota guard has no HTTP surface (only reachable through the Sunday `fetch_news_for_universe.py` cron path), so the curl coverage is deploy + import-graph + boot regression.
+- No frontend work (backend-only chat). The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-6 #19 scope).
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -1019,7 +1047,7 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 3 | master_todo #9-11 | Intraday & price correctness (TD23-TD25) | SHIPPED (Chat 5.11) |
 | 4 | master_todo #12-13 | Storage hygiene (TD26-TD27) | SHIPPED (Chat 5.12) |
 | 5 | master_todo #14-18 | Frontend correctness + quick wins (TD28-TD32) | SHIPPED (Chat 5.13) |
-| 6 | master_todo #19-24 | External-service hardening | OPEN — next |
+| 6 | master_todo #19-24 | External-service hardening | IN PROGRESS — #19 SHIPPED (Chat 5.14); #20–24 OPEN |
 | 7 | master_todo #25-26 | Reconciliation alerting + feedback direction | OPEN |
 | 8 | master_todo #27-29 | Chat 6 (F1+F3), Chat 7 (F12+F15), Chat 8 (F13 watchlist) | OPEN |
 | 9 | master_todo #30-38 | Cross-cutting cleanup before GO LIVE | OPEN |
@@ -1028,13 +1056,13 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.13
+### Open items CARRIED FORWARD past Chat 5.14
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 + 5 closed; pointer now at #19):
-- **master_todo #19 (P2-5):** replace the Tavily quota check-then-act with an atomic `find_one_and_update` against `tavily_quota` (`app/services/tavily_client.py` ~110-145). Phase 6 external-service hardening — next.
-- **master_todo #20-24:** retry on transient 5xx/429 in `notify.email()`; persist suggestion run_id BEFORE digest formatting; reject NaN in `_to_decimal`; fallback log on heartbeat-insert failure; harden `cron_health_check.main` against Mongo being unreachable. Phase 6.
+The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 + 5 closed, Phase 6 #19 SHIPPED Chat 5.14; pointer now at #20):
+- **master_todo #20 (P3-4):** add 1-2 attempt retry with 30-60s backoff inside `notify.email()` on transient 5xx / 429 (don't retry 400s) (`app/services/notify.py`). Phase 6 external-service hardening — next.
+- **master_todo #21-24:** persist suggestion run_id BEFORE digest formatting; reject NaN in `_to_decimal`; fallback log on heartbeat-insert failure; harden `cron_health_check.main` against Mongo being unreachable. Phase 6.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
@@ -1062,6 +1090,7 @@ The assistant has confused these multiple times. Memorize them.
 - Direction-aware display layer: branch on direction at the display layer, not by forking the model.
 - Symbol search regex is case-sensitive on purpose (input uppercased, symbols stored uppercase); NO `$options:i` (it disables the `(symbol, trade_date)` index). (Chat 5.13 TD32.)
 - ISIN `Path()` params validate charset with `pattern=r"^[A-Z0-9]{12}$"` in addition to `min_length/max_length=12`. (Chat 5.13 TD31.)
+- Tavily daily quota is enforced ATOMICALLY: one `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`, cap-hit caught via `DuplicateKeyError` on the unique `date_unique` index. NO check-then-act pre-check. Cap is calls-only; `credits_today` is tracked, not capped. The quota is DAILY (resets 00:00 UTC), not monthly — the README/data_flow prose is stale. (Chat 5.14 TD33.)
 
 ### Chat 4 additions
 - DO NOT trust Glean snippets or memory for dataclass / Pydantic model field names. Grep first.
@@ -1126,7 +1155,7 @@ The assistant has confused these multiple times. Memorize them.
 - A single-field TTL index and a same-field non-TTL index coexist only when their key DIRECTION differs. `captured_at_ttl` is ASC; the pre-existing `captured_at_desc` is DESC — different key patterns, so Mongo keeps both. This is the in-repo precedent (`cron_heartbeats` `started_at_ttl` ASC + `started_at_desc` DESC). Don't drop the desc index to add a TTL; add the ASC TTL alongside it and keep `ensure_all_indexes` purely additive (it has no `drop_index` anywhere).
 - The app DB is `portfolio`, NOT `portfolio_advisor`. `settings.MONGODB_DB_NAME` defaults to `"portfolio"`; `Collections.*()` → `get_db()` → `client["portfolio"]`. A mongosh verification MUST `getSiblingDB("portfolio")` — seeding `portfolio_advisor` writes to an empty phantom DB the app never reads (it cost a wasted #13 verification pass this chat). Tell: `cron_heartbeats` was `[]` in `portfolio_advisor` while `/cron/heartbeats` (which reads through the app) showed the runs.
 - `news_articles`' bulky field is `body_text`, not `body`. `$unset {body:""}` would silently no-op. Always read the model (`app/models/news.py`) for the real field name before writing a purge/update.
-- For a "older than N days" purge, key on `fetched_at` (always present via `default_factory=utcnow`, monotonic), not `published_at` (nullable). Age-by-published strands every doc with a null publisher date forever.
+- For a "older than N days" purge, key on `fetched_at` (always present via `default_factory=utcnow`), not `published_at` (nullable). Age-by-published strands every doc with a null publisher date forever.
 
 ### Chat 5.13 additions
 - **A "~line N" pointer in the scope is a hint, not ground truth — re-read and re-anchor at HEAD.** Every Phase-5 line pointer was off: the `notes-panel` `invalidateQueries` were at 42/45 (scope said 43/46), the `transactions/search` regex was at 91-92 (scope said ~102-115, which is actually the date-bound block), and the two `/suggestions` ISIN Path params were at 240/260. Always grep the real lines before writing a find-and-replace whose `original_text` must match on-disk bytes.
@@ -1135,6 +1164,12 @@ The assistant has confused these multiple times. Memorize them.
 - **`pydoc.doc` is a real importable name** — `from pydoc import doc` is valid Python that silently shadows nothing harmful but is dead. Don't assume an odd-looking import is a typo; confirm it's unused (immediately reassigned local `doc` vars here) before deleting.
 - **Phase boundaries can span both repos.** Phase 5 had #14 in the frontend repo and #15/#17/#18 in the backend repo. Ask for BOTH HEAD SHAs up front, deploy/test each repo with its own harness (`~/deploy-ui.sh` + `npm run build` for frontend; `~/deploy.sh` + `curl localhost:8000` for backend), and assert the specific change landed in each (a green `/health` proves nothing).
 - **Keep `min_length`/`max_length` when ADDING `pattern`.** The charset `pattern=r"^[A-Z0-9]{12}$"` already constrains length to exactly 12, but leaving the explicit `min_length=12, max_length=12` is additive (clearer 422 messages, no behaviour change) and matches "evolve existing code, don't redesign." Don't strip the length constraints in the name of dedup.
+
+### Chat 5.14 additions
+- **The atomic compare-and-increment idiom on Mongo is "guard in the filter + unique index catches the over-cap upsert."** For a per-period counter with a hard ceiling, express the limit in the `find_one_and_update` filter (`{partition_key: today, counter: {$lt: limit}}`) with `upsert=True`. Under the cap it matches/upserts and `$inc`s atomically; at the cap the existing doc no longer matches, the upsert tries to insert a duplicate partition key, and the UNIQUE index on that key raises `DuplicateKeyError` — which IS the "exhausted" signal. This needs no transaction and no second round-trip. It only works because `tavily_quota` already had a unique `date_unique` index on `date_utc`; verify the unique index exists before relying on this pattern.
+- **A check-then-act guard (`find_one` → compare → separate `$inc`) is a TOCTOU race even on a single-process sync-Uvicorn box** — sync handlers run in a threadpool, and any future parallelism (Chat 8 watchlist multiplies fetch volume) makes it exploitable. Collapse read+guard+write into ONE conditional update; don't "fix" it by adding a lock.
+- **Docs drifted from code on the Tavily quota: README + data_flow said "monthly", the code is daily.** Project_State Section 7/12 (daily, `TAVILY_DAILY_CALL_LIMIT`, `date_utc`) matched the code; the READMEs did not. When docs disagree, anchor to the source body at HEAD (the read of `tavily_client.py` + `settings.py` + `indexes.py` settled it), and treat the stale doc as a separate cleanup, not a reason to change behaviour.
+- **Cap semantics confirmed calls-only:** `calls_today < TAVILY_DAILY_CALL_LIMIT` is the only ceiling; `credits_today` is tracked but uncapped. A hardening/race-fix commit must NOT silently introduce a new credit ceiling — that would be scope creep on a behaviour-preserving change.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
@@ -1218,6 +1253,12 @@ The assistant has confused these multiple times. Memorize them.
 - **Declaring a validator verified with a test that the pre-existing constraint already explains.** Both first-pass #17 curls 422'd on `min_length=12` alone — they could not distinguish the new charset `pattern`. The discriminating input is a 12-char string with a lowercase/illegal character.
 - **Treating a green `/health` (or a single repo's deploy) as proof for a both-repos phase.** Phase 5 spanned both repos; each needed its own deploy + landed-assertion (`grep` for the specific change + a discriminating functional curl/build).
 
+### Chat 5.14 additions
+- Replacing a check-then-act race with a lock or a transaction when a single conditional `find_one_and_update` + an existing unique index expresses the same guarantee in one round-trip.
+- Adding a new cap (e.g. a credit ceiling) during a race-fix commit that was supposed to be behaviour-preserving.
+- Trusting README/data_flow prose ("monthly") over the code (daily) when designing a change to that subsystem.
+- Designing the atomic update from the doc-described field names instead of the field names read from the writer at HEAD (`date_utc`, `calls_today`, `credits_today`, `per_use_case.<uc>`).
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1229,7 +1270,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1268,6 +1309,8 @@ I AM LOSING CONTEXT
 - **Chat 5.13 trigger: about to write a find-and-replace anchored on a "~line N" pointer without having grepped the real line at the current HEAD SHA.**
 - **Chat 5.13 trigger: about to declare a change verified on a grep that contains regex metacharacters (use `grep -F` for literals) or on a functional test that the pre-existing constraint already explains.**
 - **Chat 5.13 trigger: about to declare a both-repos phase done on the strength of one repo's deploy / a green `/health` without a per-repo landed-assertion.**
+- **Chat 5.14 trigger: about to design an atomic Mongo compare-and-increment that relies on a unique index catching the over-cap upsert WITHOUT having confirmed that unique index exists at HEAD (`db.<coll>.getIndexes()` / `app/db/indexes.py`).**
+- **Chat 5.14 trigger: about to change a subsystem's behaviour because the README/data_flow prose says X, without having read the code body at HEAD to confirm X (docs drift — Tavily "monthly" vs daily).**
 
 ### What "switching chats" means
 The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
@@ -1390,6 +1433,13 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Was the Section 10 `MONGODB_URL` doc drift fixed?" → Yes — Section 10 reads `MONGODB_URI`; the correction landed in the Chat 5.12 Project_State and the master_todo #16 row was closed as TD30 in Chat 5.13.
 - "What SHAs did Chat 5.13 close at?" → frontend code HEAD `f59958` (TD28), backend code HEAD `090d96c` (TD29 + TD31 + TD32); the doc commit advances both past those.
 
+### Chat 5.14 additions
+- "How is the Tavily daily quota enforced now?" → A SINGLE atomic `find_one_and_update` in `_increment_quota` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True`. Cap-hit is detected via `DuplicateKeyError` on the unique `date_unique` index and surfaced as `TavilyQuotaExceeded`. No pre-check, no TOCTOU window (Chat 5.14 TD33).
+- "Is the Tavily quota daily or monthly?" → DAILY, resets 00:00 UTC. `TAVILY_DAILY_CALL_LIMIT` default 200. The README/data_flow "monthly" wording is stale.
+- "Does the Tavily quota cap credits?" → No. Only `calls_today` is capped; `credits_today` is tracked but uncapped (Chat 5.14).
+- "What index makes the atomic Tavily claim safe?" → the unique `date_unique` index on `tavily_quota.date_utc` — the upsert can't insert a second same-day doc, so the over-cap path collides instead of double-counting.
+- "Did Chat 5.14 touch the frontend or any other file?" → No. ONE backend commit `4ac2c95`, only `app/services/tavily_client.py`.
+
 ## Section 18: Tech debt registry
 
 | ID | Item | Status | Chat target |
@@ -1441,6 +1491,7 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD30 | Doc drift — Project_State Section 10 historically said `MONGODB_URL` while the code uses `MONGODB_URI`. | SHIPPED Chat 5.13 (2026-06-08): confirmed at HEAD `090d96c` that the code reads `MONGODB_URI` and that Section 10 already reflected this (the correction landed in the Chat 5.12 Project_State, with the explicit master_todo #16 note). Row closed; doc-only confirmation, no further edit. (master_todo #16 / P3-6) | — |
 | TD31 | The two `/suggestions/{isin}` ISIN `Path()` params (`get_feedback_audit_for_isin`, `submit_feedback`) constrained only length (`min_length=12, max_length=12`), not charset — a malformed 12-char ISIN reached Mongo. | SHIPPED Chat 5.13 (2026-06-08): added `pattern=r"^[A-Z0-9]{12}$"` alongside the existing length constraints on both Path params (lines 240 + 260) in `app/routers/suggestions.py`. `/runs/{run_id}` left untouched (ObjectId, not ISIN). Now a malformed ISIN 422s at the boundary. Verified on backend HEAD `090d96c`: `grep -Fn 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; 12-char lowercase `INE002a01018` → 422 (charset, not length); valid `INE002A01018` → 200. (master_todo #17 / P3-7) | — |
 | TD32 | `GET /transactions/search` prefix regex carried `"$options": "i"` even though the input is uppercased (`symbol.upper()`) and symbols are stored uppercase — the redundant flag disabled the `(symbol, trade_date)` index (forced a COLLSCAN). | SHIPPED Chat 5.13 (2026-06-08): dropped the flag (`query["symbol"] = {"$regex": f"^{escaped}"}`, line 113) in `app/routers/transactions.py` and corrected the now-false "(case-insensitive)" inline comment. The regex was at lines 91-92 (NOT the ~102-115 date-bound block). Case-sensitive on purpose; index restored. Behaviour-neutral for callers. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex at line 113; `GET /transactions/search?symbol=tr` → `total: 20` (parity). (master_todo #18 / P3-8) | — |
+| TD33 | Tavily quota guard was check-then-act: a `get_today_quota()` `find_one` pre-check in `search()` followed by a SEPARATE `_increment_quota()` `$inc` upsert — a TOCTOU window where two callers at `calls_today == limit-1` could both pass the pre-check and push the counter past `TAVILY_DAILY_CALL_LIMIT`. | SHIPPED Chat 5.14 (2026-06-09): collapsed the pre-check + `$inc` into ONE conditional `find_one_and_update` in `_increment_quota` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True, return_document=AFTER` and the existing `$inc`/`$setOnInsert`/`$set` blocks. Under the cap (or the day's first call) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches, the upsert attempts a second `date_utc==today` insert, and the unique `date_unique` index raises `DuplicateKeyError`, caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). Added `from pymongo.errors import DuplicateKeyError`; removed the redundant pre-check block in `search()`. Cap stays calls-only (`credits_today` tracked, not capped) — race fix, not a new ceiling (user-delegated). Callers untouched. Verified on EC2 at backend HEAD `4ac2c95`: `/health` ok/ok + `/suggestions/latest?direction=buy|sell` + `/cron/heartbeats` all 200 (import chain intact; the guard has no HTTP surface, so coverage is deploy + import-graph + boot regression). Commit `4ac2c955782490818eefa6024c9daead92b0b0eb`. (master_todo #19 / P2-5) | — |
 
 ### F-number fix registry (TD15 deliverable — Chat 5.9)
 
@@ -1508,6 +1559,7 @@ Notes:
 - **Chat 5.11 Phase 3** — TD23 (intraday holiday guard), TD24 (price_stale docstring alignment), TD25 (bulk_get_previous_closes per-ISIN rewrite). All SHIPPED + EC2-verified 2026-06-08 in one commit `a2806cd`.
 - **Chat 5.12 Phase 4** — TD26 (prices_intraday.captured_at 90-day TTL), TD27 (purge_news_bodies daily cron). Both SHIPPED + EC2-verified 2026-06-08. Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line.
 - **Chat 5.13 Phase 5** — TD28 (refetchQueries swap, frontend `f59958`), TD29 (dead pydoc import removal), TD30 (MONGODB_URI doc-drift confirmation), TD31 (ISIN charset pattern on the two /suggestions Path params), TD32 ($options:i drop on transactions/search). All SHIPPED + verified 2026-06-08. One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`).
+- **Chat 5.14 Phase 6 (#19)** — TD33 (atomic Tavily quota claim via conditional `find_one_and_update` + unique `date_unique` index catching the over-cap upsert). SHIPPED + EC2-verified 2026-06-09. One backend commit `4ac2c95`, only `app/services/tavily_client.py`.
 
 ## Section 19: How to update this document
 
@@ -1553,6 +1605,8 @@ Chat 5.11 added rule: the byte-exact source for this doc rebuild was the user-pa
 Chat 5.12 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). All Chat 5.12 doc changes were strictly additive (new TD26–TD27 rows, new Section 13 Chat-5.12 entry, new Chat-5.12 subsections in Sections 14–17 + 20 + 22, the indexes.py + cron_heartbeat_service.py + purge_news_bodies.py annotations in Section 5, the prices_intraday TTL + news_articles `body_text` purge notes in Section 7, the 02:30 IST crontab line + 11-entry registry count in Section 9, the `MONGODB_DB_NAME=portfolio` note in Section 10, and the prices_intraday TTL note in Section 11), so the line count grows vs the prior commit; the sentinel below is preserved. Storage-hygiene lessons encoded for posterity: a TTL no-ops on a non-Date field; a same-field TTL and non-TTL index coexist only when their key direction differs; a mongosh verification must target the real app DB `portfolio` (NOT `portfolio_advisor`); the bulky news field is `body_text` (NOT `body`); and a time-based purge keys on `fetched_at` (NOT the nullable `published_at`).
 
 Chat 5.13 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). Phase 5 spanned BOTH repos, so Section 4 now pins TWO close SHAs (backend code HEAD `090d96c`, frontend code HEAD `f59958`) and the doc commit advances both. All Chat 5.13 doc changes were strictly additive (new TD28–TD32 rows, new Section 13 Chat-5.13 entry, new Chat-5.13 subsections in Sections 14–17 + 20 + 22, the holdings.py/suggestions.py/transactions.py annotations in Section 5, the notes-panel/refresh-button annotations in Section 6, the transactions search-regex note in Section 7, the /transactions/search + /suggestions endpoint notes in Section 8, the MONGODB_URI TD30 note in Section 10, the case-sensitive-search invariant in Section 11, and the ISIN-pattern invariant in Section 12), so the line count grows vs the prior commit; the sentinel below is preserved. Verification lessons encoded for posterity: a "~line N" pointer is a hint, re-anchor at HEAD; `grep -F` for literal strings (a metacharacter-bearing grep can be self-defeating); a pass/fail test must DISCRIMINATE the change under test from pre-existing constraints; and a both-repos phase needs a per-repo deploy + landed-assertion (a green `/health` proves nothing).
+
+Chat 5.14 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). Chat 5.14 was backend-only, so Section 4 pins a new backend close SHA (`4ac2c95`) while the frontend SHA is unchanged. All Chat 5.14 doc changes were strictly additive (new TD33 row, new Section 13 Chat-5.14 entry, new Chat-5.14 subsections in Sections 14–17 + 20 + 22, the tavily_client.py annotation in Section 5, the `tavily_quota` atomic-claim notes in Sections 7 + 12, the Tavily-guard cron note in Section 9, the `TAVILY_DAILY_CALL_LIMIT` note in Section 10), so the line count grows vs the prior commit; the sentinel below is preserved. Lesson encoded for posterity: a per-period hard-ceiling counter is enforced atomically by expressing the limit in the `find_one_and_update` filter and letting a UNIQUE index on the partition key catch the over-cap upsert (`DuplicateKeyError`) — no transaction, no lock, one round-trip; verify the unique index exists at HEAD before relying on it. And when README/data_flow prose contradicts the code (Tavily "monthly" vs daily), anchor to the code body at HEAD.
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1656,6 +1710,11 @@ Chat 5.13 added rule: the byte-exact source for this doc rebuild was the user-pa
 - **Phase 5 grouped into a per-repo deploy/test boundary**: one frontend commit tested via `~/deploy-ui.sh` + `npm run build`; three backend commits (one per item) deployed together and tested in a single EC2 pass with a discriminating landed-assertion per item — rather than four separate deploy cycles.
 - **TD30 closed as a confirmation, not an edit**: the `MONGODB_URL`→`MONGODB_URI` correction had already landed in the Chat 5.12 Project_State; re-editing would have been churn. Verified at HEAD and closed the row.
 
+### Chat 5.14 additions
+- **#19 atomic `find_one_and_update` + unique-index collision over a transaction or a lock**: the unique `date_unique` index already existed, so the over-cap path can be made to collide (`DuplicateKeyError`) instead of double-counting — one round-trip, no session latency, no new pattern. An M10 transaction (rejected project-wide for the sync write path, Section 21) or an advisory lock (TD20-style) would both be heavier for a guarantee the existing index already affords.
+- **Cap kept calls-only (user-delegated)**: enforcing only `calls_today < TAVILY_DAILY_CALL_LIMIT` preserves the exact boundary the system runs today (200 calls/UTC-day; 201st refused). Adding a `credits_today` ceiling would be a new behaviour smuggled into a race-fix — declined.
+- **Pointer advanced to #20 normally, no out-of-band annotation**: the initial acknowledgement was built on a stale cache that showed the pointer at #12; the byte-exact paste confirmed #1–#18 SHIPPED and the pointer already at #19, so #19 was in-order and the bookkeeping is a plain advance to #20.
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
@@ -1684,10 +1743,12 @@ So future chats don't accidentally try to add these:
 - `/calendar` page.
 - Loss-cutting sell pipeline (F2 is profit-booking only; `in_profit` gate enforces).
 - In-process application scheduler (APScheduler/lifespan jobs). The schedule stays in crontab; TD21 will version-control it via a registry-rendered `ops/crontab`, NOT by moving job execution into the API process (process-isolation + deploy-safety on the t3.micro).
-- Mongo multi-document (M10) transactions on the synchronous write path. Considered and rejected for TD19 — the immutable ledger is the source of truth and a recompute failure is surfaced via a `recorded_with_warning` flag, not rolled back, to avoid per-step session latency on a single-user box.
+- Mongo multi-document (M10) transactions on the synchronous write path. Considered and rejected for TD19 — the immutable ledger is the source of truth and a recompute failure is surfaced via a `recorded_with_warning` flag, not rolled back, to avoid per-step session latency on a single-user box. (Chat 5.14 re-affirmed for the Tavily quota: the atomic guarantee comes from a conditional `find_one_and_update` + the unique `date_unique` index, NOT a transaction.)
 - DST-aware timezone handling for IST. India observes no DST; IST is a fixed UTC+5:30 (`timezone(timedelta(hours=5, minutes=30))`). Chat 5.11 codified this in `price_service.IST` — do not introduce a zoneinfo/DST lookup.
 - Dropping/replacing a same-field index to add a TTL when an ASC-vs-DESC direction split lets both coexist. Chat 5.12 added `captured_at_ttl` (ASC) ALONGSIDE `captured_at_desc` (DESC); `ensure_all_indexes` stays additive with no `drop_index`.
 - Case-insensitive symbol search. Symbols are uppercased on input and stored uppercase, so `GET /transactions/search` uses a case-sensitive prefix regex with NO `$options:i` (Chat 5.13 TD32) — an `"i"` flag would disable the `(symbol, trade_date)` index. Do not reintroduce it.
+- A `credits_today` ceiling on Tavily. Only `calls_today` is capped (`TAVILY_DAILY_CALL_LIMIT`); credits are tracked for visibility, not enforced. Chat 5.14 deliberately kept the cap calls-only when making the guard atomic — do not add a credit limit without an explicit decision.
+- A lock or M10 transaction around the Tavily quota increment. Chat 5.14 (TD33) enforces the ceiling atomically with a single conditional `find_one_and_update` whose over-cap path collides on the unique `date_unique` index; do not "harden" it further with a lock.
 
 ## Section 22: Glossary
 
@@ -1719,7 +1780,9 @@ So future chats don't accidentally try to add these:
 - **TD23 / TD24 / TD25 (Chat 5.11)**: see Section 18. All SHIPPED 2026-06-08 in one commit `a2806cd`. TD23 intraday holiday guard (`_intraday_row_from_df`); TD24 `price_stale` docstring aligned to code (6 calendar days canonical); TD25 `bulk_get_previous_closes` rewritten to per-ISIN `find_one`.
 - **TD26 / TD27 (Chat 5.12)**: see Section 18. Both SHIPPED 2026-06-08. TD26 `prices_intraday.captured_at` 90-day TTL (`captured_at_ttl`); TD27 `scripts/purge_news_bodies.py` daily cron.
 - **TD28 / TD29 / TD30 / TD31 / TD32 (Chat 5.13)**: see Section 18. All SHIPPED 2026-06-08. TD28 `refetchQueries` swap (frontend `f59958`); TD29 dead `pydoc` import removal; TD30 `MONGODB_URI` doc-drift confirmation; TD31 ISIN charset `pattern` on the two `/suggestions/{isin}` Path params; TD32 `$options:i` drop on `transactions/search`.
+- **TD33 (Chat 5.14)**: see Section 18. SHIPPED 2026-06-09 in one backend commit `4ac2c95`. Replaced the Tavily quota check-then-act with an atomic `find_one_and_update` in `_increment_quota` (filter `calls_today < TAVILY_DAILY_CALL_LIMIT`, `upsert`), cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index → `TavilyQuotaExceeded`.
 - **`captured_at_ttl` (TD26, Chat 5.12)**: ASC TTL index on `prices_intraday.captured_at`, `expireAfterSeconds = 90*86400 = 7776000`. Coexists with the DESC `captured_at_desc` (different key directions). Works because `captured_at` is written as a BSON Date.
+- **Atomic Tavily quota claim (TD33, Chat 5.14)**: `_increment_quota` is a single `find_one_and_update` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True`; under the cap it matches/upserts and `$inc`s atomically, at/over the cap the upsert collides with the unique `date_unique` index (`DuplicateKeyError`) and is surfaced as `TavilyQuotaExceeded`. No pre-check, no TOCTOU window, calls-only cap.
 - **`purge_news_bodies` (TD27, Chat 5.12)**: daily 02:30 IST cron (`scripts/purge_news_bodies.py`) that `$unset`s `body_text` and stamps `body_purged_at` on classified `news_articles` whose `fetched_at` is older than 30 days. `cron_run("purge_news_bodies")` heartbeat + matching `CronSpec`. `--dry-run` count-only mode. Idempotent.
 - **ISIN charset pattern (TD31, Chat 5.13)**: `pattern=r"^[A-Z0-9]{12}$"` on the `Path()` params of `GET /suggestions/{isin}/audit` (`get_feedback_audit_for_isin`) and `POST /suggestions/{isin}/feedback` (`submit_feedback`), alongside `min_length/max_length=12`. A malformed 12-char ISIN 422s at the boundary.
 - **Case-sensitive transaction search (TD32, Chat 5.13)**: `GET /transactions/search` prefix-matches `symbol` with `{"$regex": f"^{escaped}"}` (NO `$options:i`); input is `symbol.upper()` and symbols are stored uppercase, so the `(symbol, trade_date)` index is used.
@@ -1738,7 +1801,8 @@ So future chats don't accidentally try to add these:
 - **Chat 5.10**: Phase 2 closed — TD16 (write-before-apply on PATCH/DELETE), TD18 (dup handler delete), TD17 (validate_replay on /sell + manual import), TD19 (recompute warning-flag), TD20 (per-ISIN recompute lock). Five code commits `17f9f94` → `5cf3087` → `fb23307` → `b34721e`. No frontend work; one open SellSheet follow-up noted in Section 6.
 - **Chat 5.11**: Phase 3 closed — TD23 (intraday holiday guard + IST/_to_ist helpers), TD24 (price_stale docstring aligned to code), TD25 (bulk_get_previous_closes per-ISIN rewrite). ONE code commit `a2806cd`, only `app/services/price_service.py`. No frontend work; the Chat 5.10 SellSheet follow-up remains open.
 - **Chat 5.12**: Phase 4 closed — TD26 (`prices_intraday.captured_at` 90-day TTL in `app/db/indexes.py`), TD27 (`scripts/purge_news_bodies.py` daily 02:30 IST cron + `CronSpec`). Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line. No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a TTL no-ops on a non-Date field; the app DB is `portfolio` not `portfolio_advisor`; the bulky news field is `body_text` not `body`; purge age keys on `fetched_at` not `published_at`.
-- **Chat 5.13 (THIS commit)**: Phase 5 closed — TD28 (`refetchQueries` swap in `notes-panel.tsx` + `refresh-button.tsx`, frontend `f59958`), TD29 (dead `from pydoc import doc` removal in `holdings.py`), TD30 (`MONGODB_URI` doc-drift confirmation), TD31 (ISIN charset `pattern` on the two `/suggestions/{isin}` Path params in `suggestions.py`), TD32 (`$options:i` drop on `transactions/search` in `transactions.py`). One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`). No frontend work beyond TD28; the Chat 5.10 SellSheet follow-up remains open. Lessons: a "~line N" pointer is a hint (re-anchor at HEAD); use `grep -F` for literal verification strings; a pass/fail test must discriminate the change from pre-existing constraints; a both-repos phase needs a per-repo deploy + landed-assertion.
+- **Chat 5.13**: Phase 5 closed — TD28 (`refetchQueries` swap in `notes-panel.tsx` + `refresh-button.tsx`, frontend `f59958`), TD29 (dead `from pydoc import doc` removal in `holdings.py`), TD30 (`MONGODB_URI` doc-drift confirmation), TD31 (ISIN charset `pattern` on the two `/suggestions/{isin}` Path params in `suggestions.py`), TD32 (`$options:i` drop on `transactions/search` in `transactions.py`). One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`). No frontend work beyond TD28; the Chat 5.10 SellSheet follow-up remains open. Lessons: a "~line N" pointer is a hint (re-anchor at HEAD); use `grep -F` for literal verification strings; a pass/fail test must discriminate the change from pre-existing constraints; a both-repos phase needs a per-repo deploy + landed-assertion.
+- **Chat 5.14 (THIS commit)**: Phase 6 opened — #19 (TD33) atomic Tavily quota claim in `app/services/tavily_client.py` (`get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit via `DuplicateKeyError` on the unique `date_unique` index → `TavilyQuotaExceeded`). ONE backend commit `4ac2c95`, backend-only. Cap kept calls-only (`credits_today` tracked, not capped). No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a per-period hard-ceiling counter is enforced atomically by guarding in the `find_one_and_update` filter and letting a unique index catch the over-cap upsert (no lock, no transaction, one round-trip); README/data_flow "monthly" wording is stale (code is daily) — anchor to the code body at HEAD when docs drift.
 - **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
 - **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 

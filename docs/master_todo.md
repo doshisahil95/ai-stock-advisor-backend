@@ -4,9 +4,9 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-08 (Chat 5.13 — Phase 5 closed)
+**Last updated:** 2026-06-09 (Chat 5.14 — Phase 6 #19 shipped)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 5.13 close):** deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Phase 5 TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop shipped on three backend code commits; HEAD advances after the Chat 5.13 doc commit). **Current frontend SHA (Chat 5.13 close):** `f59958015b8b07b6e84e3add7b4a302d32b43490` (Phase 5 TD28 refetchQueries swap shipped on one frontend commit). Chat 5.13 opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit) and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
+**Current backend SHA (Chat 5.14 close):** deployed code HEAD `4ac2c955782490818eefa6024c9daead92b0b0eb` (Phase 6 TD33 / #19 atomic Tavily quota claim shipped on ONE backend code commit; HEAD advances after the Chat 5.14 doc commit). **Current frontend SHA:** `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged — Chat 5.14 was backend-only). Chat 5.14 opened at backend `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Prior: Chat 5.13 closed at deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop on three backend code commits) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (TD28 refetchQueries swap on one frontend commit); it opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
 
 > Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
@@ -14,9 +14,9 @@ This file is the canonical, ordered, end-to-end task list to reach product compl
 
 ## Current position
 
-**Next item to start: #19 (P2-5 / Phase 6 — external-service hardening: replace the Tavily quota check-then-act with an atomic `find_one_and_update`).**
+**Next item to start: #20 (P3-4 / Phase 6 — external-service hardening: add 1-2 attempt retry with 30-60s backoff inside `notify.email()` on transient 5xx / 429; don't retry 400s).**
 
-Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 are fully SHIPPED. Phase 5 (#14–#18 / TD28–TD32, frontend correctness + quick wins) shipped Chat 5.13, 2026-06-08, across BOTH repos — one frontend code commit (TD28, frontend HEAD `f59958`) + three backend code commits (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options`; deployed code HEAD `090d96c`); TD30 was a doc-drift confirmation (no code). Per the standing rule, Phase 6 (#19–#24, external-service hardening) begins in a fresh chat to keep context clean.
+Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 are fully SHIPPED, and Phase 6 is now IN PROGRESS — #19 (P2-5 / TD33) shipped Chat 5.14. Phase 5 (#14–#18 / TD28–TD32, frontend correctness + quick wins) shipped Chat 5.13, 2026-06-08, across BOTH repos — one frontend code commit (TD28, frontend HEAD `f59958`) + three backend code commits (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options`; deployed code HEAD `090d96c`); TD30 was a doc-drift confirmation (no code). Phase 6 (#19–#24, external-service hardening) opened Chat 5.14 with #19 — the Tavily quota check-then-act replaced by an atomic `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`, with the cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index (backend code commit `4ac2c95`); #20–#24 remain OPEN. Per the standing rule, the remaining Phase 6 items continue in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
@@ -37,6 +37,7 @@ Items completed since this file was created:
 - #16 (TD30) — SHIPPED 2026-06-08 (Chat 5.13)
 - #17 (TD31) — SHIPPED 2026-06-08 (Chat 5.13)
 - #18 (TD32) — SHIPPED 2026-06-08 (Chat 5.13)
+- #19 (TD33) — SHIPPED 2026-06-09 (Chat 5.14)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -51,7 +52,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
 4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
 5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps. SHIPPED Chat 5.12.
-6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched. Phase 5 SHIPPED Chat 5.13.
+6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched. Phase 5 SHIPPED Chat 5.13; Phase 6 #19 SHIPPED Chat 5.14.
 7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume.
 8. **Phase 9** — Cross-cutting cleanup (`datetime.utcnow()` sweep, Python ceiling, pytest harness, ops gaps) right before GO LIVE so launch lands on one clean state.
 9. **Phase 10** — Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss wiring).
@@ -131,7 +132,7 @@ Spans BOTH repos: #14 is frontend (one commit, frontend HEAD `f59958`); #15/#17/
 
 | # | Source | Item | Files | Status |
 |---|---|---|---|---|
-| 19 | P2-5 | Replace Tavily quota check-then-act with atomic `find_one_and_update` against `tavily_quota`. | `app/services/tavily_client.py` ~110-145 | OPEN |
+| 19 | P2-5 | Replace Tavily quota check-then-act with atomic `find_one_and_update` against `tavily_quota`. **Chat 5.14 SHIPPED (TD33): collapsed the `get_today_quota()` pre-check + separate `_increment_quota()` `$inc` into ONE conditional `find_one_and_update` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True, return_document=AFTER` and the existing `$inc`/`$setOnInsert`/`$set` blocks. Under the cap (or the day's first call) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches, so the upsert attempts a second `date_utc==today` insert and the unique `date_unique` index raises `DuplicateKeyError`, caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). Cap stays calls-only (`credits_today` tracked, not capped) — race fix, not a new ceiling (user-delegated). Added `from pymongo.errors import DuplicateKeyError`; removed the now-redundant pre-check in `search()`. Backend-only; callers (`news_fetcher.py`) untouched. Verified on EC2 at backend HEAD `4ac2c95`: `/health` ok/ok, `/suggestions/latest?direction=buy|sell` + `/cron/heartbeats` all 200 (import chain intact; the guard has no HTTP surface, so coverage is deploy + import-graph + boot regression).** | `app/services/tavily_client.py` ~110-145 | SHIPPED 2026-06-09 (Chat 5.14) — commit `4ac2c95` |
 | 20 | P3-4 | Add 1-2 attempt retry with 30-60s backoff inside `notify.email()` on transient 5xx / 429. Don't retry 400s. | `app/services/notify.py` | OPEN |
 | 21 | P3-5 | Persist suggestion run BEFORE digest formatting; pass `inserted_id` explicitly to `send_combined_digest`. | `app/services/digest_delivery.py` ~470-490 | OPEN |
 | 22 | P3-1 | Reject NaN in `_to_decimal`: `if isinstance(v, float) and v != v: raise ValueError("NaN not allowed")`. | `app/models/_common.py` ~12 | OPEN |
@@ -209,7 +210,7 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 3 | 9-11 | Intraday & price correctness | Foundation for Chat 8 sell-side — SHIPPED Chat 5.11 |
 | 4 | 12-13 | Storage hygiene (TTL + purge) | Foundation for Chat 10 real data — SHIPPED Chat 5.12 |
 | 5 | 14-18 | Frontend correctness + quick wins | Independent — SHIPPED Chat 5.13 |
-| 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) — next |
+| 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) — IN PROGRESS (#19 SHIPPED Chat 5.14; #20–24 open) |
 | 7 | 25-26 | Reconciliation alerting + feedback direction | Standalone |
 | 8 | 27-29 | New features (Chats 6, 7, 8) | Underlying surfaces correct |
 | 9 | 30-38 | Pre-launch sweep + ops gaps | Last clean state before GO LIVE |
