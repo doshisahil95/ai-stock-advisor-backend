@@ -17,7 +17,10 @@ def _to_decimal(v: Any) -> Decimal:
     if isinstance(v, (str, int)):
         return Decimal(v)
     if isinstance(v, float):
+        if v != v:  # NaN is the only float not equal to itself
+            raise ValueError("NaN not allowed")
         return Decimal(str(v))
+
     raise TypeError(f"Cannot convert {type(v).__name__} to Decimal")
 
 
