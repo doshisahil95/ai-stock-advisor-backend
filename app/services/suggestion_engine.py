@@ -552,7 +552,7 @@ def _run_buy_pipeline(
 
                 # 2. Send email + ntfy digest
                 try:
-                    delivery = send_weekly_digest(run)
+                    delivery = send_weekly_digest(run, run_id=run.id)
                     log.info("Digest delivery result: %s", delivery)
                 except Exception as exc:
                     log.error("send_weekly_digest failed: %s", exc)
@@ -762,7 +762,7 @@ def _run_sell_pipeline(
                 # This send_weekly_digest call is the standalone --direction=sell
                 # path used by manual reruns and ad-hoc testing only.
                 try:
-                    delivery = send_weekly_digest(run)
+                    delivery = send_weekly_digest(run, run_id=run.id)
                     log.info("Digest delivery (sell) result: %s", delivery)
                 except Exception as exc:
                     log.error("send_weekly_digest (sell) failed: %s", exc)
@@ -803,6 +803,10 @@ def _persist_run(run: SuggestionRun):
     """Insert the SuggestionRun. Returns the inserted _id (ObjectId)."""
     doc = run.to_mongo()
     result = Collections.suggestion_runs().insert_one(doc)
+    # P3-5 (#21): carry the persisted _id on the in-memory run so callers
+    # (run_suggestions -> _do_both, send_combined_digest, send_weekly_digest)
+    # use it directly instead of re-deriving the latest run via find_one.
+    run.id = result.inserted_id
     log.info(
         "Persisted SuggestionRun id=%s status=%s direction=%s",
         result.inserted_id,

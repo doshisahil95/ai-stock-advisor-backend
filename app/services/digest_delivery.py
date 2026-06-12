@@ -557,16 +557,12 @@ def send_combined_digest(buy_run: SuggestionRun, sell_run: SuggestionRun) -> dic
     sell_dossiers = _parse_dossiers(sell_run)
 
     # Resolve persisted buy run id for the delivery log.
-    buy_doc = Collections.suggestion_runs().find_one(
-        {
-            "direction": "buy",
-            "run_date_ist": buy_run.run_date_ist,
-            "status": {"$in": ["success", "partial"]},
-        },
-        sort=[("run_date", -1)],
-        projection={"_id": 1},
-    )
-    buy_run_id = buy_doc["_id"] if buy_doc else None
+    # P3-5 (#21): the persisted buy-run _id is carried on the in-memory run
+    # by _persist_run (set right after insert_one), so read it directly
+    # instead of re-deriving the latest buy run via find_one. The delivery
+    # row still keys on the BUY run id (see docstring); sell-side outcomes
+    # are recorded under the sell run id by create_outcomes_for_run.
+    buy_run_id = buy_run.id
 
     subject = _format_combined_subject(buy_run, sell_run)
     html = _format_combined_email_html(buy_run, buy_dossiers, sell_run, sell_dossiers)

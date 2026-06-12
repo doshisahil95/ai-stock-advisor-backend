@@ -150,25 +150,14 @@ def main() -> int:
 
         # 3. Outcomes for BOTH directions, only if notify is on (production).
         if notify:
-            # We need the persisted run ids. run_suggestions returned the
-            # in-memory SuggestionRun. Fetch the most-recent persisted ids
-            # per direction to attach outcomes to. This is the same pattern
-            # _run_buy_pipeline / _run_sell_pipeline used internally.
-            from app.db.client import Collections
-
-            buy_doc = Collections.suggestion_runs().find_one(
-                {"direction": "buy", "status": {"$in": ["success", "partial"]}},
-                sort=[("run_date", -1)],
-            )
-            sell_doc = Collections.suggestion_runs().find_one(
-                {"direction": "sell", "status": {"$in": ["success", "partial"]}},
-                sort=[("run_date", -1)],
-            )
-
-            if buy_doc and buy_run.top_candidates:
+            # P3-5 (#21): run_suggestions now carries the persisted _id on the
+            # returned SuggestionRun (set in _persist_run), so attach outcomes
+            # via buy_run.id / sell_run.id directly instead of re-deriving the
+            # most-recent run per direction with find_one.
+            if buy_run.id and buy_run.top_candidates:
                 try:
                     create_outcomes_for_run(
-                        buy_doc["_id"],
+                        buy_run.id,
                         buy_run.run_date,
                         buy_run.top_candidates,
                         direction="buy",
@@ -176,10 +165,10 @@ def main() -> int:
                 except Exception:
                     log.exception("create_outcomes_for_run (buy) failed")
 
-            if sell_doc and sell_run.top_candidates:
+            if sell_run.id and sell_run.top_candidates:
                 try:
                     create_outcomes_for_run(
-                        sell_doc["_id"],
+                        sell_run.id,
                         sell_run.run_date,
                         sell_run.top_candidates,
                         direction="sell",
