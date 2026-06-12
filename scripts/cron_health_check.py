@@ -31,6 +31,7 @@ import sys
 
 from app.services.cron_heartbeat_service import (
     count_today_heartbeats,
+    count_today_heartbeats_from_fallback,
     cron_run,
     get_registry,
     is_expected_today,
@@ -50,6 +51,7 @@ def main() -> int:
         today_start, tomorrow_start = ist_today_window_utc()
         anomalies: list[str] = []
         per_cron_status: list[dict] = []
+        fallback_total = 0
 
         for spec in get_registry():
             # Skip ourselves — we're literally running right now, so a count
@@ -64,7 +66,17 @@ def main() -> int:
                 ist_today_utc_start=today_start,
                 ist_tomorrow_utc_start=tomorrow_start,
             )
-
+            # Merge in any heartbeats that fell back to disk because their Mongo
+            # insert failed (best-effort sink in cron_heartbeat_service._persist).
+            # A run lands in at most one source, so this never double-counts.
+            fallback_counts = count_today_heartbeats_from_fallback(
+                spec.cron_name,
+                ist_today_utc_start=today_start,
+                ist_tomorrow_utc_start=tomorrow_start,
+            )
+            for _k in counts:
+                counts[_k] += fallback_counts[_k]
+            fallback_total += fallback_counts["total"]
             per_cron_status.append(
                 {
                     "cron_name": spec.cron_name,
@@ -91,6 +103,7 @@ def main() -> int:
         hb.metadata["per_cron_status"] = per_cron_status
         hb.metadata["anomaly_count"] = len(anomalies)
         hb.metadata["anomalies"] = anomalies
+        hb.metadata["fallback_heartbeats_merged"] = fallback_total
 
         print("=" * 70)
         print(" Cron health check")

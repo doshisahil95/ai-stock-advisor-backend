@@ -15,6 +15,7 @@ This is append-only. Used for:
 
 from __future__ import annotations
 
+import json
 import zoneinfo
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -35,6 +36,14 @@ IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 WEEKDAYS_MON_FRI = {0, 1, 2, 3, 4}
 WEEKDAYS_ALL = {0, 1, 2, 3, 4, 5, 6}
 SUNDAY = {6}
+
+# Fallback heartbeat log — last-resort sink used by `_persist` when the Mongo
+# heartbeat insert fails. Best-effort and append-only (one JSON object per
+# line). The daily health check reads this in ADDITION to Mongo so a heartbeat
+# lost to a transient Mongo outage does not become a false MISSING. The path
+# matches the /home/ubuntu/cron-*.log logrotate glob (Section 4), so no new
+# rotation config is needed.
+_FALLBACK_LOG_PATH = "/home/ubuntu/cron-heartbeat-fallback.log"
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -221,6 +230,37 @@ def _persist(hb: _Heartbeat) -> None:
     try:
         Collections.cron_heartbeats().insert_one(_convert_decimals_to_decimal128(doc))
     except Exception:
+        _append_fallback(doc)
+
+
+def _isoformat_or_none(value: datetime | None) -> str | None:
+    """Serialize a datetime to ISO-8601 for the fallback log, preserving None."""
+    return value.isoformat() if value is not None else None
+
+
+def _append_fallback(doc: dict[str, Any]) -> None:
+    """Last-resort sink when the Mongo heartbeat insert fails.
+
+    Appends the heartbeat as ONE JSON object per line to `_FALLBACK_LOG_PATH`.
+    Best-effort: never raises (mirrors `_persist`'s no-mask contract — a failure
+    here must not hide the underlying cron error). The daily health check reads
+    this file in addition to Mongo. datetimes are stored as ISO-8601 strings;
+    any non-JSON-native value in metadata falls back to its str() form.
+    """
+    try:
+        record = {
+            "cron_name": doc["cron_name"],
+            "started_at": _isoformat_or_none(doc.get("started_at")),
+            "finished_at": _isoformat_or_none(doc.get("finished_at")),
+            "status": doc["status"],
+            "error": doc["error"],
+            "metadata": doc.get("metadata") or {},
+            "_schema_version": doc.get("_schema_version", 1),
+        }
+        line = json.dumps(record, default=str)
+        with open(_FALLBACK_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:
         pass
 
 
@@ -281,6 +321,72 @@ def count_today_heartbeats(
         counts["total"] += n
         if s in counts:
             counts[s] += n
+    return counts
+
+
+def _parse_fallback_dt(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 string from the fallback log to a naive-UTC datetime.
+
+    The window bounds used by the health check are naive UTC (tzinfo stripped by
+    `ist_today_window_utc`), so a tz-aware value is converted to UTC and made
+    naive for an apples-to-apples comparison. Returns None on any parse error.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except Exception:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def count_today_heartbeats_from_fallback(
+    cron_name: str,
+    *,
+    ist_today_utc_start: datetime,
+    ist_tomorrow_utc_start: datetime,
+) -> dict[str, int]:
+    """Fallback-log mirror of `count_today_heartbeats`.
+
+    Reads `_FALLBACK_LOG_PATH` (JSON-per-line, written by `_append_fallback`
+    when a Mongo heartbeat insert fails) and counts records for `cron_name`
+    whose started_at falls in the IST-today window. Returns the same
+    {"total","success","failure","skipped"} shape. Best-effort: a missing or
+    unreadable file, or a malformed line, contributes zero and never raises.
+
+    A run is recorded here ONLY when its Mongo insert failed, so it cannot also
+    be in Mongo — merging these counts with `count_today_heartbeats` never
+    double-counts the same run.
+    """
+    counts = {"total": 0, "success": 0, "failure": 0, "skipped": 0}
+    try:
+        with open(_FALLBACK_LOG_PATH, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except FileNotFoundError:
+        return counts
+    except Exception:
+        return counts
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        if rec.get("cron_name") != cron_name:
+            continue
+        started = _parse_fallback_dt(rec.get("started_at"))
+        if started is None:
+            continue
+        if not (ist_today_utc_start <= started < ist_tomorrow_utc_start):
+            continue
+        counts["total"] += 1
+        s = rec.get("status")
+        if s in counts:
+            counts[s] += 1
     return counts
 
 
