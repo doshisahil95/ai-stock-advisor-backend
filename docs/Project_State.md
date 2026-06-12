@@ -147,7 +147,7 @@ Explicitly NOT a goal: dividend tracking, accounting, financial planning, tax fi
 - yfinance (price + fundamentals + earnings calendar data; free tier)
 - Anthropic Claude SDK (Sonnet 4.5 for dossiers, Haiku 4.5 for classification)
 - Tavily (news search; free tier, daily quota enforced — atomically as of Chat 5.14 TD33)
-- Resend (transactional email for digests, drift alerts, smoke tests, cron-health alerts — all routed through `notify.email()` as of Chat 5 A2)
+- Resend (transactional email for digests, drift alerts, smoke tests, cron-health alerts — all routed through `notify.email()` as of Chat 5 A2; transient 5xx/429 retried once with 30s backoff as of Chat 5.15 TD34)
 - ntfy (push notifications — public ntfy.sh for all paths; self-hosted private service decommissioned TD8)
 
 ### Frontend
@@ -221,7 +221,7 @@ API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api
 or skip — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
 ### systemd units on EC2
-- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`). NOTE (Chat 5.10): because there is no `--workers` and the route handlers are sync `def`, concurrent requests run in Uvicorn's threadpool — i.e. THREADS within one process. This is why TD20's per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock` (event-loop-only, useless for sync handlers). (Chat 5.14: this same threadpool concurrency is why the Tavily check-then-act was a real TOCTOU race even on this single-process box — TD33.)
+- `portfolio-advisor.service` — runs `uvicorn app.main:app --port 8000 --host 0.0.0.0` as user `ubuntu`, with `Environment="PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend"`, `Environment="PYTHONUNBUFFERED=1"`. Logs to journald. Single process, single worker (no `--workers`). NOTE (Chat 5.10): because there is no `--workers` and the route handlers are sync `def`, concurrent requests run in Uvicorn's threadpool — i.e. THREADS within one process. This is why TD20's per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock` (event-loop-only, useless for sync handlers). (Chat 5.14: this same threadpool concurrency is why the Tavily check-then-act was a real TOCTOU race even on this single-process box — TD33. Chat 5.15: the TD34 retry's blocking `time.sleep(30)` therefore blocks ONE threadpool worker, not the whole process — anyio's default pool is 40 threads, so on a single-user box this is acceptable.)
 - `portfolio-advisor-ui.service` — runs `node /home/ubuntu/ai-stock-advisor-frontend/node_modules/next/dist/bin/next start` on port 3000 with hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ReadWritePaths` includes the frontend dir and `/tmp`).
 
 A sudoers entry at `/etc/sudoers.d/portfolio-advisor-systemctl` lets `ubuntu` restart these services without password.
@@ -240,9 +240,10 @@ Chat 5.12 note: the daily 02:30 IST `purge_news_bodies` cron (TD27) writes to `/
 - Backend: https://github.com/doshisahil95/ai-stock-advisor-backend
 - Frontend: https://github.com/doshisahil95/ai-stock-advisor-frontend
 
-Last verified SHAs (Chat 5.14 closed, 2026-06-09):
-- Backend: `4ac2c955782490818eefa6024c9daead92b0b0eb` (Chat 5.14 Phase-6 #19 close: deployed code HEAD after ONE backend code commit — TD33 atomic Tavily quota claim in `app/services/tavily_client.py` (the `get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index). HEAD advances after this Chat 5.14 doc commit — pin in next chat). Chat 5.14 opened at `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Backend-only chat.
-- Frontend: `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged since Chat 5.13 — Chat 5.14 was backend-only).
+Last verified SHAs (Chat 5.15 closed, 2026-06-12):
+- Backend: `7d77b9cbee9f3155f22c86057b20640f21599ee9` (Chat 5.15 Phase-6 #20 close: deployed code HEAD after ONE backend code commit — TD34 transient-5xx/429 retry in `app/services/notify.py` `email()` (a 1-retry / 2-attempt loop with a 30s blocking backoff on HTTP 429 + 5xx; 400s and no-status errors return immediately; `{ok,id,error}` contract + no-raise guarantee unchanged so the three `result["ok"]` callers are untouched). HEAD advances after this Chat 5.15 doc commit — pin in next chat). Chat 5.15 opened at `582cd18d5d50d90b1ae4d1174a22a59799d69ca0` (the Chat 5.14 doc commit). Backend-only chat.
+- Frontend: `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged since Chat 5.13 — Chat 5.14 and Chat 5.15 were backend-only).
+- Backend (Chat 5.14 close): `4ac2c955782490818eefa6024c9daead92b0b0eb` (Chat 5.14 Phase-6 #19 close: deployed code HEAD after ONE backend code commit — TD33 atomic Tavily quota claim in `app/services/tavily_client.py` (the `get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index). Chat 5.14 opened at `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Backend-only chat.
 - Backend (Chat 5.13 close): `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (Chat 5.13 Phase-5 close: deployed code HEAD after THREE backend code commits — TD29 dead-import removal in `app/routers/holdings.py`, TD31 ISIN `pattern=` on the two `/suggestions/{isin}` Path params in `app/routers/suggestions.py`, TD32 `$options:i` drop on the transactions/search regex in `app/routers/transactions.py`). Chat 5.13 opened at `07d9a413b39d330e3ea9047dec4e38917a446449` (the Chat 5.12 doc commit).
 - Frontend (Chat 5.13 close): `f59958015b8b07b6e84e3add7b4a302d32b43490` (Chat 5.13 Phase-5 close: ONE frontend code commit — TD28 `invalidateQueries` → `refetchQueries` swap in `components/notes-panel.tsx` + `components/refresh-button.tsx`). Chat 5.13 opened at `4f31b49b103f92ea5b4721f9728156041e908f49` (unchanged through Chats 5.6–5.12).
 - Backend (Chat 5.12 close): `49bf33f` (deployed code HEAD after TWO code commits — TD26 `prices_intraday.captured_at` TTL on `app/db/indexes.py`, then TD27 `scripts/purge_news_bodies.py` + the `purge_news_bodies` `CronSpec` on `app/services/cron_heartbeat_service.py`; the crontab line was added on EC2 separately). Chat 5.12 opened at `8cf2ae8e0e94fa29b78b015d21b148c1e1e924e5` (the Chat 5.11 doc commit).
@@ -250,7 +251,7 @@ Last verified SHAs (Chat 5.14 closed, 2026-06-09):
 
 ## Section 5: Backend file map
 
-Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`; Chat 5.13 touched holdings.py + suggestions.py + transactions.py, code HEAD `090d96c`; Chat 5.14 touched only tavily_client.py, code HEAD `4ac2c95`):
+Directory layout under `app/` and top-level (verified against backend tree at SHA `ce5e746`; recompute_locks accessor + impl rename landed Chat 5.10 at `b34721e`; Chat 5.11 touched only price_service.py at `a2806cd`; Chat 5.12 touched indexes.py + cron_heartbeat_service.py + new purge_news_bodies.py, code HEAD `49bf33f`; Chat 5.13 touched holdings.py + suggestions.py + transactions.py, code HEAD `090d96c`; Chat 5.14 touched only tavily_client.py, code HEAD `4ac2c95`; Chat 5.15 touched only notify.py, code HEAD `7d77b9c`):
 ```
 app/
   main.py                     FastAPI bootstrap, router includes, lifespan
@@ -387,6 +388,8 @@ app/
                               _send_drift_alerts (helper sends ntfy + email)
                               F1/F23 (fix): utcnow tz-naive + Decimal128 write
                               Chat 5 A2 part 2: branches on notify.email() result["ok"]
+                              (still branches on result["ok"] after the Chat 5.15 TD34
+                              retry — contract unchanged)
                               master_todo #25: fire ntfy push on threshold drift
                               master_todo #31: tz-aware datetime sweep (lines 78, ~138)
     cost_basis_service.py     get_active_adjustments, total_adjustment_amount
@@ -434,7 +437,9 @@ app/
                               F2b: ntfy via push_public("digests", ...)
                               F2b cea8eee: _format_score_breakdown direction-aware
                               Chat 5 A2 part 1: delegates to notify.email()
-                              master_todo #21: persist run_id BEFORE digest formatting
+                              (the Chat 5.15 TD34 retry lives inside notify.email(), so
+                              _send_email still just branches on result["ok"] — untouched)
+                              master_todo #21: persist run_id BEFORE digest formatting — NEXT
     explainability.py         SIGNAL_META, GROUP_META, GATE_META, FEEDBACK_META,
                               PAGE_INTRO + PAGE_INTRO_SELL, enrich_run, enrich_candidate
                               F2: SIGNAL/GROUP/GATE_META extended; _GROUP_TO_SIGNALS extended
@@ -443,7 +448,16 @@ app/
     notify.py                 push_public, email
                               Chat 5 A2 part 1: email returns {ok,id,error}, optional text=
                               Chat 5 TD8: push_private / PrivateTopic removed
-                              master_todo #20: retry on transient 5xx/429 in email() — NEXT
+                              master_todo #20 SHIPPED (Chat 5.15, TD34): email() retries
+                              once (2 attempts total) on transient HTTP 429/5xx with a
+                              blocking 30s backoff; 400s + no-status errors return
+                              immediately. Added `import logging` + `import time` + module
+                              logger, `_email_error_status()` (status off .code/.status_code,
+                              fallback error_type=="rate_limit_exceeded"->429) and
+                              `_is_transient_email_error()` (429 + 5xx only), plus constants
+                              `_EMAIL_MAX_ATTEMPTS=2`, `_EMAIL_RETRY_BACKOFF_SECONDS=30`,
+                              `_EMAIL_TRANSIENT_STATUSES`. {ok,id,error} contract + no-raise
+                              guarantee UNCHANGED -> all three result["ok"] callers untouched
     cron_heartbeat_service.py F4: cron_run context manager, CRON_REGISTRY,
                               get_recent_heartbeats, ist_today_window_utc
                               Chat 5 A6/A6.5/A7 fixes
@@ -483,7 +497,9 @@ scripts/
   track_suggestion_outcomes.py  Chat 5.9: FAILING every weekday in prod (TD22 /
                                 master_todo #47) — surfaced in 21:00 IST health email
   cron_health_check.py          F4: daily 21:00 IST; dual-transport Chat 5 commit 8
-                                (confirmed healthy Chat 5.9 — email + ntfy both arriving)
+                                (confirmed healthy Chat 5.9 — email + ntfy both arriving;
+                                the email leg flows through notify.email(), which now
+                                retries transient 5xx/429 once — TD34, Chat 5.15)
                                 master_todo #24: try/except around Mongo reads
                                 master_todo #23: read fallback log too
   smoke_test.py                 Chat 5 TD8: dropped push_private references
@@ -500,10 +516,12 @@ docs/
                                 Chat 5.5 TD12: universe paragraph corrected
                                 (Chat 5.14 NOTE: its Tavily "monthly" wording is STALE —
                                 the code is daily; flagged, not yet corrected)
-  Project_State.md              THIS FILE (Chat 5.14 doc commit; recovered from
+  Project_State.md              THIS FILE (Chat 5.15 doc commit; recovered from
                                 Chat 5.8 truncation in Chat 5.9 — see Section 18 TD15)
   master_todo.md                Chat 5.8 NEW — canonical ordered task list
 pyproject.toml                  master_todo #32: pin requires-python upper bound
+                                (declares resend>=2.4 — the SDK whose typed errors the
+                                Chat 5.15 TD34 retry classifies)
 uv.lock
 README.md                       Chat 5 doc deliverable 2/4 SHIPPED
                                 Chat 5.5 TD12: §8 + §11 + §5 corrections
@@ -515,7 +533,7 @@ README.md                       Chat 5 doc deliverable 2/4 SHIPPED
 
 ## Section 6: Frontend file map
 
-Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12; Chat 5.13 touched notes-panel.tsx + refresh-button.tsx, frontend HEAD `f59958`; Chat 5.14 was backend-only — frontend unchanged):
+Verified against frontend tree at SHA `4f31b49` (unchanged Chat 5.10–5.12; Chat 5.13 touched notes-panel.tsx + refresh-button.tsx, frontend HEAD `f59958`; Chat 5.14 + Chat 5.15 were backend-only — frontend unchanged):
 ```
 app/
   layout.tsx                  root layout, fonts, ThemeProvider, Query Provider
@@ -858,7 +876,7 @@ CHAT 5.12 CLOSED ONE-TIME EC2 STEP:
 
 No silent failures: every cron registration must include log file paths AND heartbeat instrumentation AND a `CronSpec` entry. All three. **Chat 5.9 lesson: the registry name MUST equal the `cron_name` the script writes — a mismatch produces a permanent phantom MISSING even after the cron itself is fixed. Chat 5.12 re-confirmed: `purge_news_bodies`' `CronSpec.cron_name` is byte-identical to the `cron_run("purge_news_bodies")` string the script passes.**
 
-Cron-health dual transport (Chat 5 commit 8): `cron_health_check.py` sends every anomaly batch on TWO independent transports — `push_public("errors", ...)` + `notify.email(subject, html, text)` — and raises (so `cron_run` marks the run as failed) ONLY when BOTH fail. **Chat 5.9 confirmed healthy by inspection: the 21:00 IST email + ntfy are both arriving daily, so there is no second silent failure in dual-transport.**
+Cron-health dual transport (Chat 5 commit 8): `cron_health_check.py` sends every anomaly batch on TWO independent transports — `push_public("errors", ...)` + `notify.email(subject, html, text)` — and raises (so `cron_run` marks the run as failed) ONLY when BOTH fail. **Chat 5.9 confirmed healthy by inspection: the 21:00 IST email + ntfy are both arriving daily, so there is no second silent failure in dual-transport.** Chat 5.15 note: the email leg now retries a transient Resend 5xx/429 once (30s backoff) inside `notify.email()` before returning `{ok:false}` (TD34) — the dual-transport "raise only when BOTH fail" logic is unchanged because it still reads `result["ok"]`.
 
 Chat 5.14 note: the Tavily daily quota guard (TD33) is exercised in production ONLY through the Sunday 06:30 IST `fetch_news_for_universe.py` run (and any ad-hoc news fetch). It has no HTTP surface, so it is regression-covered at deploy time via the import graph (`/health` boot + the `/suggestions` endpoints that import `news_fetcher` → `tavily_client`), not via a curl against the guard itself.
 
@@ -891,6 +909,7 @@ Configured in `app/config/settings.py` via pydantic-settings. All required unles
 - `RESEND_FROM` (e.g., `"advisor@your-domain.com"`)
 - `RESEND_TO` (default recipient for `notify.email()`)
 - `DIGEST_TO` (digest recipient; may equal `RESEND_TO`)
+- (No new env for the Chat 5.15 TD34 retry — the retry count / backoff / transient-status set are module-level constants in `notify.py`, not env-configurable, mirroring the project's "constants intentionally not env-configurable" convention.)
 
 ### ntfy
 - `NTFY_PUBLIC_URL` (default `"https://ntfy.sh"`)
@@ -950,7 +969,7 @@ From `docs/data_flow.md`. Hard rules.
 
 ### Chat 5 A2 (CLOSED)
 - `notify.email()` returns `{ok: bool, id: str|None, error: str|None}` and SWALLOWS Resend exceptions.
-- All Resend traffic flows through `notify.email()`. **master_todo #20: add 1-2 attempt retry.**
+- All Resend traffic flows through `notify.email()`. **master_todo #20 SHIPPED Chat 5.15 (TD34): `email()` now retries ONCE (2 attempts total) on a transient HTTP 429/5xx with a 30s blocking backoff before returning; 400s and any other client/no-status error return immediately (no retry). The `{ok, id, error}` return contract and the swallow-exceptions / no-raise guarantee are UNCHANGED — the retry is purely internal — so every caller that branches on `result["ok"]` (`digest_delivery._send_email`, `reconciliation._send_drift_alerts`, `cron_health_check` dual-transport) is untouched. Transient is classified by `_is_transient_email_error()` reading the Resend SDK exception's int status (`.code`/`.status_code`, with `error_type=="rate_limit_exceeded"`→429 fallback); 429 + 5xx retry, everything else (incl. no-status errors like a bare connection reset) does not. Retry count (1) / backoff (30s) / transient-status set are module constants, NOT env-configurable.**
 
 ### Chat 5 A3+A4 (CLOSED)
 - `SignalScore.raw_value` carries the RAW input that fed normalization.
@@ -959,7 +978,7 @@ From `docs/data_flow.md`. Hard rules.
 - `explainability._build_signal_meta` falls back to `_to_float(sig["raw_value"])` rendered via `_format_raw(meta["formatter_kind"], raw)` when `fundamentals_field is None` AND `available is True`.
 
 ### Chat 5 commit 8 (CLOSED) — cron-health dual transport
-- Dual-transport ntfy + email. Raises only when BOTH fail. Confirmed healthy Chat 5.9.
+- Dual-transport ntfy + email. Raises only when BOTH fail. Confirmed healthy Chat 5.9. (Chat 5.15: the email leg inherits the TD34 transient retry; "raise only when both fail" still reads `result["ok"]`, unchanged.)
 
 ## Section 13: Shipped vs Open
 
@@ -995,6 +1014,9 @@ Phase 2 Suggestions Engine:
 - Suggestions feedback/audit endpoints (Chat 5.13: ISIN charset pattern validators, master_todo #17)
 - Tavily news-search quota tracking (Chat 5.14: daily call ceiling enforced atomically, master_todo #19)
 
+Cross-cutting infrastructure:
+- Transactional email via `notify.email()` (Chat 5 A2; Chat 5.15: transient 5xx/429 retried once with 30s backoff, master_todo #20)
+
 Chat 2 (F4 + F5a) — Cron observability shipped 2026-05-16.
 Chat 3 (F6 + F5b + F10) — Stateful feedback shipped 2026-05-17.
 Chat 4 (F2b + F14 + F2 backend + F2 frontend) — Sell-side fully shipped 2026-05-17/18/20.
@@ -1013,7 +1035,7 @@ Chat 5.10 (Phase 2 — transactions/holdings/audit consistency) — SHIPPED 2026
 - TD16 / master_todo #4 (commit `17f9f94`): PATCH + DELETE `/transactions/{id}` flipped to audit-then-apply (`log_change` BEFORE `update_one`). PATCH audits a computed `{**before, **update_fields}` after-state then applies then re-reads for the response. `validate_replay` still runs first, so a rejected edit/delete writes no audit row. Verified: notes PATCH on an active holding returns 200 + 1 audit row (before+after populated); an impossible edit 400s with the audit count unchanged.
 - TD18 / master_todo #6 (committed after `17f9f94`, before `5cf3087`): deleted the shadowed EOF `list_transactions` handler in `holdings.py`; `get_holding_transactions` (now ~line 204) is the sole handler for `GET /portfolio/holdings/{isin}/transactions`. Behaviour-neutral. Verified: 0 hits for `def list_transactions`, route returns 200.
 - TD17 / master_todo #5 (commit `5cf3087`): `validate_replay` added to `/portfolio/holdings/{isin}/sell` (replays `existing_txns + [proposed_sell]`, 400 before the ledger write) and to `scripts/add_manual_transactions.py` SELL inserts (aborts with RuntimeError). Existing point-in-time `held_qty` check kept for the clearer common-case message. Verified: a backdated SELL on an active holding 400s with the replay reason, holding quantity unchanged, no 2000-dated SELL written.
-- TD19 / master_todo #7 (commit `fb23307`): `add_buy` + `sell` wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked by a recompute failure. `recompute_holding` returning None stays a legitimate full-exit success outside the except. Added module logger. Warning-flag chosen over Mongo M10 multi-doc transactions (user-confirmed: avoids per-step session latency on the single-user box). Verified via fault injection on BOTH paths: ledger row persists despite a forced recompute crash and the caller gets a 2xx warning, not a 500.
+- TD19 / master_todo #7 (commit `fb23307`): `add_buy` + `sell` wrap `recompute_holding` in try/except; on exception they `log.exception(...)` and return 2xx `{status:"recorded_with_warning", isin, warning}` so the persisted ledger write isn't masked by a recompute failure. `recompute_holding` returning None stays a legitimate full-exit success outside the except. Warning-flag chosen over Mongo M10 multi-doc transactions (user-confirmed: avoids per-step session latency on the single-user box). Verified via fault injection on BOTH paths: ledger row persists despite a forced recompute crash and the caller gets a 2xx warning, not a 500.
 - TD20 / master_todo #8 (commit `b34721e`): `recompute_holding` serialized per-ISIN via a `recompute_locks` advisory doc (atomic `insert_one`, `finally` release, 60s TTL reclaim); body renamed `_recompute_holding_impl`. Chosen over `asyncio.Lock` (user-confirmed) because every holdings handler is sync `def` under sync Uvicorn (confirmed at HEAD) and a `threading.Lock` would be blind to the out-of-process scripts. Added `Collections.recompute_locks()` + `acquired_at` TTL index. Verified: 8 concurrent recomputes of one ISIN → exactly 1 correct holding, no thread errors, no leaked lock; lock primitive enforces mutual exclusion (second acquire raises DuplicateKeyError).
 - No frontend work. One open follow-up noted (NOT actioned): the SellSheet discriminates on absence of `_id`, so a `recorded_with_warning` response (no `_id`) falls through its non-holding branch — rare failure path, deferred.
 Chat 5.11 (Phase 3 — intraday & price correctness) — SHIPPED 2026-06-08. ONE backend code commit `a2806cd`; all three items verified on EC2 against localhost:8000; all touch only `app/services/price_service.py`:
@@ -1035,6 +1057,9 @@ Chat 5.13 (Phase 5 — frontend correctness + quick wins) — SHIPPED 2026-06-08
 Chat 5.14 (Phase 6 — external-service hardening, #19) — SHIPPED 2026-06-09. ONE backend code commit `4ac2c95`; backend-only, single file `app/services/tavily_client.py`; verified on EC2 against localhost:8000:
 - TD33 / master_todo #19 (P2-5): replaced the Tavily quota check-then-act with an atomic `find_one_and_update`. Collapsed the `get_today_quota()` pre-check + the separate `_increment_quota()` `$inc` into ONE conditional `find_one_and_update` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True`. Under the cap (or first call of the day) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches the filter, so the upsert attempts a second `date_utc==today` insert and the unique `date_unique` index raises `DuplicateKeyError`, caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). Added `from pymongo.errors import DuplicateKeyError`; removed the now-redundant pre-check block in `search()`. Cap stays calls-only (`credits_today` tracked, not capped) — race fix, not a new ceiling (user-delegated). Callers untouched (`news_fetcher.py` imports only `search`/`TavilyError`/`TavilyQuotaExceeded`, all preserved). Verified on EC2 at backend HEAD `4ac2c95`: `/health` ok/ok (clean Pydantic boot → the new import + refactor loaded), `/suggestions/latest?direction=buy` + `?direction=sell` + `/cron/heartbeats` all 200 (the `tavily_client` import chain via `news_fetcher` is intact). The quota guard has no HTTP surface (only reachable through the Sunday `fetch_news_for_universe.py` cron path), so the curl coverage is deploy + import-graph + boot regression.
 - No frontend work (backend-only chat). The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-6 #19 scope).
+Chat 5.15 (Phase 6 — external-service hardening, #20) — SHIPPED 2026-06-12. ONE backend code commit `7d77b9c`; backend-only, single file `app/services/notify.py`; verified on EC2 against localhost:8000:
+- TD34 / master_todo #20 (P3-4): added a 1-retry (2 attempts total) loop inside `email()` on a transient Resend HTTP 429/5xx with a blocking 30s backoff; 400s and any other client/no-status error return immediately (no retry). Added module-level `import logging` + `import time` + a module logger, two helpers — `_email_error_status()` (reads the SDK exception's int status off `.code`/`.status_code`, falls back to `error_type=="rate_limit_exceeded"`→429) and `_is_transient_email_error()` (True only for 429 + 5xx) — and three module constants (`_EMAIL_MAX_ATTEMPTS=2`, `_EMAIL_RETRY_BACKOFF_SECONDS=30`, `_EMAIL_TRANSIENT_STATUSES`). The `{ok, id, error}` return contract and the no-raise / swallow-exceptions guarantee are UNCHANGED — the retry is purely internal — so all three callers that branch on `result["ok"]` (`digest_delivery._send_email`, `reconciliation._send_drift_alerts`, `cron_health_check` dual-transport) are untouched (re-read all three at HEAD before patching to confirm). `_publish()` / `push_public()` reproduced byte-faithful and unchanged. Retry count (1) / backoff (30s) / blocking-`time.sleep` acceptability were user-delegated; chose the conservative end of the 30–60s window (all real callers are cron paths + the rare manual-reconciliation request; anyio's default 40-thread pool absorbs the single blocked worker on the single-user box). No `Retry-After` parsing (out of scope). Verified on EC2 at backend HEAD `7d77b9c`: `/health` ok/ok + an in-box monkeypatched harness (no real email, no real sleep) — transient 503 → 2 attempts + exactly one 30s backoff → `{ok:false}`; permanent 400 → 1 attempt, no backoff; success → `{ok:true,id,error:null}`; classifier retries 429/500/502/503/504, refuses 400/422 + no-status errors. The probe confirmed the installed `resend>=2.4` raises typed errors (`RateLimitError`/`ApplicationError`/`ResendError`/`ValidationError`/…) carrying status on `.code`.
+- No frontend work (backend-only chat). The Chat 5.10 SellSheet `recorded_with_warning` follow-up remains open and untouched (out of Phase-6 #20 scope).
 
 ### Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`
 
@@ -1047,7 +1072,7 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 3 | master_todo #9-11 | Intraday & price correctness (TD23-TD25) | SHIPPED (Chat 5.11) |
 | 4 | master_todo #12-13 | Storage hygiene (TD26-TD27) | SHIPPED (Chat 5.12) |
 | 5 | master_todo #14-18 | Frontend correctness + quick wins (TD28-TD32) | SHIPPED (Chat 5.13) |
-| 6 | master_todo #19-24 | External-service hardening | IN PROGRESS — #19 SHIPPED (Chat 5.14); #20–24 OPEN |
+| 6 | master_todo #19-24 | External-service hardening | IN PROGRESS — #19 SHIPPED (Chat 5.14), #20 SHIPPED (Chat 5.15); #21–24 OPEN |
 | 7 | master_todo #25-26 | Reconciliation alerting + feedback direction | OPEN |
 | 8 | master_todo #27-29 | Chat 6 (F1+F3), Chat 7 (F12+F15), Chat 8 (F13 watchlist) | OPEN |
 | 9 | master_todo #30-38 | Cross-cutting cleanup before GO LIVE | OPEN |
@@ -1056,13 +1081,13 @@ The chat split plan now lives in `docs/master_todo.md`. The table below is a sna
 | 12 | master_todo #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | master_todo #46-47 | NEW Chat 5.9: TD21 scheduler migration, TD22 outcomes-cron failure | OPEN |
 
-### Open items CARRIED FORWARD past Chat 5.14
+### Open items CARRIED FORWARD past Chat 5.15
 
 All open items are tracked in `docs/master_todo.md` with stable item numbers. Cross-references in this file (Sections 5, 6, 7, 8, 9, 11, 12, 18) use the `master_todo #N` form so the next chat can grep across both files.
 
-The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 + 5 closed, Phase 6 #19 SHIPPED Chat 5.14; pointer now at #20):
-- **master_todo #20 (P3-4):** add 1-2 attempt retry with 30-60s backoff inside `notify.email()` on transient 5xx / 429 (don't retry 400s) (`app/services/notify.py`). Phase 6 external-service hardening — next.
-- **master_todo #21-24:** persist suggestion run_id BEFORE digest formatting; reject NaN in `_to_decimal`; fallback log on heartbeat-insert failure; harden `cron_health_check.main` against Mongo being unreachable. Phase 6.
+The highest-priority items per master_todo current position (Phases 1 + 2 + 3 + 4 + 5 closed, Phase 6 #19 SHIPPED Chat 5.14 + #20 SHIPPED Chat 5.15; pointer now at #21):
+- **master_todo #21 (P3-5):** persist the suggestion run BEFORE digest formatting; pass `inserted_id` explicitly to `send_combined_digest` (`app/services/digest_delivery.py`). Phase 6 external-service hardening — next.
+- **master_todo #22-24:** reject NaN in `_to_decimal`; fallback log on heartbeat-insert failure; harden `cron_health_check.main` against Mongo being unreachable. Phase 6.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
 
@@ -1091,6 +1116,7 @@ The assistant has confused these multiple times. Memorize them.
 - Symbol search regex is case-sensitive on purpose (input uppercased, symbols stored uppercase); NO `$options:i` (it disables the `(symbol, trade_date)` index). (Chat 5.13 TD32.)
 - ISIN `Path()` params validate charset with `pattern=r"^[A-Z0-9]{12}$"` in addition to `min_length/max_length=12`. (Chat 5.13 TD31.)
 - Tavily daily quota is enforced ATOMICALLY: one `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`, cap-hit caught via `DuplicateKeyError` on the unique `date_unique` index. NO check-then-act pre-check. Cap is calls-only; `credits_today` is tracked, not capped. The quota is DAILY (resets 00:00 UTC), not monthly — the README/data_flow prose is stale. (Chat 5.14 TD33.)
+- `notify.email()` retries a TRANSIENT Resend failure (HTTP 429 + 5xx) ONCE (2 attempts total) with a 30s blocking backoff; 400s and any no-status error return immediately. The retry is INTERNAL — the `{ok, id, error}` return contract and the swallow-exceptions/no-raise guarantee are unchanged, so callers keep branching on `result["ok"]`. Transient is classified by `_is_transient_email_error()` (reads the SDK exception's int status off `.code`/`.status_code`, fallback `error_type=="rate_limit_exceeded"`). Retry count / backoff / transient-status set are module constants, NOT env-configurable. Do not convert this into a raised-exception path. (Chat 5.15 TD34.)
 
 ### Chat 4 additions
 - DO NOT trust Glean snippets or memory for dataclass / Pydantic model field names. Grep first.
@@ -1171,6 +1197,13 @@ The assistant has confused these multiple times. Memorize them.
 - **Docs drifted from code on the Tavily quota: README + data_flow said "monthly", the code is daily.** Project_State Section 7/12 (daily, `TAVILY_DAILY_CALL_LIMIT`, `date_utc`) matched the code; the READMEs did not. When docs disagree, anchor to the source body at HEAD (the read of `tavily_client.py` + `settings.py` + `indexes.py` settled it), and treat the stale doc as a separate cleanup, not a reason to change behaviour.
 - **Cap semantics confirmed calls-only:** `calls_today < TAVILY_DAILY_CALL_LIMIT` is the only ceiling; `credits_today` is tracked but uncapped. A hardening/race-fix commit must NOT silently introduce a new credit ceiling — that would be scope creep on a behaviour-preserving change.
 
+### Chat 5.15 additions
+- **A retry added "inside" an existing wrapper must preserve the wrapper's return contract AND its exception behaviour — never convert a swallowed error into a raised one.** `notify.email()` already returns `{ok,id,error}` and swallows Resend exceptions; the TD34 retry loops on the transient case but the FINAL outcome is still the same `{ok,id,error}` dict, so the three `result["ok"]` callers (`digest_delivery._send_email`, `reconciliation._send_drift_alerts`, `cron_health_check` dual-transport) needed zero changes. Per the standing convention, all three were re-read at HEAD before patching to confirm they branch on `result["ok"]` (not on a raised exception).
+- **Classify transient-vs-permanent off the SDK exception's HTTP status, not the message string.** The installed `resend>=2.4` raises typed errors (`RateLimitError` 429, `ApplicationError`/`ResendError` 5xx+base, `ValidationError`/`MissingRequiredFieldsError` 4xx) carrying the status on `.code`. `_email_error_status()` reads `.code` then `.status_code`, with a string `error_type=="rate_limit_exceeded"`→429 fallback. Only 429 + 5xx retry; a no-status error (e.g. a bare connection reset) is treated as non-transient and returns immediately — staying strictly inside the "transient 5xx/429" scope rather than blindly retrying every exception.
+- **A blocking `time.sleep` in `notify.email()` blocks ONE threadpool worker, not the whole app.** Under sync Uvicorn the sync handlers run in anyio's threadpool (default 40 threads), and the real callers are cron paths plus the rare manual-reconciliation request, so a single 30s backoff on the single-user box is acceptable. Chose 1 retry + 30s fixed (conservative end of the 30–60s window) over 2 retries / 60s — a genuine Resend outage isn't saved by a second retry (the `{ok:false}` is logged + the next cron run re-sends), and a longer/extra sleep only blocks a worker longer for marginal coverage.
+- **For a destructive-free behaviour-preserving change, prove it with a monkeypatched harness, not a live send.** The #20 verification stubbed `resend.Emails.send` (to raise 503 / 400 / succeed) and `time.sleep` (to record calls without waiting), so the test asserted attempt-count + backoff-count + return shape with no real email and no real 30s wait. A monkeypatch harness is the right tool when the code path has no HTTP surface and a live trigger is expensive/side-effecting (mirrors the Chat 5.14 import-graph coverage reasoning).
+- **The retry count / backoff seconds / transient-status set are module constants, NOT env-configurable** — matching the project's standing "operational constants live in code, not settings" convention (the 90-day rejected cooldown, the 30-day acted soft-exclude, the Tavily limit defaulting in code). Don't add `RESEND_RETRY_*` env keys without an explicit decision.
+
 ## Section 15: Anti-patterns the assistant has fallen into
 
 - Full-file rewrites instead of additive patches. EXCEPTION: Project_State.md and master_todo.md are always full-file.
@@ -1242,7 +1275,7 @@ The assistant has confused these multiple times. Memorize them.
 
 ### Chat 5.12 additions
 - Adding a TTL index without first confirming the target field is written as a BSON Date (it silently no-ops on a string/Decimal).
-- Dropping a same-field non-TTL index to "replace" it with a TTL when an ASC-vs-DESC direction split lets both coexist additively.
+- Dropping a same-field non-TTL index to "replace" it with a TTL when an ASC-vs-DESC direction split lets both coexist.
 - Running a mongosh verification against the wrong database name (`portfolio_advisor` instead of the real `portfolio`) and concluding the code is broken when the test harness was.
 - `$unset`-ing a guessed field name (`body`) instead of the real model field (`body_text`).
 - Filtering a time-based purge on a nullable date field (`published_at`) instead of the always-present `fetched_at`.
@@ -1259,6 +1292,13 @@ The assistant has confused these multiple times. Memorize them.
 - Trusting README/data_flow prose ("monthly") over the code (daily) when designing a change to that subsystem.
 - Designing the atomic update from the doc-described field names instead of the field names read from the writer at HEAD (`date_utc`, `calls_today`, `credits_today`, `per_use_case.<uc>`).
 
+### Chat 5.15 additions
+- **Turning a swallowed-error wrapper into a raised-exception path "while we're in there."** The whole point of `notify.email()`'s `{ok,id,error}` contract is that callers never try/except it. A retry must keep returning that dict on the terminal failure, not start raising — otherwise the three `result["ok"]` callers silently break.
+- **Classifying a Resend failure off the exception's message string instead of its HTTP status.** Read the status off the typed SDK exception (`.code`/`.status_code`); the string `error_type` is only a fallback for `rate_limit_exceeded`. A message-substring match ("rate limit", "503") is brittle across SDK versions.
+- **Retrying EVERY exception instead of only the transient ones.** A 400 (validation), a missing-API-key error, or a no-status connection error must NOT be retried — a 400 will fail identically on attempt 2 (wasting a 30s sleep), and silently retrying a permanent error hides a real misconfiguration. Scope the retry to 429 + 5xx only.
+- **Verifying a behaviour-preserving change with a live side-effecting trigger.** Don't send a real email or wait a real 30s to test the retry; monkeypatch `resend.Emails.send` and `time.sleep` and assert attempt-count + backoff-count + return shape.
+- **Adding env knobs for an operational constant.** Retry count / backoff / transient statuses are module constants in `notify.py`, consistent with the project's "constants live in code" convention; don't introduce `RESEND_RETRY_*` settings without an explicit decision.
+
 ## Section 16: "I am losing context" — escalation protocol
 
 When the assistant notices ANY trigger, say verbatim:
@@ -1270,7 +1310,7 @@ I AM LOSING CONTEXT
 - Cannot recall a specific file structure that was discussed earlier in the chat
 - Conflating Phase 1 facts with Phase 2 facts
 - Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior
-- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14) shipped which feature
+- Forgetting which Chat (2, 3, 4, 5, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 5.12, 5.13, 5.14, 5.15) shipped which feature
 - Producing a file >1.5x the original line count without explicit reason
 - Starting to use generic patterns instead of project conventions
 - Forgetting the port difference between Mac and EC2
@@ -1311,6 +1351,9 @@ I AM LOSING CONTEXT
 - **Chat 5.13 trigger: about to declare a both-repos phase done on the strength of one repo's deploy / a green `/health` without a per-repo landed-assertion.**
 - **Chat 5.14 trigger: about to design an atomic Mongo compare-and-increment that relies on a unique index catching the over-cap upsert WITHOUT having confirmed that unique index exists at HEAD (`db.<coll>.getIndexes()` / `app/db/indexes.py`).**
 - **Chat 5.14 trigger: about to change a subsystem's behaviour because the README/data_flow prose says X, without having read the code body at HEAD to confirm X (docs drift — Tavily "monthly" vs daily).**
+- **Chat 5.15 trigger: about to change `notify.email()` so that a transient failure RAISES instead of returning `{ok:false}` (breaks the three `result["ok"]` callers — re-read them at HEAD first).**
+- **Chat 5.15 trigger: about to retry every Resend exception (including 400s / no-status errors) instead of scoping the retry to 429 + 5xx classified off the SDK exception's int status.**
+- **Chat 5.15 trigger: about to verify a behaviour-preserving notify change with a live email send / a real `time.sleep` instead of a monkeypatched harness.**
 
 ### What "switching chats" means
 The user copies the Section 0 bootstrap into a fresh chat. The new chat reads Project_State.md, master_todo.md, both repos at HEAD, `data_flow.md`, READMEs. User states scope. Assistant summarizes back per the Section 0 acknowledgement contract — project understanding, shipped-vs-open per Section 13 + the master_todo current-position pointer, the exact scope of the chat, and any uncertainties — and then WAITS for the user to confirm accuracy before doing anything else. Work resumes from the `master_todo.md` current-position pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat always starts from a consistent, verified-complete state.
@@ -1346,6 +1389,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "How do test blocks start?" → `ssh ubuntu@100.112.20.41`, then curls against `localhost:8000`. (Frontend-only changes: `~/deploy-ui.sh` + `npm run build`/lint.)
 - "Is the transactions/search regex case-insensitive?" → No. Input is uppercased, symbols stored uppercase; NO `$options:i` (Chat 5.13 TD32) — it would disable the `(symbol, trade_date)` index.
 - "Do the `/suggestions/{isin}` Path params validate charset?" → Yes — `pattern=r"^[A-Z0-9]{12}$"` plus `min_length/max_length=12` (Chat 5.13 TD31).
+- "What does `notify.email()` do on a transient Resend error?" → retries ONCE (2 attempts total) on HTTP 429/5xx with a 30s blocking backoff, then returns `{ok,id,error}` as always (never raises). 400s + no-status errors return immediately. Internal retry; contract unchanged (Chat 5.15 TD34).
 
 ### Chat 4 additions
 - "Fields on `CronSpec`?" → `cron_name`, `description`, `schedule_human`, `expected_weekdays`, `min_runs_per_day` (default 1).
@@ -1363,7 +1407,7 @@ Without re-reading, the assistant should be able to answer all of these.
 - "Is the Q/V/M/N=0 sell-digest cosmetic bug fixed?" → Yes, 2026-05-20 commit `cea8eee`.
 - "Is `target_price` consumed anywhere?" → Yes, F2 sell-side `target_price_proximity`. `stop_loss` deferred to Chat 9 (TD6).
 - "Has `digest_delivery._send_email` been reconciled with `notify.email()`?" → Yes (Chat 5 A2 part 1).
-- "What does `notify.email()` return?" → `{ok: bool, id: str|None, error: str|None}`. Swallows exceptions. Optional `text=`.
+- "What does `notify.email()` return?" → `{ok: bool, id: str|None, error: str|None}`. Swallows exceptions. Optional `text=`. (Chat 5.15: retries transient 429/5xx once before returning — contract unchanged.)
 - "What's the rule before proposing ANY code change?" → Ask for the current backend SHA. Re-read at that SHA. No exceptions.
 - "What did A1 ship?" → `MonitoredStock` Literal aligned; `MonitoredStockFeedbackPatch` typed wrapper; writer migrated.
 - "What did A2 part 1 ship?" → `notify.email(...)` returns `{ok,id,error}`; `digest_delivery._send_email` delegates.
@@ -1440,6 +1484,14 @@ Without re-reading, the assistant should be able to answer all of these.
 - "What index makes the atomic Tavily claim safe?" → the unique `date_unique` index on `tavily_quota.date_utc` — the upsert can't insert a second same-day doc, so the over-cap path collides instead of double-counting.
 - "Did Chat 5.14 touch the frontend or any other file?" → No. ONE backend commit `4ac2c95`, only `app/services/tavily_client.py`.
 
+### Chat 5.15 additions
+- "How many attempts does `notify.email()` make, and on what?" → up to 2 (1 retry) on a transient Resend HTTP 429/5xx, with a 30s blocking backoff between them; 400s and no-status errors make exactly 1 attempt. Module constants `_EMAIL_MAX_ATTEMPTS=2`, `_EMAIL_RETRY_BACKOFF_SECONDS=30` (Chat 5.15 TD34).
+- "Does the TD34 retry change `notify.email()`'s return contract or raise?" → No. Still `{ok,id,error}`, still swallows exceptions, never raises — the retry is purely internal, so the three `result["ok"]` callers are untouched.
+- "How does `email()` decide a Resend error is transient?" → `_is_transient_email_error()` reads the SDK exception's int status off `.code` then `.status_code` (fallback `error_type=="rate_limit_exceeded"`→429); only 429 + 5xx are transient.
+- "Is the email retry blocking, and is that OK?" → Yes, a `time.sleep(30)`; it blocks ONE anyio threadpool worker (default pool 40), and real callers are cron paths + the rare manual reconciliation, so it's acceptable on the single-user box.
+- "Are the retry count / backoff env-configurable?" → No — module constants in `notify.py`, matching the project's "operational constants live in code" convention.
+- "Did Chat 5.15 touch the frontend or any other file?" → No. ONE backend commit `7d77b9c`, only `app/services/notify.py`.
+
 ## Section 18: Tech debt registry
 
 | ID | Item | Status | Chat target |
@@ -1492,6 +1544,7 @@ Without re-reading, the assistant should be able to answer all of these.
 | TD31 | The two `/suggestions/{isin}` ISIN `Path()` params (`get_feedback_audit_for_isin`, `submit_feedback`) constrained only length (`min_length=12, max_length=12`), not charset — a malformed 12-char ISIN reached Mongo. | SHIPPED Chat 5.13 (2026-06-08): added `pattern=r"^[A-Z0-9]{12}$"` alongside the existing length constraints on both Path params (lines 240 + 260) in `app/routers/suggestions.py`. `/runs/{run_id}` left untouched (ObjectId, not ISIN). Now a malformed ISIN 422s at the boundary. Verified on backend HEAD `090d96c`: `grep -Fn 'pattern=r"^[A-Z0-9]{12}$"'` → 2 matches; 12-char lowercase `INE002a01018` → 422 (charset, not length); valid `INE002A01018` → 200. (master_todo #17 / P3-7) | — |
 | TD32 | `GET /transactions/search` prefix regex carried `"$options": "i"` even though the input is uppercased (`symbol.upper()`) and symbols are stored uppercase — the redundant flag disabled the `(symbol, trade_date)` index (forced a COLLSCAN). | SHIPPED Chat 5.13 (2026-06-08): dropped the flag (`query["symbol"] = {"$regex": f"^{escaped}"}`, line 113) in `app/routers/transactions.py` and corrected the now-false "(case-insensitive)" inline comment. The regex was at lines 91-92 (NOT the ~102-115 date-bound block). Case-sensitive on purpose; index restored. Behaviour-neutral for callers. Verified on backend HEAD `090d96c`: `grep '$options'` → empty; clean regex at line 113; `GET /transactions/search?symbol=tr` → `total: 20` (parity). (master_todo #18 / P3-8) | — |
 | TD33 | Tavily quota guard was check-then-act: a `get_today_quota()` `find_one` pre-check in `search()` followed by a SEPARATE `_increment_quota()` `$inc` upsert — a TOCTOU window where two callers at `calls_today == limit-1` could both pass the pre-check and push the counter past `TAVILY_DAILY_CALL_LIMIT`. | SHIPPED Chat 5.14 (2026-06-09): collapsed the pre-check + `$inc` into ONE conditional `find_one_and_update` in `_increment_quota` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True, return_document=AFTER` and the existing `$inc`/`$setOnInsert`/`$set` blocks. Under the cap (or the day's first call) the filter matches/upserts and the `$inc` applies atomically; at/over the cap the existing same-day doc no longer matches, the upsert attempts a second `date_utc==today` insert, and the unique `date_unique` index raises `DuplicateKeyError`, caught and surfaced as `TavilyQuotaExceeded` (no credit consumed on refusal). Added `from pymongo.errors import DuplicateKeyError`; removed the redundant pre-check block in `search()`. Cap stays calls-only (`credits_today` tracked, not capped) — race fix, not a new ceiling (user-delegated). Callers untouched. Verified on EC2 at backend HEAD `4ac2c95`: `/health` ok/ok + `/suggestions/latest?direction=buy|sell` + `/cron/heartbeats` all 200 (import chain intact; the guard has no HTTP surface, so coverage is deploy + import-graph + boot regression). Commit `4ac2c955782490818eefa6024c9daead92b0b0eb`. (master_todo #19 / P2-5) | — |
+| TD34 | `notify.email()` did not retry transient Resend failures — a one-off 429/5xx (rate-limit / upstream blip) returned `{ok:false}` immediately, so a digest / drift alert / cron-health email could be lost to a momentary glitch that a single retry would have cleared. | SHIPPED Chat 5.15 (2026-06-12): added a 1-retry (2 attempts total) loop inside `email()` on a transient HTTP 429/5xx with a 30s blocking backoff; 400s and any other client/no-status error return immediately. Added `import logging` + `import time` + a module logger, `_email_error_status()` (status off `.code`/`.status_code`, fallback `error_type=="rate_limit_exceeded"`→429), `_is_transient_email_error()` (429 + 5xx only), and constants `_EMAIL_MAX_ATTEMPTS=2`, `_EMAIL_RETRY_BACKOFF_SECONDS=30`, `_EMAIL_TRANSIENT_STATUSES`. The `{ok,id,error}` contract + swallow-exceptions/no-raise guarantee are UNCHANGED, so the three `result["ok"]` callers (`digest_delivery._send_email`, `reconciliation._send_drift_alerts`, `cron_health_check` dual-transport) are untouched (re-read all three at HEAD first). Retry count / backoff / blocking-sleep user-delegated → chose 1 retry + 30s fixed (conservative; real callers are cron paths, anyio's 40-thread pool absorbs one blocked worker). Constants are NOT env-configurable (project convention). Verified on EC2 at backend HEAD `7d77b9c`: `/health` ok/ok + a monkeypatched harness (stubbed `resend.Emails.send` + `time.sleep`, no real email / no real wait) — transient 503 → 2 attempts + one 30s backoff → `{ok:false}`; permanent 400 → 1 attempt, no backoff; success → `{ok:true,id,error:null}`; classifier retries 429/500/502/503/504, refuses 400/422 + no-status. Probe confirmed `resend>=2.4` raises typed errors carrying status on `.code`. Commit `7d77b9cbee9f3155f22c86057b20640f21599ee9`. (master_todo #20 / P3-4) | — |
 
 ### F-number fix registry (TD15 deliverable — Chat 5.9)
 
@@ -1560,6 +1613,7 @@ Notes:
 - **Chat 5.12 Phase 4** — TD26 (prices_intraday.captured_at 90-day TTL), TD27 (purge_news_bodies daily cron). Both SHIPPED + EC2-verified 2026-06-08. Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line.
 - **Chat 5.13 Phase 5** — TD28 (refetchQueries swap, frontend `f59958`), TD29 (dead pydoc import removal), TD30 (MONGODB_URI doc-drift confirmation), TD31 (ISIN charset pattern on the two /suggestions Path params), TD32 ($options:i drop on transactions/search). All SHIPPED + verified 2026-06-08. One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`).
 - **Chat 5.14 Phase 6 (#19)** — TD33 (atomic Tavily quota claim via conditional `find_one_and_update` + unique `date_unique` index catching the over-cap upsert). SHIPPED + EC2-verified 2026-06-09. One backend commit `4ac2c95`, only `app/services/tavily_client.py`.
+- **Chat 5.15 Phase 6 (#20)** — TD34 (transient-5xx/429 retry in `notify.email()` — 1 retry / 2 attempts, 30s blocking backoff, 400s + no-status errors not retried; `{ok,id,error}` contract + no-raise guarantee unchanged so the three `result["ok"]` callers are untouched). SHIPPED + EC2-verified 2026-06-12. One backend commit `7d77b9c`, only `app/services/notify.py`.
 
 ## Section 19: How to update this document
 
@@ -1607,6 +1661,8 @@ Chat 5.12 added rule: the byte-exact source for this doc rebuild was the user-pa
 Chat 5.13 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). Phase 5 spanned BOTH repos, so Section 4 now pins TWO close SHAs (backend code HEAD `090d96c`, frontend code HEAD `f59958`) and the doc commit advances both. All Chat 5.13 doc changes were strictly additive (new TD28–TD32 rows, new Section 13 Chat-5.13 entry, new Chat-5.13 subsections in Sections 14–17 + 20 + 22, the holdings.py/suggestions.py/transactions.py annotations in Section 5, the notes-panel/refresh-button annotations in Section 6, the transactions search-regex note in Section 7, the /transactions/search + /suggestions endpoint notes in Section 8, the MONGODB_URI TD30 note in Section 10, the case-sensitive-search invariant in Section 11, and the ISIN-pattern invariant in Section 12), so the line count grows vs the prior commit; the sentinel below is preserved. Verification lessons encoded for posterity: a "~line N" pointer is a hint, re-anchor at HEAD; `grep -F` for literal strings (a metacharacter-bearing grep can be self-defeating); a pass/fail test must DISCRIMINATE the change under test from pre-existing constraints; and a both-repos phase needs a per-repo deploy + landed-assertion (a green `/health` proves nothing).
 
 Chat 5.14 added rule: the byte-exact source for this doc rebuild was the user-pasted full text of both files (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on). Chat 5.14 was backend-only, so Section 4 pins a new backend close SHA (`4ac2c95`) while the frontend SHA is unchanged. All Chat 5.14 doc changes were strictly additive (new TD33 row, new Section 13 Chat-5.14 entry, new Chat-5.14 subsections in Sections 14–17 + 20 + 22, the tavily_client.py annotation in Section 5, the `tavily_quota` atomic-claim notes in Sections 7 + 12, the Tavily-guard cron note in Section 9, the `TAVILY_DAILY_CALL_LIMIT` note in Section 10), so the line count grows vs the prior commit; the sentinel below is preserved. Lesson encoded for posterity: a per-period hard-ceiling counter is enforced atomically by expressing the limit in the `find_one_and_update` filter and letting a UNIQUE index on the partition key catch the over-cap upsert (`DuplicateKeyError`) — no transaction, no lock, one round-trip; verify the unique index exists at HEAD before relying on it. And when README/data_flow prose contradicts the code (Tavily "monthly" vs daily), anchor to the code body at HEAD.
+
+Chat 5.15 added rule: the byte-exact source for this doc rebuild was the user-pasted `git show HEAD:docs/Project_State.md` + `git show HEAD:docs/master_todo.md` output (Glean's document reader returns a sentence-wrapped view, which the Section 19 guard forbids anchoring on; the blob URL also `LINK_NEEDS_AUTH`'d this chat — the raw URL succeeded for the read, the user paste anchored the rebuild). Chat 5.15 was backend-only, so Section 4 pins a new backend close SHA (`7d77b9c`) while the frontend SHA is unchanged. All Chat 5.15 doc changes were strictly additive (new TD34 row, new Section 13 Chat-5.15 entry + the cross-cutting `notify.email()` shipped bullet, new Chat-5.15 subsections in Sections 14–17 + 20 + 22, the notify.py annotation + the `_send_email`/`cron_health_check`/`reconciliation` "still branches on result['ok']" notes in Section 5, the A2 retry note in Section 12, the dual-transport retry note in Section 9, the "no new env" note in Section 10, the threadpool-blocking note in Section 4 systemd), so the line count grows vs the prior commit; the sentinel below is preserved. Lesson encoded for posterity: a retry added inside a `{ok,id,error}` swallow-exceptions wrapper must keep returning that dict (never raise) so callers branching on `result["ok"]` stay untouched — re-read every caller at HEAD before patching; classify transient off the SDK exception's HTTP status (not the message); scope the retry to 429 + 5xx only; verify a behaviour-preserving change with a monkeypatched harness, not a live side-effecting trigger.
 
 ## Section 20: Trade-off rationale (decisions that might look weird)
 
@@ -1715,6 +1771,13 @@ Chat 5.14 added rule: the byte-exact source for this doc rebuild was the user-pa
 - **Cap kept calls-only (user-delegated)**: enforcing only `calls_today < TAVILY_DAILY_CALL_LIMIT` preserves the exact boundary the system runs today (200 calls/UTC-day; 201st refused). Adding a `credits_today` ceiling would be a new behaviour smuggled into a race-fix — declined.
 - **Pointer advanced to #20 normally, no out-of-band annotation**: the initial acknowledgement was built on a stale cache that showed the pointer at #12; the byte-exact paste confirmed #1–#18 SHIPPED and the pointer already at #19, so #19 was in-order and the bookkeeping is a plain advance to #20.
 
+### Chat 5.15 additions
+- **#20 retry kept INSIDE `email()`, preserving `{ok,id,error}`, over a new raised-exception path or a caller-side retry**: the three callers (`digest_delivery`, `reconciliation._send_drift_alerts`, `cron_health_check` dual-transport) already branch on `result["ok"]`; an internal retry leaves all of them untouched, whereas raising would force try/except into every caller and a caller-side retry would duplicate the logic three times. Re-read all three at HEAD to confirm before patching (standing wrapper-contract convention).
+- **1 retry + 30s fixed blocking sleep over 2 retries / 60s / `Retry-After` parsing** (all user-delegated): real callers are cron paths plus the rare manual reconciliation, and a transient blip clears on one retry; a genuine outage isn't saved by a second attempt (the `{ok:false}` is logged + the next cron run re-sends), and `Retry-After` parsing is logic the scope didn't ask for. 30s is the conservative end of the 30–60s window; the blocking sleep only stalls one anyio threadpool worker (default 40) on a single-user box.
+- **Transient classified off the SDK exception's int HTTP status, not the message**: `_email_error_status()` reads `.code`/`.status_code` (fallback `error_type=="rate_limit_exceeded"`→429); only 429 + 5xx retry. A no-status error (bare connection reset) is treated as non-transient and returns immediately — staying strictly inside the "transient 5xx/429" scope rather than retrying everything.
+- **Retry constants in code, not env** (`_EMAIL_MAX_ATTEMPTS`, `_EMAIL_RETRY_BACKOFF_SECONDS`, `_EMAIL_TRANSIENT_STATUSES`): matches the project's "operational constants live in code" convention (90-day cooldown, 30-day soft-exclude, Tavily limit defaulting in code).
+- **Verified with a monkeypatched harness (stubbed `resend.Emails.send` + `time.sleep`) over a live send**: the change is behaviour-preserving and the path has no HTTP surface; stubbing lets the test assert attempt-count + backoff-count + return shape with no real email and no real 30s wait (mirrors the Chat 5.14 import-graph coverage reasoning).
+
 ## Section 21: What is intentionally NOT included in this project
 
 So future chats don't accidentally try to add these:
@@ -1749,6 +1812,8 @@ So future chats don't accidentally try to add these:
 - Case-insensitive symbol search. Symbols are uppercased on input and stored uppercase, so `GET /transactions/search` uses a case-sensitive prefix regex with NO `$options:i` (Chat 5.13 TD32) — an `"i"` flag would disable the `(symbol, trade_date)` index. Do not reintroduce it.
 - A `credits_today` ceiling on Tavily. Only `calls_today` is capped (`TAVILY_DAILY_CALL_LIMIT`); credits are tracked for visibility, not enforced. Chat 5.14 deliberately kept the cap calls-only when making the guard atomic — do not add a credit limit without an explicit decision.
 - A lock or M10 transaction around the Tavily quota increment. Chat 5.14 (TD33) enforces the ceiling atomically with a single conditional `find_one_and_update` whose over-cap path collides on the unique `date_unique` index; do not "harden" it further with a lock.
+- A raised-exception path or env-configurable knobs for `notify.email()`. Chat 5.15 (TD34) added an internal transient-5xx/429 retry that PRESERVES the `{ok,id,error}` swallow-exceptions contract; do not convert it to raise (it would break the three `result["ok"]` callers) and do not add `RESEND_RETRY_*` settings — the retry count (1) / backoff (30s) / transient-status set are module constants by convention.
+- `Retry-After`-header-aware backoff for the email retry. Chat 5.15 used a fixed 30s sleep deliberately (scope was "30-60s backoff"); honoring `Retry-After` is extra parsing the scope didn't ask for — add only on an explicit decision.
 
 ## Section 22: Glossary
 
@@ -1768,11 +1833,12 @@ So future chats don't accidentally try to add these:
 - `isSellSide` (F2): frontend boolean from `groupMeta?.booking_opportunity`.
 - `_format_score_breakdown` (F2b cea8eee): direction-aware digest helper.
 - **`MonitoredStockFeedbackPatch` (Chat 5 A1)**: typed Pydantic model for the `$set` patch. `ConfigDict(extra="forbid")`. Catches Literal drift at write time.
-- **`notify.email()` return contract (Chat 5 A2)**: `{ok: bool, id: str|None, error: str|None}`. Swallows Resend exceptions. Optional `text=` for multipart.
-- **`_send_drift_alerts` (Chat 5 A2 part 2)**: `reconciliation.py` helper; ntfy + email dual emit; `sent.append("email")` gated on `result["ok"]`.
+- **`notify.email()` return contract (Chat 5 A2)**: `{ok: bool, id: str|None, error: str|None}`. Swallows Resend exceptions. Optional `text=` for multipart. (Chat 5.15 TD34: retries a transient 429/5xx once with a 30s backoff before returning — contract + no-raise guarantee unchanged.)
+- **`notify.email()` transient retry (TD34, Chat 5.15)**: an internal 1-retry / 2-attempt loop on a transient Resend HTTP 429/5xx with a 30s blocking `time.sleep` backoff; 400s + no-status errors return immediately. Transient classified by `_is_transient_email_error()` reading the SDK exception status off `.code`/`.status_code` (fallback `error_type=="rate_limit_exceeded"`→429). Module constants `_EMAIL_MAX_ATTEMPTS=2`, `_EMAIL_RETRY_BACKOFF_SECONDS=30`, `_EMAIL_TRANSIENT_STATUSES`. Purely internal — the `{ok,id,error}` return contract and no-raise guarantee are unchanged, so all `result["ok"]` callers are untouched.
+- **`_send_drift_alerts` (Chat 5 A2 part 2)**: `reconciliation.py` helper; ntfy + email dual emit; `sent.append("email")` gated on `result["ok"]`. (Unaffected by the Chat 5.15 retry — still reads `result["ok"]`.)
 - **`composite_for_candidate` (Chat 5 A3+A4)**: scoring helper with optional `candidate_signals_for_isin` that wires raw signal inputs into `SignalScore.raw_value`.
 - **TD8 ntfy decommission (Chat 5 commits 7a+7b)**: self-hosted ntfy stopped 2026-05-18; `push_private` + `PrivateTopic` + `_NTFY_AUTH` + `b64encode` import + `smoke_test.py` private block all removed 2026-05-23.
-- **Cron-health dual transport (Chat 5 commit 8)**: ntfy + email; raises only when BOTH fail. Confirmed delivering daily Chat 5.9.
+- **Cron-health dual transport (Chat 5 commit 8)**: ntfy + email; raises only when BOTH fail. Confirmed delivering daily Chat 5.9. (Chat 5.15: the email leg inherits the TD34 transient retry; "raise only when both fail" is unchanged.)
 - **Logrotate (Chat 5 2026-05-24)**: weekly with rotate-4, copytruncate, su ubuntu ubuntu.
 - **`_format_raw` formatter kinds (Chat 5.5 TD11)**: existing kinds — `percent_decimal`, `percent_already`, `ratio`, `multiple`, `currency_inr_cr`, `score_only`. NEW kinds — `score_signed` (`f"{raw:+.1f}"`), `count` (`f"{int(raw)}"`).
 - **TD9 / TD10 / TD11 / TD12 / TD13 / TD14 / TD15 (Chat 5.5–5.9)**: see Section 18. TD9 / TD11 / TD12 SHIPPED 2026-05-24; TD13 SHIPPED Chat 5.6; TD10 / TD14 / TD15 SHIPPED Chat 5.9.
@@ -1781,6 +1847,7 @@ So future chats don't accidentally try to add these:
 - **TD26 / TD27 (Chat 5.12)**: see Section 18. Both SHIPPED 2026-06-08. TD26 `prices_intraday.captured_at` 90-day TTL (`captured_at_ttl`); TD27 `scripts/purge_news_bodies.py` daily cron.
 - **TD28 / TD29 / TD30 / TD31 / TD32 (Chat 5.13)**: see Section 18. All SHIPPED 2026-06-08. TD28 `refetchQueries` swap (frontend `f59958`); TD29 dead `pydoc` import removal; TD30 `MONGODB_URI` doc-drift confirmation; TD31 ISIN charset `pattern` on the two `/suggestions/{isin}` Path params; TD32 `$options:i` drop on `transactions/search`.
 - **TD33 (Chat 5.14)**: see Section 18. SHIPPED 2026-06-09 in one backend commit `4ac2c95`. Replaced the Tavily quota check-then-act with an atomic `find_one_and_update` in `_increment_quota` (filter `calls_today < TAVILY_DAILY_CALL_LIMIT`, `upsert`), cap-hit detected via `DuplicateKeyError` on the unique `date_unique` index → `TavilyQuotaExceeded`.
+- **TD34 (Chat 5.15)**: see Section 18. SHIPPED 2026-06-12 in one backend commit `7d77b9c`. Added a transient-5xx/429 retry (1 retry / 2 attempts, 30s blocking backoff) inside `notify.email()`; 400s + no-status errors not retried; `{ok,id,error}` contract + no-raise guarantee unchanged.
 - **`captured_at_ttl` (TD26, Chat 5.12)**: ASC TTL index on `prices_intraday.captured_at`, `expireAfterSeconds = 90*86400 = 7776000`. Coexists with the DESC `captured_at_desc` (different key directions). Works because `captured_at` is written as a BSON Date.
 - **Atomic Tavily quota claim (TD33, Chat 5.14)**: `_increment_quota` is a single `find_one_and_update` filtered on `{date_utc: today, calls_today: {$lt: TAVILY_DAILY_CALL_LIMIT}}` with `upsert=True`; under the cap it matches/upserts and `$inc`s atomically, at/over the cap the upsert collides with the unique `date_unique` index (`DuplicateKeyError`) and is surfaced as `TavilyQuotaExceeded`. No pre-check, no TOCTOU window, calls-only cap.
 - **`purge_news_bodies` (TD27, Chat 5.12)**: daily 02:30 IST cron (`scripts/purge_news_bodies.py`) that `$unset`s `body_text` and stamps `body_purged_at` on classified `news_articles` whose `fetched_at` is older than 30 days. `cron_run("purge_news_bodies")` heartbeat + matching `CronSpec`. `--dry-run` count-only mode. Idempotent.
@@ -1802,7 +1869,8 @@ So future chats don't accidentally try to add these:
 - **Chat 5.11**: Phase 3 closed — TD23 (intraday holiday guard + IST/_to_ist helpers), TD24 (price_stale docstring aligned to code), TD25 (bulk_get_previous_closes per-ISIN rewrite). ONE code commit `a2806cd`, only `app/services/price_service.py`. No frontend work; the Chat 5.10 SellSheet follow-up remains open.
 - **Chat 5.12**: Phase 4 closed — TD26 (`prices_intraday.captured_at` 90-day TTL in `app/db/indexes.py`), TD27 (`scripts/purge_news_bodies.py` daily 02:30 IST cron + `CronSpec`). Two code commits (TD26 indexes.py, then TD27 `49bf33f`) + an EC2 crontab line. No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a TTL no-ops on a non-Date field; the app DB is `portfolio` not `portfolio_advisor`; the bulky news field is `body_text` not `body`; purge age keys on `fetched_at` not `published_at`.
 - **Chat 5.13**: Phase 5 closed — TD28 (`refetchQueries` swap in `notes-panel.tsx` + `refresh-button.tsx`, frontend `f59958`), TD29 (dead `from pydoc import doc` removal in `holdings.py`), TD30 (`MONGODB_URI` doc-drift confirmation), TD31 (ISIN charset `pattern` on the two `/suggestions/{isin}` Path params in `suggestions.py`), TD32 (`$options:i` drop on `transactions/search` in `transactions.py`). One frontend commit (`f59958`) + three backend commits (deployed code HEAD `090d96c`). No frontend work beyond TD28; the Chat 5.10 SellSheet follow-up remains open. Lessons: a "~line N" pointer is a hint (re-anchor at HEAD); use `grep -F` for literal verification strings; a pass/fail test must discriminate the change from pre-existing constraints; a both-repos phase needs a per-repo deploy + landed-assertion.
-- **Chat 5.14 (THIS commit)**: Phase 6 opened — #19 (TD33) atomic Tavily quota claim in `app/services/tavily_client.py` (`get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit via `DuplicateKeyError` on the unique `date_unique` index → `TavilyQuotaExceeded`). ONE backend commit `4ac2c95`, backend-only. Cap kept calls-only (`credits_today` tracked, not capped). No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a per-period hard-ceiling counter is enforced atomically by guarding in the `find_one_and_update` filter and letting a unique index catch the over-cap upsert (no lock, no transaction, one round-trip); README/data_flow "monthly" wording is stale (code is daily) — anchor to the code body at HEAD when docs drift.
+- **Chat 5.14**: Phase 6 opened — #19 (TD33) atomic Tavily quota claim in `app/services/tavily_client.py` (`get_today_quota()` pre-check + separate `_increment_quota()` `$inc` collapsed into one conditional `find_one_and_update` guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit via `DuplicateKeyError` on the unique `date_unique` index → `TavilyQuotaExceeded`). ONE backend commit `4ac2c95`, backend-only. Cap kept calls-only (`credits_today` tracked, not capped). No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a per-period hard-ceiling counter is enforced atomically by guarding in the `find_one_and_update` filter and letting a unique index catch the over-cap upsert (no lock, no transaction, one round-trip); README/data_flow "monthly" wording is stale (code is daily) — anchor to the code body at HEAD when docs drift.
+- **Chat 5.15 (THIS commit)**: Phase 6 continued — #20 (TD34) transient-5xx/429 retry inside `app/services/notify.py` `email()` (1 retry / 2 attempts, 30s blocking backoff; 400s + no-status errors not retried; `_email_error_status()` + `_is_transient_email_error()` helpers + module constants; `{ok,id,error}` contract + no-raise guarantee unchanged so the three `result["ok"]` callers are untouched). ONE backend commit `7d77b9c`, backend-only. Retry count / backoff / blocking-sleep user-delegated → 1 retry + 30s fixed. No frontend work; the Chat 5.10 SellSheet follow-up remains open. Lessons: a retry inside a swallow-exceptions `{ok,id,error}` wrapper must keep returning that dict (never raise) so `result["ok"]` callers stay untouched — re-read all callers at HEAD first; classify transient off the SDK exception's HTTP status (not the message); scope the retry to 429 + 5xx only (no-status errors are non-transient); verify with a monkeypatched harness, not a live send.
 - **Tree-listing command (Section 0)**: the canonical `git rev-parse HEAD && git ls-tree -r --name-only HEAD` block for both repos. Run once per chat immediately after the bootstrap; the assistant uses its output as the source of truth for every file path and URL it constructs.
 - **`raw.githubusercontent.com` URL form**: `https://raw.githubusercontent.com/doshisahil95/<repo>/<sha>/<path>`. The blob URL (`/blob/<sha>/`) frequently returns `LINK_NEEDS_AUTH` for Glean readers even on public repos. Standing convention since Chat 5.5, reinforced Chat 5.7.
 
