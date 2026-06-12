@@ -1,4 +1,3 @@
-
 # PROJECT_STATE.md
 
 Living source of truth for the Personal AI Stock Advisor. Updated at the end of every chat. Bootstrap document for any new conversation — read top to bottom before doing anything. Do not skim, assume, or redesign.
@@ -151,16 +150,16 @@ EC2: `/etc/portfolio-advisor/secrets.env` (chmod 600, root). Mac: `<repo>/.env` 
 
 **Deploy scripts (EC2):** `~/deploy.sh` (pull backend, `uv sync`, restart `portfolio-advisor.service`) · `~/deploy-ui.sh` (pull frontend, `npm install --legacy-peer-deps`, `npm run gen-api`, `npm run build`, restart `portfolio-advisor-ui.service`). `gen-api` regenerates `lib/api-types.ts` (gitignored) against the running backend's OpenAPI; on Mac override `API_OPENAPI_URL=http://100.112.20.41:8000 npm run gen-api` or skip — `lib/api-types.ts` is not used at runtime; `lib/api.ts` is hand-typed.
 
-**systemd (EC2):** `portfolio-advisor.service` — `uvicorn app.main:app --port 8000 --host 0.0.0.0`, user ubuntu, `PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend`, `PYTHONUNBUFFERED=1`, journald, single process / single worker (no `--workers`). Because there's no `--workers` and handlers are `sync def`, concurrent requests run in Uvicorn's **threadpool** (threads within one process). This is why TD20 per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock`; why the Tavily check-then-act was a real TOCTOU race (TD33); and why the TD34 `time.sleep(30)` blocks ONE threadpool worker (anyio default pool = 40 threads → acceptable on a single-user box). `portfolio-advisor-ui.service` — `next start` port 3000 with hardening (NoNewPrivileges, PrivateTmp, ProtectSystem=strict, ReadWritePaths = frontend dir + /tmp). Sudoers `/etc/sudoers.d/portfolio-advisor-systemctl` lets ubuntu restart both passwordless.
+**systemd (EC2):** `portfolio-advisor.service` — `uvicorn app.main:app --port 8000 --host 0.0.0.0`, user ubuntu, `PYTHONPATH=/home/ubuntu/ai-stock-advisor-backend`, `PYTHONUNBUFFERED=1`, journald, single process / single worker (no `--workers`). Because there's no `--workers` and handlers are `sync def`, concurrent requests run in Uvicorn's **threadpool** (threads within one process). This is why TD20 per-ISIN serialization uses a Mongo advisory-lock doc (cross-thread AND cross-process), not `asyncio.Lock`; why the Tavily check-then-act was a real TOCTOU race (TD33); and why the TD34 `time.sleep(30)` blocks ONE threadpool worker (anyio default 40-thread pool → acceptable on a single-user box). `portfolio-advisor-ui.service` — `next start` port 3000 with hardening (NoNewPrivileges, PrivateTmp, ProtectSystem=strict, ReadWritePaths = frontend dir + /tmp). Sudoers `/etc/sudoers.d/portfolio-advisor-systemctl` lets ubuntu restart both passwordless.
 
 **Log rotation (2026-05-24):** `/etc/logrotate.d/portfolio-advisor` rotates all `/home/ubuntu/cron-*.log` weekly (rotate 4 · compress+delaycompress · notifempty+missingok · copytruncate · `su ubuntu ubuntu`). Daily via OS `/etc/cron.daily/logrotate`. Force: `sudo logrotate -f /etc/logrotate.d/portfolio-advisor`. The old `0 0 * * 0 find … -size +10M` truncation line was verified ABSENT and logrotate confirmed (TD10/#2, 5.9). The 02:30 IST `cron-news-purge.log` (TD27) is covered by the existing glob.
 
 **Repos:** backend `https://github.com/doshisahil95/ai-stock-advisor-backend` · frontend `https://github.com/doshisahil95/ai-stock-advisor-frontend`.
 
-**Last verified SHAs (Chat 5.16 closed, 2026-06-12):**
-* Backend: **`f4168b3343725c0f873d5fd99d1c68bc5d6c88cc`** (5.16 code HEAD after ONE commit — TD35 explicit `inserted_id` flow across `suggestion_engine.py` + `digest_delivery.py` + `run_weekly_suggestions.py`; HEAD advances after the 5.16 doc commit — pin next chat). Opened at `67fd6803d5ffd609e378b4219c5a4710046247aa` (the 5.15 doc commit). Backend-only chat.
-* Frontend: **`f59958015b8b07b6e84e3add7b4a302d32b43490`** (unchanged since 5.13 — chats 5.14/5.15/5.16 backend-only).
-* Prior code-HEAD closes: 5.15 `7d77b9c` (TD34 notify retry) · 5.14 `4ac2c95` (TD33 atomic Tavily) · 5.13 backend `090d96c` (TD29/31/32), frontend `f59958` (TD28) · 5.12 `49bf33f` (TD26 then TD27) · 5.11 `a2806cd` (TD23/24/25) · 5.10 `b34721e` (final of 5 commits `17f9f94`→TD18→`5cf3087`→`fb23307`→`b34721e`).
+**Last verified SHAs (Chat 5.17 closed, 2026-06-12):**
+* Backend: **`1d627d7861ead18b05df0158fe41c06c42de89d2`** (5.17 code HEAD after ONE commit — TD37 reject NaN in `_to_decimal` in `app/models/_common.py`; HEAD advances after the 5.17 doc commit — pin next chat). Opened at `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (the 5.16 doc commit). Backend-only chat.
+* Frontend: **`f59958015b8b07b6e84e3add7b4a302d32b43490`** (unchanged since 5.13 — chats 5.14/5.15/5.16/5.17 backend-only).
+* Prior code-HEAD closes: 5.16 `f4168b3` (TD35 explicit inserted_id flow) · 5.15 `7d77b9c` (TD34 notify retry) · 5.14 `4ac2c95` (TD33 atomic Tavily) · 5.13 backend `090d96c` (TD29/31/32), frontend `f59958` (TD28) · 5.12 `49bf33f` (TD26 then TD27) · 5.11 `a2806cd` (TD23/24/25) · 5.10 `b34721e` (final of 5 commits `17f9f94`→TD18→`5cf3087`→`fb23307`→`b34721e`).
 
 ## Section 5: Backend file map
 
@@ -181,7 +180,7 @@ app/
                               TD26 prices_intraday captured_at_ttl ASC 90d alongside captured_at_desc).
                               tavily_quota has unique date_unique on date_utc — the primitive the TD33 atomic claim relies on
   models/
-    _common.py                utcnow(), Decimal128/ObjectId helpers.  master_todo #22: reject NaN in _to_decimal — NEXT
+    _common.py                utcnow(), Decimal128/ObjectId helpers. (done: #22/TD37 _to_decimal rejects NaN float (v != v) in the float branch -> ValueError("NaN not allowed"); surfaces as 422 via Money BeforeValidator)
     instrument.py             Instrument. (fix F20: populate_by_name + _id alias)
     holding.py                Holding (active position)
     transaction.py            Transaction (BUY/SELL/SPLIT/BONUS/DEMERGER). (5.6 ge=0; fix F29/F80/F82)
@@ -298,7 +297,7 @@ tests/
   __init__.py                   placeholder.  master_todo #33: stand up pytest harness
 docs/
   data_flow.md                  (5 deliverable; 5.5 TD12 universe corrected). STALE: Tavily "monthly" wording wrong (code is DAILY) — master_todo #48 / TD36, not yet fixed
-  Project_State.md              THIS FILE (5.16 doc commit; recovered from 5.8 truncation in 5.9 — Section 18 TD15)
+  Project_State.md              THIS FILE (5.17 doc commit; recovered from 5.8 truncation in 5.9 — Section 18 TD15)
   master_todo.md                canonical ordered task list (Chat 5.8 NEW)
 pyproject.toml                  master_todo #32: pin requires-python upper bound (declares resend>=2.4 — SDK whose typed errors TD34 classifies)
 uv.lock
@@ -307,7 +306,7 @@ README.md                       (5 deliverable; 5.5 §8/§11/§5). STALE: Tavily
 
 ## Section 6: Frontend file map
 
-Verified against tree at SHA `4f31b49` (unchanged 5.10–5.12; 5.13 touched notes-panel.tsx + refresh-button.tsx → frontend HEAD `f59958`; 5.14/5.15/5.16 backend-only).
+Verified against tree at SHA `4f31b49` (unchanged 5.10–5.12; 5.13 touched notes-panel.tsx + refresh-button.tsx → frontend HEAD `f59958`; 5.14/5.15/5.16/5.17 backend-only).
 
 ```
 app/
@@ -528,7 +527,7 @@ From `docs/data_flow.md`. Hard rules.
 
 **Phase 2 Suggestions Engine:** Unit 1 foundations · Unit 2 news fetch + Haiku classify + Sonnet dossier · Unit 3 outcomes/performance/frontend · Commit A (backend explainability) · A.5 (feedback correctness) · A.5.1 (re-label correctness) · Commit B (frontend explainability) · Feedback/audit endpoints (5.13 ISIN charset pattern #17) · Tavily quota tracking (5.14 daily ceiling atomic #19) · Weekly digest delivery (5.16 explicit persisted-run-id flow #21).
 
-**Cross-cutting:** Transactional email via notify.email() (Chat 5 A2; 5.15 transient retry #20) · Cron observability (Chat 2 F4+F5a) · Stateful feedback (Chat 3 F6+F5b+F10) · Sell-side fully shipped (Chat 4 F2b+F14+F2).
+**Cross-cutting:** Transactional email via notify.email() (Chat 5 A2; 5.15 transient retry #20) · Cron observability (Chat 2 F4+F5a) · Stateful feedback (Chat 3 F6+F5b+F10) · Sell-side fully shipped (Chat 4 F2b+F14+F2) · Model-layer NaN guard in _to_decimal (5.17 #22/TD37).
 
 **Per-chat ledger (compacted):**
 
@@ -550,8 +549,9 @@ From `docs/data_flow.md`. Hard rules.
 | 5.14 | 2026-06-09 | #19/TD33 atomic Tavily quota | 4ac2c95 |
 | 5.15 | 2026-06-12 | #20/TD34 notify.email() transient retry | 7d77b9c |
 | 5.16 | 2026-06-12 | #21/TD35 explicit inserted_id flow; filed #48/TD36 (no code) | f4168b3 |
+| 5.17 | 2026-06-12 | #22/TD37 reject NaN in _to_decimal (float branch) | 1d627d7 |
 
-The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouched through 5.16 (out of each phase's scope).
+The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouched through 5.17 (out of each phase's scope).
 
 **Chat split plan — SOURCE OF TRUTH is `docs/master_todo.md`.** Snapshot:
 
@@ -562,7 +562,7 @@ The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouch
 | 3 | #9-11 | Intraday & price correctness | SHIPPED (5.11) |
 | 4 | #12-13 | Storage hygiene | SHIPPED (5.12) |
 | 5 | #14-18 | Frontend correctness + quick wins | SHIPPED (5.13) |
-| 6 | #19-24 | External-service hardening | IN PROGRESS — #19 (5.14), #20 (5.15), #21 (5.16) SHIPPED; #22-24 OPEN |
+| 6 | #19-24 | External-service hardening | IN PROGRESS — #19 (5.14), #20 (5.15), #21 (5.16), #22 (5.17) SHIPPED; #23-24 OPEN |
 | 7 | #25-26 | Reconciliation alerting + feedback direction | OPEN |
 | 8 | #27-29 | Chat 6 (F1+F3), Chat 7 (F12+F15), Chat 8 (F13 watchlist) | OPEN |
 | 9 | #30-38 | Cross-cutting cleanup before GO LIVE | OPEN |
@@ -571,9 +571,9 @@ The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouch
 | 12 | #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | #46-48 | TD21 scheduler migration, TD22 outcomes-cron failure, TD36 Tavily doc cleanup | OPEN |
 
-**Open items carried past Chat 5.16** (tracked in master_todo.md with stable numbers; pointer now at #22):
-* **#22 (P3-1, NEXT):** reject NaN in `_to_decimal` (`app/models/_common.py ~12`) — `if isinstance(v, float) and v != v: raise ValueError("NaN not allowed")`. Phase 6.
-* **#23-24:** fallback log on heartbeat-insert failure; harden cron_health_check.main against Mongo being unreachable. Phase 6.
+**Open items carried past Chat 5.17** (tracked in master_todo.md with stable numbers; pointer now at #23):
+* **#23 (P2-12, NEXT):** add a fallback log file for `cron_run` heartbeat-insert failure (`/home/ubuntu/cron-heartbeat-fallback.log`); `cron_health_check` reads both sources (`app/services/cron_heartbeat_service.py` + `scripts/cron_health_check.py`). Phase 6.
+* **#24 (P3-9):** wrap `cron_health_check.main` Mongo reads in try/except that fires an "anomaly: health-check itself failed" ntfy even when Mongo is unreachable. Phase 6.
 * **#48 (TD36, doc-only):** correct stale "monthly" Tavily wording → "daily (resets 00:00 UTC)" in README + data_flow.md. Filed 5.16, not yet fixed.
 
 ## Section 14: Conventions the assistant has repeatedly drifted on
@@ -602,6 +602,7 @@ Memorize these.
 * Tavily daily quota enforced ATOMICALLY: one find_one_and_update guarded by `calls_today < TAVILY_DAILY_CALL_LIMIT`, cap-hit caught via DuplicateKeyError on the unique date_unique index. NO check-then-act pre-check. Cap calls-only; credits tracked not capped. DAILY (resets 00:00 UTC), not monthly — README/data_flow prose stale (#48/TD36). (5.14 TD33.)
 * notify.email() retries a TRANSIENT Resend failure (429 + 5xx) ONCE (2 attempts) with a 30s blocking backoff; 400s and no-status errors return immediately. INTERNAL — {ok,id,error} contract + swallow/no-raise unchanged, callers keep branching on result["ok"]. Transient classified by `_is_transient_email_error()` (SDK int status off .code/.status_code, fallback error_type=="rate_limit_exceeded"). Constants NOT env-configurable. Do not convert to a raised-exception path. (5.15 TD34.)
 * The persisted SuggestionRun._id is carried on the in-memory run by `_persist_run` (`run.id = result.inserted_id`); callers read `run.id`. Do NOT re-derive via `find_one(..., sort=[("run_date",-1)])`. send_combined_digest signature unchanged (reads buy_run.id); its digest_deliveries audit row keys on the BUY run id; send_weekly_digest's run_id param is fed run.id on the standalone path. (5.16 TD35.)
+* `_to_decimal` (app/models/_common.py) rejects a NaN float (`v != v`) in its existing `float` branch with `raise ValueError("NaN not allowed")` — `ValueError` (not `TypeError`) so the `Money = Annotated[Decimal, BeforeValidator(_to_decimal)]` validator surfaces it as a Pydantic ValidationError → 422, matching the malformed-payload convention. Scoped to the float ingress path ONLY; the Decimal/Decimal128/str/int branches + trailing TypeError are unchanged (Mongo reads hit the Decimal128 branch, so no read-path regression). Decimal('NaN') / Decimal128-NaN read-path guards are deliberately out of scope — flag, don't expand. (5.17 TD37.)
 
 **Chat 4 additions:** Don't trust Glean snippets/memory for dataclass/Pydantic field names — grep first. `cron_run()` yields `_Heartbeat`; `.meta` is an ATTRIBUTE. /cron/heartbeats returns `{heartbeats, health_summary}`. Accessor is `Collections.instruments_fundamentals()`. `run_suggestions()` is SLOW by default; `--skip-dossiers` only for smoke tests.
 
@@ -631,6 +632,8 @@ Memorize these.
 
 **Chat 5.16:** A "persist BEFORE consume" scope can be half-true — re-anchor on the actual control flow at HEAD before deciding what the fix is (the run was already persisted; the bug was the id being re-derived). Prefer carrying state on an existing model field over adding a parameter when both work (SuggestionRun.id existed — no signature change → sole caller untouched, no caller-grep risk). `find_one(..., sort=[("<date>",-1)])` to recover "the row I just inserted" is a latent correctness bug, not a perf nit — thread the real inserted_id. send_combined_digest has exactly ONE caller (_do_both) — still grep before trusting. A cron-path change with no HTTP surface is verified by deploy + import-graph + a monkeypatched harness with a tripwire (a stubbed find_one that RAISES) + landed-greps, not curls. When you delete the last use of an import, delete the import too.
 
+**Chat 5.17:** A validator that must reject bad input via Pydantic raises `ValueError` (or AssertionError) so Pydantic v2 converts it to a ValidationError → 422; raising `TypeError` from a BeforeValidator escapes as a 500 instead. NaN is detected as `v != v` (the only float not equal to itself). A guard placed on the float ingress path does NOT touch Mongo reads (those deserialize through the Decimal128 branch) — so no read-path regression, and broadening to Decimal/Decimal128-NaN was deliberately left out of #22's scope. The cached `master_todo.md` blob lagged HEAD by two chats (showed pointer #20 / "Last updated 5.14" when HEAD was at #22 / 5.16) — Project_State.md read at the user-supplied SHA + a `git show` paste are ground truth, NOT the blob read; confirm the pointer against the SHA-pinned file, not the cache.
+
 ## Section 15: Anti-patterns the assistant has fallen into
 
 (Deduped — Section 14 carries the corresponding positive convention.)
@@ -650,6 +653,7 @@ Memorize these.
 * (5.14) Replacing a check-then-act race with a lock/transaction when a single conditional find_one_and_update + unique index suffices; adding a new cap during a behaviour-preserving race fix; trusting README prose over code; designing the atomic update from doc-described field names instead of names read at HEAD.
 * (5.15) Turning a swallowed-error wrapper into a raised-exception path; classifying off message string instead of HTTP status; retrying EVERY exception instead of 429+5xx; verifying with a live side-effecting trigger; adding env knobs for an operational constant.
 * (5.16) Taking the scope's framing at face value instead of reading control flow; re-querying "the latest row" to recover a just-inserted id; adding a parameter when an existing model field carries the value; leaving an orphaned import after deleting its last use; verifying a re-derivation was removed by a passing import alone (use a tripwire + landed-grep).
+* (5.17) Raising `TypeError` from a Pydantic validator path where a `ValueError` is needed for a 422 (TypeError escapes as 500); broadening a scoped float-NaN guard to the Decimal/Decimal128 read paths unasked; trusting a cached/stale `master_todo.md` blob over Project_State.md at the user-supplied SHA when confirming the pointer.
 
 ## Section 16: "I am losing context" — escalation protocol
 
@@ -657,7 +661,7 @@ When any trigger fires, say verbatim: **`I AM LOSING CONTEXT`**
 
 **Triggers (any one suffices):** Cannot recall a file structure discussed earlier · Conflating Phase 1 vs Phase 2 facts · Forgetting which Commit (A, A.5, A.5.1, B) shipped which behavior · Forgetting which Chat shipped which feature · Producing a file >1.5x original line count without explicit reason · Generic patterns instead of project conventions · Forgetting the Mac/EC2 port difference, SSH-first/commit-block conventions, or the secrets path · Forgetting master_todo.md is canonical (5.8) · The user corrects the same drift twice in one chat · >15 Glean reader / code_search calls without converging · The "Truncation Notice" appears · About to produce a third large code artifact unsure whether prior decisions apply.
 
-**Specific triggers:** (4) shipped 2+ patches with WRONG field names · shipped a test block with WRONG API response shape. (5) claimed "open" item open without re-reading on-disk code · find-and-replace whose original_text doesn't exist verbatim · changed a wrapper's return shape without grep'ing callers · about to publish a doc rewrite with unverified cron/registry/file claims · about to restructure Project_State.md. (5.5) script rename from a summary without reading the body · document a cron line without --help. (5.7) patch a file whose existence isn't confirmed via tree listing · construct a GitHub URL with a SHA not supplied this chat. (5.8) ship code without updating master_todo.md status in the same commit · start a code chat without confirming the pointer. (5.9) about to commit a Project_State.md that does NOT end with `End of PROJECT_STATE.md.` · write a Section-18 F-row from a bare `# FN` comment without reading it verbatim at HEAD. (5.10) ship a 3rd code change without re-reading the function body at current HEAD · a test block not starting with `ssh ubuntu@100.112.20.41` / curling the Tailscale IP · recommend asyncio.Lock for a sync-def handler · update master_todo.md status without the matching Section 18 + Section 13 in the same doc commit. (5.11) declare a deployed change verified on a 200/green dashboard without a positive existence/behaviour assertion + SHA confirmation · use a DST-aware tz lookup for IST / ignore the price_service naive→UTC convention. (5.12) add a TTL without grepping the writer for a BSON Date · add a cron whose CronSpec.cron_name != the cron_run() string · mongosh against portfolio_advisor · $unset/$set a field name not confirmed against the model at HEAD. (5.13) find-and-replace anchored on a "~line N" without grepping at HEAD · declare a change verified on a metacharacter grep / a test the pre-existing constraint explains · declare a both-repos phase done on one repo's deploy. (5.14) design an atomic compare-and-increment relying on a unique index without confirming it exists at HEAD · change behaviour because README prose says X without reading code at HEAD. (5.15) change notify.email() so a transient failure RAISES · retry every Resend exception instead of 429+5xx off the SDK int status · verify with a live email send / real time.sleep. (5.16) "fix" a persist-then-consume task per the scope framing without reading the call path at HEAD · recover a just-inserted id via find_one(sort date desc) · change send_combined_digest's (or any wrapper's) signature without grepping ALL callers · declare a re-derivation removed on a green import alone (use a tripwire + landed-grep).
+**Specific triggers:** (4) shipped 2+ patches with WRONG field names · shipped a test block with WRONG API response shape. (5) claimed "open" item open without re-reading on-disk code · find-and-replace whose original_text doesn't exist verbatim · changed a wrapper's return shape without grep'ing callers · about to publish a doc rewrite with unverified cron/registry/file claims · about to restructure Project_State.md. (5.5) script rename from a summary without reading the body · document a cron line without --help. (5.7) patch a file whose existence isn't confirmed via tree listing · construct a GitHub URL with a SHA not supplied this chat. (5.8) ship code without updating master_todo.md status in the same commit · start a code chat without confirming the pointer. (5.9) about to commit a Project_State.md that does NOT end with `End of PROJECT_STATE.md.` · write a Section-18 F-row from a bare `# FN` comment without reading it verbatim at HEAD. (5.10) ship a 3rd code change without re-reading the function body at current HEAD · a test block not starting with `ssh ubuntu@100.112.20.41` / curling the Tailscale IP · recommend asyncio.Lock for a sync-def handler · update master_todo.md status without the matching Section 18 + Section 13 in the same doc commit. (5.11) declare a deployed change verified on a 200/green dashboard without a positive existence/behaviour assertion + SHA confirmation · use a DST-aware tz lookup for IST / ignore the price_service naive→UTC convention. (5.12) add a TTL without grepping the writer for a BSON Date · add a cron whose CronSpec.cron_name != the cron_run() string · mongosh against portfolio_advisor · $unset/$set a field name not confirmed against the model at HEAD. (5.13) find-and-replace anchored on a "~line N" without grepping at HEAD · declare a change verified on a metacharacter grep / a test the pre-existing constraint explains · declare a both-repos phase done on one repo's deploy. (5.14) design an atomic compare-and-increment relying on a unique index without confirming it exists at HEAD · change behaviour because README prose says X without reading code at HEAD. (5.15) change notify.email() so a transient failure RAISES · retry every Resend exception instead of 429+5xx off the SDK int status · verify with a live email send / real time.sleep. (5.16) "fix" a persist-then-consume task per the scope framing without reading the call path at HEAD · recover a just-inserted id via find_one(sort date desc) · change send_combined_digest's (or any wrapper's) signature without grepping ALL callers · declare a re-derivation removed on a green import alone (use a tripwire + landed-grep). (5.17) raise TypeError (500) instead of ValueError (422) from a validator guard · broaden #22's float-NaN guard to the Decimal/Decimal128 read paths without being asked · confirm the master_todo pointer from a cached blob instead of Project_State.md at the user-supplied SHA · build a full-file doc replacement from a terminal-wrapped paste without flagging the wrap risk + a git-diff gate.
 
 **What "switching chats" means:** the user copies the Section 0 bootstrap into a fresh chat, which reads Project_State.md + master_todo.md + both repos at HEAD + data_flow.md + READMEs, the user states scope, the assistant summarizes back per the Section 0 acknowledgement contract and WAITS for confirmation before doing anything. Work resumes from the master_todo.md pointer. The previous chat's last act (if it ended on context loss) was to deliver the full-file Project_State.md + master_todo.md update, so the fresh chat starts from a verified-complete state.
 
@@ -689,6 +693,7 @@ When any trigger fires, say verbatim: **`I AM LOSING CONTEXT`**
 * What does notify.email() do on a transient Resend error → retries ONCE (2 attempts) on 429/5xx with a 30s blocking backoff, then returns {ok,id,error} (never raises). 400s + no-status return immediately. Internal; contract unchanged (5.15 TD34).
 * How does a just-created run's _id reach send_combined_digest / _do_both → carried on `run.id`, set by `_persist_run` (`run.id = result.inserted_id`). Read run.id; do NOT re-derive via find_one(sort run_date desc). send_combined_digest signature unchanged; standalone path passes send_weekly_digest(run, run_id=run.id) (5.16 TD35).
 * What does the digest_deliveries row key on for the combined digest → the BUY run id (buy_run.id), written explicitly from the carried id (5.16); sell-side outcomes recorded under the sell run id by create_outcomes_for_run.
+* What does `_to_decimal` do with a NaN float → raises `ValueError("NaN not allowed")` (NaN detected as `v != v`) inside the float branch, surfaced as a 422 via the Money BeforeValidator; float ingress only — Decimal/Decimal128-NaN read paths deliberately out of scope (5.17 TD37).
 
 **Chat 4 diagnostics:** CronSpec fields → cron_name, description, schedule_human, expected_weekdays, min_runs_per_day (default 1). Set heartbeat metadata → `ctx.meta = {...}` or `ctx.meta[key]=value` (ATTRIBUTE). /cron/heartbeats shape → {heartbeats, health_summary}. Fundamentals accessor → instruments_fundamentals. run_suggestions() defaults to skipping dossiers → No. F2b digest ntfy topic → NTFY_PUBLIC_TOPIC_DIGESTS (required). F14 earnings-proximity threshold → 5 days, shared buy+sell. Sell-side gate set → in_profit, min_position_age, earnings_proximity (high_severity_negative_news is a SIGNAL not a gate). compute_system_performance(direction='sell') → SIGN-FLIPS excess_return at aggregation.
 
@@ -727,6 +732,7 @@ When any trigger fires, say verbatim: **`I AM LOSING CONTEXT`**
 | TD33 | #19 | Atomic Tavily quota claim (conditional find_one_and_update + unique date_unique) (4ac2c95) | 5.14 |
 | TD34 | #20 | notify.email() transient-5xx/429 retry (1 retry, 30s backoff; contract unchanged) (7d77b9c) | 5.15 |
 | TD35 | #21 | Explicit persisted-run-id flow (_persist_run sets run.id; find_one re-derivations removed; signature unchanged) (f4168b3) | 5.16 |
+| TD37 | #22 | Reject NaN in `_to_decimal` — float branch raises `ValueError("NaN not allowed")` (`v != v`); surfaces as 422 via the Money BeforeValidator; other paths unchanged (1d627d7) | 5.17 |
 
 **OPEN / DEFERRED TDs (full):**
 
@@ -796,7 +802,7 @@ If the chat ended due to context loss, the LAST thing the assistant does is prop
 **Standing doc rules:**
 * On starting a new chat, after reading Project_State, audit every "open" item against on-disk code at HEAD before estimating work.
 * Project_State.md structure is immutable: Section 0 at top, numbered Sections 1-22 in order. New sub-items go INSIDE existing sections, never as new top-level sections.
-* When reading this file for a full-file refresh, prefer the SHA-pinned `raw.githubusercontent.com` URL over the blob URL (blob frequently `LINK_NEEDS_AUTH`). If both fail, have the user `ssh ubuntu@100.112.20.41 && cat ~/ai-stock-advisor-backend/docs/Project_State.md` and paste the bytes — Glean's raw reader sentence-wraps, so never reconstruct a full-file replacement from a wrapped read; anchor on a user-pasted byte-exact source (`git show <sha>:docs/Project_State.md`).
+* When reading this file for a full-file refresh, prefer the SHA-pinned `raw.githubusercontent.com` URL over the blob URL (blob frequently `LINK_NEEDS_AUTH`). If both fail, have the user `ssh ubuntu@100.112.20.41 && cat ~/ai-stock-advisor-backend/docs/Project_State.md` and paste the bytes — Glean's raw reader sentence-wraps, so never reconstruct a full-file replacement from a wrapped read; anchor on a user-pasted byte-exact source (`git show <sha>:docs/Project_State.md`). NOTE (5.17): a `git show` paste through a narrow terminal can ITSELF hard-wrap mid-word — when reconstructing from such a paste, un-wrap carefully and gate the result with a `git diff` review so no unchanged line drifts.
 * The tree-listing command (Section 0) MUST be the first thing run in every new chat, before scope. Every file-read URL uses a SHA the user supplied this chat and a path verified in the tree listing.
 * The end-of-chat full-file artifact MUST end with the sentinel `End of PROJECT_STATE.md.` and have a line count >= the prior commit's (or explicitly state why it shrank) BEFORE the user commits. (5.8's doc commit silently truncated 655 lines.)
 * Update master_todo.md status AND the matching Section 18 TD row AND Section 13 in the SAME end-of-chat doc commit as the code; pin each commit SHA next to its TD row.
@@ -816,6 +822,7 @@ If the chat ended due to context loss, the LAST thing the assistant does is prop
 * (5.14) #19 atomic find_one_and_update + unique-index collision over transaction/lock; cap kept calls-only; pointer advanced normally.
 * (5.15) #20 retry kept inside email() preserving {ok,id,error}; 1 retry + 30s fixed over 2/60s/Retry-After; transient off the SDK int status; constants in code; monkeypatched harness over a live send.
 * (5.16) #21 Option 1 (model-carried id, no signature change) over adding a param; standalone send_weekly_digest fix folded in (user-confirmed); Tavily monthly→daily filed (#48/TD36) not fixed; verified via grep + monkeypatched tripwire over a live Sunday run.
+* (5.17) #22 NaN guard nested in the existing float branch (one isinstance check) over a separate clause; ValueError (not TypeError) for the 422 path; scoped to float ingress — Decimal/Decimal128-NaN read-path guards deliberately out of scope (flag, don't expand); verified via landed-grep + in-box harness over any HTTP probe (helper has no direct HTTP surface beyond the Money validator).
 
 ## Section 21: What is intentionally NOT included
 
@@ -831,9 +838,10 @@ So future chats don't accidentally add these:
 * **A raised-exception path or env-configurable knobs for notify.email().** 5.15 TD34 added an internal transient retry that PRESERVES the {ok,id,error} swallow contract; do not convert to raise; do not add RESEND_RETRY_* settings — constants by convention. No Retry-After parsing without an explicit decision.
 * **A `find_one(sort run_date desc)` re-derivation to recover "the run just created."** 5.16 TD35 carries the persisted _id on run.id; do not reintroduce a latest-run lookup.
 * **A signature change to send_combined_digest.** 5.16 kept it `(buy_run, sell_run)` (Option 1, model-carried id); if you ever DO change it, grep ALL callers first (exactly one: _do_both).
+* **Broadening the #22 NaN guard to the Decimal/Decimal128 read paths.** 5.17 TD37 scoped the guard to the float ingress branch only; Decimal('NaN') / Decimal128-NaN read-path rejection was deliberately left out (Mongo reads hit the Decimal128 branch — flag if it ever becomes a real problem, do not pre-emptively expand). Also: do not change `_to_decimal` to raise `TypeError` for NaN — it must stay `ValueError` for the 422 path.
 
 ## Section 22: Glossary
 
-ISIN: 12-char NSE/BSE primary key. NSE / NIFTY 100 / FIFO / LTCG / STCG / Section 49(2C) / ICICI Direct / ICICI ZIP / TMPV / TMCV / EW NIFTY: see prior version. Composite score: 0-100, Q/V/M/N (buy) or booking_opportunity/valuation_stretch/risk/tax_concentration (sell). Confidence score: 0-100, deterministic. Dossier: Sonnet per-candidate note. Outcome: suggestion_outcomes doc tracking stock vs benchmark. Bucket: outcome user-action label. Watchlist: F13 user-curated stocks. user_action: per-candidate serialization-time stamp (F6). direction (F2): "buy"|"sell". monitored_stocks_audit: F10 audit collection. earnings_calendar (F14): cached yfinance earnings events. Combined digest (F2): ONE email + ONE ntfy via send_combined_digest. isSellSide (F2): frontend boolean from `groupMeta?.booking_opportunity`. _format_score_breakdown (F2b cea8eee): direction-aware digest helper. MonitoredStockFeedbackPatch (A1): typed Pydantic patch model, `ConfigDict(extra="forbid")`. notify.email() return contract (A2): `{ok, id, error}`, swallows Resend exceptions, optional text= (5.15 TD34: retries transient 429/5xx once with 30s backoff — contract unchanged). Explicit inserted_id flow (TD35, 5.16): _persist_run sets run.id; send_combined_digest reads buy_run.id, _do_both reads buy_run.id/sell_run.id, standalone send_weekly_digest(run, run_id=run.id); both find_one re-derivations removed; signature unchanged (Option 1). _send_drift_alerts (A2 part 2): reconciliation helper; ntfy+email dual emit; `sent.append("email")` gated on result["ok"]. composite_for_candidate (A3+A4): wires raw signal inputs into SignalScore.raw_value. _format_raw kinds (5.5 TD11): percent_decimal, percent_already, ratio, multiple, currency_inr_cr, score_only + score_signed (`f"{raw:+.1f}"`), count (`f"{int(raw)}"`).
+ISIN: 12-char NSE/BSE primary key. NSE / NIFTY 100 / FIFO / LTCG / STCG / Section 49(2C) / ICICI Direct / ICICI ZIP / TMPV / TMCV / EW NIFTY: see prior version. Composite score: 0-100, Q/V/M/N (buy) or booking_opportunity/valuation_stretch/risk/tax_concentration (sell). Confidence score: 0-100, deterministic. Dossier: Sonnet per-candidate note. Outcome: suggestion_outcomes doc tracking stock vs benchmark. Bucket: outcome user-action label. Watchlist: F13 user-curated stocks. user_action: per-candidate serialization-time stamp (F6). direction (F2): "buy"|"sell". monitored_stocks_audit: F10 audit collection. earnings_calendar (F14): cached yfinance earnings events. Combined digest (F2): ONE email + ONE ntfy via send_combined_digest. isSellSide (F2): frontend boolean from `groupMeta?.booking_opportunity`. _format_score_breakdown (F2b cea8eee): direction-aware digest helper. MonitoredStockFeedbackPatch (A1): typed Pydantic patch model, `ConfigDict(extra="forbid")`. notify.email() return contract (A2): `{ok, id, error}`, swallows Resend exceptions, optional text= (5.15 TD34: retries transient 429/5xx once with 30s backoff — contract unchanged). Explicit inserted_id flow (TD35, 5.16): _persist_run sets run.id; send_combined_digest reads buy_run.id, _do_both reads buy_run.id/sell_run.id, standalone send_weekly_digest(run, run_id=run.id); both find_one re-derivations removed; signature unchanged (Option 1). _to_decimal NaN guard (TD37, 5.17): float branch raises ValueError("NaN not allowed") on `v != v`; surfaces as 422 via the Money BeforeValidator; float ingress only. _send_drift_alerts (A2 part 2): reconciliation helper; ntfy+email dual emit; `sent.append("email")` gated on result["ok"]. composite_for_candidate (A3+A4): wires raw signal inputs into SignalScore.raw_value. _format_raw kinds (5.5 TD11): percent_decimal, percent_already, ratio, multiple, currency_inr_cr, score_only + score_signed (`f"{raw:+.1f}"`), count (`f"{int(raw)}"`).
 
 End of PROJECT_STATE.md.
