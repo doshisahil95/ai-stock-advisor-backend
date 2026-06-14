@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.client import ping
@@ -75,5 +75,22 @@ app.include_router(cron.router)
 
 
 @app.get("/health", tags=["meta"])
-def health() -> dict:
-    return {"status": "ok", "mongo": "ok" if ping() else "fail"}
+def health(response: Response) -> dict:
+    """Liveness + Mongo readiness probe.
+
+    Pings MongoDB on every call (ping() catches its own errors and returns a
+    bool). On success returns 200 with {"status": "ok", "mongo": "ok"}; on
+    failure returns 503 with {"status": "degraded", "mongo": "fail"} so an
+    external monitor — or the deploy checklist — sees an unhealthy box as
+    unhealthy instead of a misleading 200. (master_todo #34)
+
+    yfinance is deliberately NOT probed here: it is a slow, rate-limited
+    external dependency and a Yahoo throttle would cause false 503s on the
+    hot health path. Price-source health is observed via the refresh_prices*
+    cron heartbeats (F4), not /health.
+    """
+    if not ping():
+        log.error("Health check: MongoDB ping failed")
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "degraded", "mongo": "fail"}
+    return {"status": "ok", "mongo": "ok"}

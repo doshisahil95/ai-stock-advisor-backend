@@ -11,6 +11,7 @@ import sys
 
 from app.db.client import Collections
 from app.services.cron_heartbeat_service import cron_run
+from app.services.notify import push_public
 from app.services.price_service import (
     fetch_intraday_quotes,
     insert_intraday_quotes,
@@ -35,14 +36,41 @@ def main() -> int:
 
         hb.metadata["holdings"] = len(holdings)
         log.info("Intraday refresh for %d active holdings", len(holdings))
-        rows = fetch_intraday_quotes(holdings)
 
+        rows = fetch_intraday_quotes(holdings)
         if not rows:
             log.info("No intraday data returned (market closed?)")
             hb.mark_skipped("market_closed_or_no_data")
             return 0
 
-        inserted = insert_intraday_quotes(rows)
+        # We only reach here when yfinance returned intraday rows, i.e. the
+        # market is open — so an insert failure here is by construction a
+        # market-hours failure. Push an immediate alert (master_todo #35):
+        # this cron runs every 15 min but the F4 health check only sweeps at
+        # 21:00 IST, so without this a mid-session insert outage stays
+        # invisible for hours. cron_run still records the failure heartbeat
+        # because we re-raise.
+        try:
+            inserted = insert_intraday_quotes(rows)
+        except Exception as exc:
+            log.exception("insert_intraday_quotes failed during market hours")
+            # push_public raises on transport failure — guard it so a failed
+            # alert can't mask the original insert error (mirrors #24/TD39).
+            try:
+                push_public(
+                    channel="errors",
+                    title="Intraday price insert failed",
+                    message=(
+                        "refresh_prices_intraday: insert_intraday_quotes raised "
+                        f"during market hours ({len(rows)} rows pending): {exc}"
+                    ),
+                    priority="high",
+                    tags=["warning"],
+                )
+            except Exception:
+                log.exception("Failed to send intraday-insert failure ntfy")
+            raise
+
         hb.metadata["rows_fetched"] = len(rows)
         hb.metadata["rows_inserted"] = inserted
         log.info("Intraday refresh complete: %d inserted", inserted)
