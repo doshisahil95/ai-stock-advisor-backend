@@ -21,9 +21,19 @@ QueryIntent = Literal[
 ]
 SentimentOverlay = Literal["cautious", "neutral", "aggressive"]
 
+# Which chat surface an exchange originated from (Chat 6 / #27). Kept distinct
+# from `intent` because intent classifies the *question* (should_i_buy, etc.)
+# whereas scope identifies the *surface* — the same intent can arise on either.
+#   "suggestions" -> POST /chat/suggestions   (F1: about the weekly run)
+#   "holding"     -> POST /chat/holdings/{isin} (F3: a specific stock, held or
+#                     researched not-yet-owned)
+ConversationScope = Literal["suggestions", "holding"]
+
 
 class Conversation(BaseDoc):
-    """A single ad-hoc Q&A exchange. Stored for history & effectiveness review."""
+    """A single ad-hoc Q&A exchange.
+
+    Stored for history & effectiveness review."""
 
     id: PyObjectId | None = Field(default=None, alias="_id")
 
@@ -31,6 +41,10 @@ class Conversation(BaseDoc):
     query: str
     response: str
     intent: QueryIntent = "other"
+    # Originating chat surface (see ConversationScope above). Optional so legacy
+    # / scaffold docs without it still load under extra="forbid"; every new
+    # write from the chat endpoints sets it explicitly.
+    scope: ConversationScope | None = None
 
     # User-stated sentiment for this query (e.g., "I'm feeling cautious today")
     sentiment_overlay: SentimentOverlay | None = None

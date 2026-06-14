@@ -143,6 +143,21 @@ def lookup_metadata(
     return None
 
 
+def lookup_by_isin(isin: str) -> dict | None:
+    """Reverse lookup: ISIN -> full instrument metadata dict (or None).
+
+    The `instruments` master is keyed by (exchange, symbol); every doc also
+    carries `isin` (indexed, non-unique). Used by the chat feature (#27) to
+    resolve a stock the user wants to research from its ISIN alone, whether or
+    not it is a current holding. We only ingest the NSE master, so prefer an
+    NSE row if an ISIN ever resolves to more than one exchange.
+    """
+    code = isin.upper()
+    return Collections.instruments().find_one(
+        {"isin": code, "exchange": "NSE"}
+    ) or Collections.instruments().find_one({"isin": code})
+
+
 def bulk_lookup_isins(
     symbols: list[str],
     exchange: str = "NSE",

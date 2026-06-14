@@ -148,6 +148,10 @@ def ensure_all_indexes() -> dict[str, list[str]]:
                 name="isins_created_desc",
             ),
             IndexModel([("related_holding_id", ASCENDING)], name="related_holding"),
+            IndexModel(
+                [("scope", ASCENDING), ("created_at", DESCENDING)],
+                name="scope_created_desc",
+            ),
         ]
     )
 
