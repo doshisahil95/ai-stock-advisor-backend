@@ -24,7 +24,11 @@ def main() -> int:
 
         hb.metadata.update(
             {
-                "open_outcomes": stats["open_outcomes"],
+                # #47/TD22: service returns "active_outcomes" (renamed in
+                # Commit A.5 when selection broadened from "open" to all
+                # non-expired). Reading the stale "open_outcomes" key raised
+                # KeyError every run -> 1 failure/0 success daily -> F4 email.
+                "active_outcomes": stats["active_outcomes"],
                 "snapshots_30d": stats["snapshots_30d"],
                 "snapshots_60d": stats["snapshots_60d"],
                 "snapshots_90d": stats["snapshots_90d"],
@@ -34,7 +38,7 @@ def main() -> int:
         )
 
         print()
-        print(f"  Open outcomes:     {stats['open_outcomes']}")
+        print(f"  Active outcomes:   {stats['active_outcomes']}")
         print(f"  Snapshots 30d:     {stats['snapshots_30d']}")
         print(f"  Snapshots 60d:     {stats['snapshots_60d']}")
         print(f"  Snapshots 90d:     {stats['snapshots_90d']}")
