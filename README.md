@@ -28,7 +28,7 @@ All access is via Tailscale (no public ingress). The single user is the author. 
 | Persistence | MongoDB Atlas M10 (`personal.3eano.mongodb.net`), one database `portfolio_advisor` |
 | Prices | `yfinance` (NSE tickers via `<SYMBOL>.NS`) |
 | LLM | Anthropic — Claude Sonnet 4.5 (primary, dossier authoring) + Claude Haiku 4.5 (news classifier) |
-| News search | Tavily (monthly quota tracked in `tavily_quota` collection) |
+| News search | Tavily (daily call quota, resets 00:00 UTC, tracked in `tavily_quota` collection) |
 | Email | Resend (`@portfolioadvisor.<domain>`) |
 | Push | Public ntfy.sh on random unguessable topics — `price`, `news`, `errors`, `digests` |
 | Networking | Tailscale (mesh; no public ports). Funnel was used for self-hosted ntfy until 2026-05-18; decommissioned in TD8 |
@@ -130,7 +130,7 @@ The full set of settings is defined in `app/config/settings.py` as a Pydantic v2
 | `ANTHROPIC_MODEL_PRIMARY` | str | Claude Sonnet 4.5 model ID for dossier authoring |
 | `ANTHROPIC_MODEL_FAST` | str | Claude Haiku 4.5 model ID for news classification |
 | `TAVILY_API_KEY` | str | Tavily search API key |
-| `TAVILY_MONTHLY_QUOTA` | int | Searches per month; checked by `news_fetcher` before every call |
+| `TAVILY_DAILY_CALL_LIMIT` | int | Hard ceiling on Tavily calls per UTC day (resets 00:00 UTC); enforced in tavily_client before every call |
 | `RESEND_API_KEY` | str | Resend transactional email API key |
 | `RESEND_FROM_EMAIL` | str | From-address for digests and drift alerts (e.g. `advisor@portfolioadvisor.your-domain`) |
 | `RESEND_TO_EMAIL` | str | Single-user destination address |
@@ -226,7 +226,7 @@ Weekly fundamentals for the Phase 2 universe (NIFTY 100 ∪ active holdings).  U
 
 #### `fetch_news_for_universe.py` (175 lines)
 
-Weekly news fetch + classification for universe ∪ held ∪ watchlist. **Must be run with `--include-held`** (verified A16). For each ISIN, issues a Tavily search (≤5 results/ISIN/week), then runs each hit through `news_classifier` (Claude Haiku) to assign polarity + severity + category. Writes to `news_articles`. Consults `tavily_quota` before every Tavily call and refuses once the monthly cap hits.
+Weekly news fetch + classification for universe ∪ held ∪ watchlist. **Must be run with `--include-held`** (verified A16). For each ISIN, issues a Tavily search (≤5 results/ISIN/week), then runs each hit through `news_classifier` (Claude Haiku) to assign polarity + severity + category. Writes to `news_articles`. Consults `tavily_quota` before every Tavily call and refuses once the daily cap is hit (resets 00:00 UTC).
 
 #### `run_weekly_suggestions.py` (220 lines)
 
@@ -473,7 +473,7 @@ Check the Atlas console (M10 cluster `personal`). If the cluster is healthy but 
 3. **`notify.push_public` DOES raise on failure** (via `_publish` → `response.raise_for_status()`). The two transports are NOT symmetric. See `_send_drift_alerts` for the canonical pattern.
 4. **Suggestion direction defaults to `"buy"`.** Forgetting to pass `direction="sell"` from a new code path will silently produce a buy run.
 5. **Production digest is one combined email + push** via `send_combined_digest`, not two. The standalone `send_weekly_digest` inside `_run_sell_pipeline` is only the manual-rerun path. Don't replicate it elsewhere.
-6. **Tavily quota is monthly, not per-run.** A failed Sunday fetch eats its weekly budget. A re-trigger mid-week eats more. Watch `tavily_quota` if you re-run.
+6. **Tavily quota is a daily call ceiling (resets 00:00 UTC), not per-run.** A failed Sunday fetch eats into that UTC day's budget. A re-trigger the same day eats more. Watch `tavily_quota` if you re-run.
 7. **`prices_intraday` is append-only within a day.** Multiple rows per ISIN per day is expected. Always sort by `_id` desc (or timestamp) to get the latest.
 8. **Mongo dates are timezone-naive.** Strip tzinfo before comparing against `datetime.utcnow()`-derived values. See `_naive()` in `validate_replay`.
 9. **Decimal vs Decimal128.** Never write raw `Decimal` to Mongo — pymongo raises `bson.errors.InvalidDocument`. Use the `_convert_decimals_to_decimal128` helper.

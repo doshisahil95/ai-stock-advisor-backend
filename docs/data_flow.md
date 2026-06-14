@@ -43,7 +43,7 @@ All access is via Tailscale (no public ingress). Backend FastAPI runs on EC2 t3.
 | `monitored_stocks_audit` | Append-only log of every feedback transition (write-before-apply) | `submit_feedback` BEFORE the `monitored_stocks` update | Audit endpoint, debugging |
 | `cron_heartbeats` | Per-`cron_name` last-success metadata + last-error blob | `cron_run()` decorator wrapping every cron script | Daily 21:00 IST `cron_health_check.py` (F4); `/cron/health` |
 | `digest_deliveries` | Per-digest send audit (email id, ntfy id, candidate counts, direction) | `digest_delivery.send_weekly_digest` / `send_combined_digest` | Debugging stuck/dropped digests |
-| `tavily_quota` | Monthly Tavily search counter | `news_fetcher` before every Tavily call | Throttling — refuses to issue searches once monthly cap hit |
+| `tavily_quota` | Daily Tavily call counter (per UTC day) | `news_fetcher` before every Tavily call | Throttling — refuses to issue searches once daily cap hit (resets 00:00 UTC) |
 
 ---
 
@@ -79,7 +79,7 @@ The buy-side universe is NIFTY 100 ∪ active holdings (held names outside NIFTY
 
 ### News pipeline (Tavily + classifier + signals)
 
-`fetch_news_for_universe.py` runs Sundays at 06:30 IST with `--include-held` (A16 verified). For each ISIN in the universe ∪ active holdings ∪ watchlist, it issues a Tavily search (max 5 results per ISIN per week), then runs each hit through `news_classifier` (Claude Haiku 4.5) to assign sentiment polarity + severity + category. Results land in `news_articles`. `news_fetcher` consults `tavily_quota` before every call and refuses to search once the monthly cap is hit. `compute_news_signals_for_isin` aggregates `news_articles` over the trailing 30 days into three raw signal values that flow into scoring:
+`fetch_news_for_universe.py` runs Sundays at 06:30 IST with `--include-held` (A16 verified). For each ISIN in the universe ∪ active holdings ∪ watchlist, it issues a Tavily search (max 5 results per ISIN per week), then runs each hit through `news_classifier` (Claude Haiku 4.5) to assign sentiment polarity + severity + category. Results land in `news_articles`. `news_fetcher` consults `tavily_quota` before every call and refuses to search once the daily cap is hit `compute_news_signals_for_isin` aggregates `news_articles` over the trailing 30 days into three raw signal values that flow into scoring:
 
 - `net_sentiment` ∈ [-1, +1] (scaled ×100 at extraction)
 - `story_velocity` (ratio of last-7d to prior-23d story counts; baseline 1.0)
@@ -149,7 +149,7 @@ These MUST hold or computed P&L / suggestions / feedback are wrong:
 
 9. **Suggestion runs are direction-aware**, but back-compat defaults `direction="buy"` when missing. Any new caller of `run_suggestions` / `score_candidates` / `composite_for_candidate` that forgets to pass direction will produce a buy run.
 
-10. **Tavily quota is checked before every call.** `news_fetcher` returns empty + logs a warning rather than risk overage. The quota is monthly; resets at 00:00 IST on the 1st.
+10. **Tavily quota is checked before every call.** `news_fetcher` returns empty + logs a warning rather than risk overage. The quota is a daily call ceiling; resets at 00:00 UTC each day.
 
 11. **`notify.email` and `notify.push_public` are NOT symmetric.** `email` swallows exceptions and returns `{ok, id, error}`; `push_public` raises via `_publish` → `response.raise_for_status()`. Callers that need delivery confirmation must branch on `result["ok"]` for email and on absence-of-exception for ntfy.
 
@@ -232,7 +232,7 @@ Two-mechanism exclusion (F5b) means a bug can hide in either layer. Diagnostic o
 
 7. **Suggestion direction defaults to `"buy"`.** Forgetting to pass `direction="sell"` when calling `run_suggestions` / `score_candidates` from a new code path will silently produce a buy run.
 
-8. **Tavily quota is monthly, not per-run.** A failed Sunday fetch consumes its budget. If you re-trigger manually mid-month, expect the next scheduled fetch to refuse with "monthly cap hit" in the log.
+8. **Tavily quota is a daily call ceiling (resets 00:00 UTC), not per-run.** A failed Sunday fetch consumes part of that UTC day's budget. If you re-trigger manually, expect Tavily calls to refuse with "daily cap hit" in the log once the per-UTC-day ceiling is reached.
 
 9. **`notify.email` never raises post-A2.** Old call sites that wrapped `email(...)` in `try/except Exception` will silently land `sent.append("email")` even on Resend failure. Fixed in `_send_drift_alerts` (A2 part 2). Any new caller must branch on `result["ok"]`.
 
