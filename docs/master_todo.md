@@ -4,9 +4,9 @@
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-14 (Chat 6 — #27 F1+F3 ad-hoc chat feature SHIPPED; Phase 8 #27 COMPLETE; pointer advanced to #28; filed #50 news entity mis-tagging + #51 dividend-yield ×100 formatting)
+**Last updated:** 2026-06-15 (Chat 7 — #28 F12 risk-summary + F15 by-tag SHIPPED across 2 backend units + 2 frontend units; Phase 8 #28 COMPLETE; pointer advanced to #29)
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 6 close):** deployed code HEAD `5e787c9842496a720768f867560d18c31220ea81` (the #27 route-shadow fix; the Chat 6 `Project_State.md` + `master_todo.md` doc commit advances it further). Chat 6 shipped #27 (F1+F3 ad-hoc chat) across five code commits + this doc commit: Unit 1 data layer, Unit 2 enrichment orchestrator, Unit 3 chat service + endpoints, Unit 4 frontend, and a route-shadow fix in `instruments.py`. **Current frontend SHA (Chat 6 close):** `6093f6342e6a6ddb1ecf0c8a1b7fa2239d825c7d` (Unit 4 chat UI — first frontend change since 5.13). Chat 6 opened at backend `4403bb5348c37e323824efc03777050e3631ce15` and frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (the Chat A doc-commit state). Prior: **Current backend SHA (Chat A close):** deployed code HEAD `fae6edf446dab815982b767b8f9a15c2fe36e6b5` (the #48 doc-only commit; the Chat A `Project_State.md` + `master_todo.md` doc commit advances it further). Chat A shipped seven items across five code/doc commits: #34 + #35 (Ops gaps) on `bd52c6baf9a37325cc91d50f495bee8d4be70421`; #25 (P2-7) on `1340396eb1d614a1d171c5c5c3a97f35330bf64e`; #49 (TD40) + #26 (P2-6) on `6032b644c43132aeda96807448836573cadc154a`; #47 (TD22) on `4b638e6f5282883c094f4233e288b24294157565`; #48 (TD36, doc-only) on `fae6edf446dab815982b767b8f9a15c2fe36e6b5`. Chat A opened at backend `c4b50364eb5dd12bca46649c702afcd00677eb5d` (the Chat 5.19 doc commit). Prior: **Current backend SHA (Chat 5.19 close):** deployed code HEAD `7fcda9eb1b0e7a5cee7aba684ef7129d77b9b977` (Phase 6 TD39 / #24 self-failure dual-transport alert wrapping `cron_health_check.main`'s Mongo reads shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.19 doc commit advances it further). Chat 5.19 opened at backend `247510f105969f991cf661eabada2b25d47ce799` (the Chat 5.18 doc commit). Prior: **Current backend SHA (Chat 5.18 close):** deployed code HEAD `0515fef4c7384710124dbc2f73ff726662d61137` (Phase 6 TD38 / #23 fallback heartbeat log + dual-source health check shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.18 doc commit advances it further). Earlier per-chat code HEADs: 5.17 `1d627d7`, 5.16 `f4168b3`, 5.15 `7d77b9c`, 5.14 `4ac2c95`, 5.13 backend `090d96c` / frontend `f59958`, 5.12 `49bf33f`, 5.11 `a2806cd`, 5.10 `b34721e` (full SHA history preserved in prior commits of this file).
+**Current backend SHA (Chat 7 close):** deployed code HEAD `803e6610ec21a8bad9a56840abc059cf92db5890` (#28 F15 by-tag — Unit 2; the Chat 7 `Project_State.md` + `master_todo.md` doc commit advances it further). Chat 7 shipped #28 (F12 + F15) across two backend code commits — Unit 1 risk-summary (`97041621eedd94947a2ce2c1843d23f317b1b31b`: extract `_annotate_holdings` from `compute_summary` behaviour-preserving + `compute_risk_summary` + `GET /portfolio/risk-summary`) and Unit 2 by-tag (`803e6610`: `GET /portfolio/by-tag`) — plus two frontend code commits. **Current frontend SHA (Chat 7 close):** `e14d6a750f802dae941d512837ff1788a7a3a0f0` (Unit 3 risk-summary card + api bindings + Tags nav, then Unit 4 `/tags` page). Chat 7 opened at backend `5e787c9842496a720768f867560d18c31220ea81` (Chat 6 code HEAD; the Chat 6 doc commit `a104993` was the actual open base) and frontend `6093f6342e6a6ddb1ecf0c8a1b7fa2239d825c7d`. Prior: **Current backend SHA (Chat 6 close):** deployed code HEAD `5e787c9842496a720768f867560d18c31220ea81` (#27 F1+F3 ad-hoc chat shipped across five backend commits — Unit 1 data layer, Unit 2 enrichment orchestrator, Unit 3 chat service + endpoints, then the `/instruments/search` route-shadow fix; the Chat 6 doc commit advanced it further). **Current frontend SHA (Chat 6 close):** `6093f6342e6a6ddb1ecf0c8a1b7fa2239d825c7d` (Unit 4 chat UI — ChatPanel + StockResearchPanel + lib/api.ts; no new npm dependency). Chat 6 opened at backend `4403bb5348c37e323824efc03777050e3631ce15` and frontend `f59958015b8b07b6e84e3add7b4a302d32b43490`. Prior: **Current backend SHA (Chat A close):** deployed code HEAD `fae6edf446dab815982b767b8f9a15c2fe36e6b5` (the #48 doc-only commit; the Chat A `Project_State.md` + `master_todo.md` doc commit advanced it further). Chat A shipped seven items across five code/doc commits: #34 + #35 (Ops gaps) on `bd52c6baf9a37325cc91d50f495bee8d4be70421`; #25 (P2-7) on `1340396eb1d614a1d171c5c5c3a97f35330bf64e`; #49 (TD40) + #26 (P2-6) on `6032b644c43132aeda96807448836573cadc154a`; #47 (TD22) on `4b638e6f5282883c094f4233e288b24294157565`; #48 (TD36, doc-only) on `fae6edf446dab815982b767b8f9a15c2fe36e6b5`. Chat A was backend + doc only (frontend unchanged). Chat A opened at backend `c4b50364eb5dd12bca46649c702afcd00677eb5d` (the Chat 5.19 doc commit). Prior: **Current backend SHA (Chat 5.19 close):** deployed code HEAD `7fcda9eb1b0e7a5cee7aba684ef7129d77b9b977` (Phase 6 TD39 / #24 self-failure dual-transport alert wrapping `cron_health_check.main`'s Mongo reads shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.19 doc commit advances it further). Chat 5.19 opened at backend `247510f105969f991cf661eabada2b25d47ce799` (the Chat 5.18 doc commit). Prior: **Current backend SHA (Chat 5.18 close):** deployed code HEAD `0515fef4c7384710124dbc2f73ff726662d61137` (Phase 6 TD38 / #23 fallback heartbeat log + dual-source health check shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.18 doc commit advances it further). Chat 5.18 opened at backend `98ead2a2e499f09bdade95b3201b7d76d7531ee6` (the Chat 5.17 doc commit). Prior: **Current backend SHA (Chat 5.17 close):** deployed code HEAD `1d627d7861ead18b05df0158fe41c06c42de89d2` (Phase 6 TD37 / #22 reject NaN in `_to_decimal` shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.17 doc commit advances it further). Chat 5.17 opened at backend `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (the Chat 5.16 doc commit). Prior: **Current backend SHA (Chat 5.16 close):** deployed code HEAD `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (Phase 6 TD35 / #21 explicit `inserted_id` flow into digest delivery shipped on ONE backend code commit — the Chat 5.16 doc commit advances it further). Chat 5.16 opened at backend `67fd6803d5ffd609e378b4219c5a4710046247aa` (the Chat 5.15 doc commit). Prior: Chat 5.15 closed at deployed code HEAD `7d77b9cbee9f3155f22c86057b20640f21599ee9` (Phase 6 TD34 / #20 `notify.email()` transient-5xx/429 retry on ONE backend code commit); it opened at backend `582cd18d5d50d90b1ae4d1174a22a59799d69ca0` (the Chat 5.14 doc commit). Prior: Chat 5.14 closed at deployed code HEAD `4ac2c955782490818eefa6024c9daead92b0b0eb` (Phase 6 TD33 / #19 atomic Tavily quota claim on ONE backend code commit) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged — backend-only); it opened at backend `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Prior: Chat 5.13 closed at deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop on three backend code commits) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (TD28 refetchQueries swap on one frontend commit); it opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
 
 > Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
 
@@ -14,262 +14,19 @@ This file is the canonical, ordered, end-to-end task list to reach product compl
 
 ## Current position
 
-**Next item to start: #28 (Chat 7 / F12 + F15 — `/portfolio/risk-summary` concentration & risk alerts + `/portfolio/by-tag?tag=X` tag-based portfolio views + frontend dashboard additions). It is the lowest-numbered OPEN row and a standalone large feature (kept one-per-chat to avoid Section-16 context loss).**
+**Next item to start: #29 (Chat 8 / F13 — watchlist: `build_universe` becomes NIFTY 100 ∪ watchlist ∪ held − excluded; extend `refresh_fundamentals.py` AND `fetch_news_for_universe.py` to cover watchlist ISINs; new `/watchlist` CRUD; frontend watchlist surface). It is the lowest-numbered OPEN row and a standalone large feature (kept one-per-chat to avoid Section-16 context loss; #29 must come last among the Phase-8 features because it multiplies data volume).**
 
-Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 + Phase 7 are fully SHIPPED. Phase 8 #27 (Chat 6 / F1 + F3 ad-hoc chat) SHIPPED in Chat 6; #28 + #29 remain OPEN.
+Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 + Phase 7 are fully SHIPPED, and Phase 8 #27 (Chat 6 / F1 + F3 ad-hoc chat) + #28 (Chat 7 / F12 + F15) are now SHIPPED. Only #29 (Chat 8 / F13 watchlist) remains OPEN in Phase 8.
 
-**Chat 6 (#27 — F1 + F3 ad-hoc chat) — closed 2026-06-14.** Standalone large feature delivered in four meaningful units + one fix, each its own commit:
-- **Unit 1 — data layer:** evolved `app/models/conversation.py` (the placeholder was already a fleshed-out `Conversation(BaseDoc)`; added a `scope: Literal["suggestions","holding"]` discriminator, kept distinct from `intent` — surface vs question classification); added `(scope, created_at desc)` index (`scope_created_desc`) to the existing `conversations` index block; added `lookup_by_isin(isin)` reverse lookup to `instrument_service.py` (the master is keyed by `(exchange, symbol)`; every doc carries `isin`, indexed). `Collections.conversations()` accessor and the base conversations indexes already existed at HEAD. `init_db.py` needed no edit (`ensure_all_indexes()` is generic).
-- **Unit 2 — enrichment orchestrator:** `app/services/conversation_service.ensure_stock_context(isin)` — resolves identity via `lookup_by_isin`, then ensures fundamentals (14d freshness), upcoming earnings, and recent classified news exist, fetching on demand via the existing `fundamentals_service` / `news_fetcher` / `news_classifier` when stale or missing. Freshness gates keep a warm turn external-call-free; cold/stale names trigger a single yfinance + Tavily→Haiku refresh, mirroring the weekly cron path. `TavilyQuotaExceeded` and fetch failures degrade gracefully to cached data. Writes ONLY Phase-2 reference collections (fundamentals/earnings/news); never Phase-1 portfolio data.
-- **Unit 3 — chat service + endpoints:** prompt builders (per-stock buy-research framing for not-yet-owned names; position/tax overlay for held names mirroring `dossier_service._build_position_context_block` semantics; latest buy+sell run summary for suggestions), a single structured Sonnet call returning a `{answer, intent}` JSON envelope (mirrors `dossier_service._generate_one` wiring — lazy Anthropic import, `ANTHROPIC_MODEL_PRIMARY`, parse + one retry + graceful fallback), token/cost capture (Sonnet $3/$15 per MTok constants → `Conversation.cost_usd` via the Money/Decimal path), and `Conversation` persistence (insert then re-read so POST + history serialize through one dict path). New `app/routers/conversations.py`: `POST /chat/suggestions` (F1), `POST /chat/holdings/{isin}` (F3, ISIN-validated `pattern=r"^[A-Z0-9]{12}$"`, 404 on unknown instrument), `GET /chat/history` (scope/isin filtered). Registered in `app/main.py`. Verified end-to-end on EC2: F1 cited the real run (HINDZINC/JSWSTEEL/VBL), held-Reliance worked the +6.3% gain / LTCG / 1.6% weight / July-17 earnings overlay, not-held HDFCBANK + INFY produced buy-research analysis; 404/422/history all correct.
-- **Unit 4 — frontend:** `lib/api.ts` (`ChatConversation` / `InstrumentSearchResult` types + `chatSuggestions` / `chatHolding` / `getChatHistory` / `searchInstruments` wrappers); new `components/chat-panel.tsx` (reusable transcript + composer + sentiment toggle + pending state, with a self-contained markdown renderer — no new npm dependency, so deploy stays a plain `npm run build`); new `components/stock-research-panel.tsx` (symbol search → chat about a not-yet-owned stock); embedded the F1 chat + research panel on `/suggestions` and the F3 chat on `/holdings/[isin]`. TanStack `refetchQueries` convention; advisory-only framing.
-- **Fix (surfaced during F3 research testing):** `app/routers/instruments.py` had the dynamic `/{exchange}/{symbol}` route declared BEFORE the static `/search/{symbol_prefix}` route, so `GET /instruments/search/INFY` was captured as `exchange="search", symbol="INFY"` and 404'd — the search endpoint was unreachable over HTTP (latent since it was added; only ever called via the service layer until the chat research panel became the first HTTP caller). Moved `search_instruments` above `get_instrument` + added a NOTE so the ordering isn't reintroduced.
+**Chat 7 (#28 — F12 risk-summary + F15 by-tag) — closed 2026-06-15.** Standalone large feature, built and verified in two backend units + two frontend units, each its own commit. A design proposal was approved before any code (concentration by holding + sector with two-tier alerts; by-tag contract reading `holdings.tags`; both read-only over the existing Phase-1 holdings/price surfaces; frontend risk card on the dashboard + a dedicated `/tags` page):
+- **Unit 1 — F12 backend (`app/services/portfolio_service.py` + `app/routers/portfolio.py`, commit `97041621`):** extracted the per-holding annotation loop + running totals out of `compute_summary` into a shared private helper `_annotate_holdings(holdings, latest_prices) -> (annotated, accum)`, then refactored `compute_summary` to call it — behaviour-preserving, gated by a `/portfolio/summary` curl-diff (minus the volatile `as_of`) that printed `OK: /summary unchanged`. Added `compute_risk_summary(holdings, latest_prices)` on the SAME helper (no parallel aggregation), returning `concentration_by_holding` (EVERY priced holding, desc by % — not just top 5), `concentration_by_sector`, and an `alerts` array. Alerts are two-tier from four module constants (the `TOP_MOVERS_LIMIT` pattern): `SINGLE_HOLDING_CONCENTRATION_WARN_PCT=10.0` / `HIGH_PCT=20.0`, `SECTOR_CONCENTRATION_WARN_PCT=30.0` / `HIGH_PCT=50.0`, plus a low-severity `stale_price` data-quality note (reuses the existing `price_stale`/missing-price flag — holdings with no price are excluded from the % denominator, so their weight is understated). New `GET /portfolio/risk-summary` mirrors the `/summary` router skeleton (`find({"deleted_at": None})` → `bulk_get_latest_prices` → compute → `_serialize`). Verified on EC2: 2 warn alerts (GAEL 13.67%, LT 10.02%), 28 holdings, 7 sectors; the risk-summary top concentration is byte-identical to `/summary`'s `concentration[0]`.
+- **Unit 2 — F15 backend (`app/routers/portfolio.py`, commit `803e6610`):** `GET /portfolio/by-tag?tag=X` — `tag` is a REQUIRED query param (`Query(..., min_length=1)`; missing/empty → 422). Filters `holdings().find({"deleted_at": None, "tags": tag})` (exact, case-sensitive Mongo array-membership), annotates each row via the SAME path as `holdings.list_holdings` (`bulk_get_latest_prices` + `bulk_get_previous_closes` + `annotate_with_current_price`) so rows render in the existing `HoldingsTable` unchanged, plus a tag-scoped `totals` block (count, invested, current_value, unrealized_pnl, unrealized_pnl_pct). Unknown tag → empty holdings + zeroed totals (200, not 404). Imports the existing `_to_dec` from `portfolio_service` for the totals math (no parallel converter). Verified on EC2: tags discovered (`long-term`, `retail`); `retail` → TATASTEEL, count 1, matching the cross-check against the full holdings list; by-tag holding shape == `/portfolio/holdings` shape; unknown tag → zeroed 200; missing + empty tag → 422.
+- **Unit 3 — F12 frontend (`lib/api.ts` + new `components/risk-summary-card.tsx` + `app/page.tsx`, frontend commit):** added `RiskSummary` / `RiskConcentrationHolding` / `RiskConcentrationSector` / `RiskAlert` types + `HoldingsByTag` / `TagTotals` types + `getRiskSummary` and `getHoldingsByTag` wrappers to the hand-typed `lib/api.ts` (the existing `ConcentrationItem` / `SectorBucket` did NOT match the risk-summary shapes, so new types — not reuse). New `RiskSummaryCard` (shadcn Card/Badge/Skeleton, reuses `inr`/`pct` from `lib/format`, severity-colored alert rows, top-5 holdings by weight linking to `/holdings/{isin}`, sector weights). Mounted on the dashboard as its own full-width section below the Sector/Top-Movers grid via an independent `useQuery(["dashboard","risk"])` so a risk-endpoint failure doesn't block the main dashboard. Added a "Tags" nav link to the header.
+- **Unit 4 — F15 frontend (new `app/tags/page.tsx`, frontend commit):** dedicated `/tags` route that derives the tag universe from `getHoldings().tags`, renders a tag-pill selector, and on selection calls `getHoldingsByTag(tag)` to show a tag-scoped totals row + the existing `<HoldingsTable>` (reused wholesale). `useQuery(["tags","by-tag",tag])`, `enabled` only when a tag is picked. Verified on EC2: `npm run build` + lint clean via `~/deploy-ui.sh`; the two consumed endpoints alive; dashboard risk card + `/tags` page render correctly.
 
-Per the standing rule, the next item (#28, Chat 7) continues in a fresh chat to keep context clean.
+Both endpoints are READ-ONLY over the existing Phase-1 holdings/price surfaces; no new collections, no new indexes, no new npm dependency. No new tech-debt or follow-up items were filed.
 
-Items completed since this file was created:
-- #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
-- #2 (TD10) — SHIPPED 2026-06-02 (Chat 5.9)
-- #3 (TD15) — SHIPPED 2026-06-02 (Chat 5.9)
-- #4 (TD16) — SHIPPED 2026-06-06 (Chat 5.10)
-- #6 (TD18) — SHIPPED 2026-06-06 (Chat 5.10)
-- #5 (TD17) — SHIPPED 2026-06-06 (Chat 5.10)
-- #7 (TD19) — SHIPPED 2026-06-06 (Chat 5.10)
-- #8 (TD20) — SHIPPED 2026-06-06 (Chat 5.10)
-- #9 (TD23) — SHIPPED 2026-06-08 (Chat 5.11)
-- #10 (TD24) — SHIPPED 2026-06-08 (Chat 5.11)
-- #11 (TD25) — SHIPPED 2026-06-08 (Chat 5.11)
-- #12 (TD26) — SHIPPED 2026-06-08 (Chat 5.12)
-- #13 (TD27) — SHIPPED 2026-06-08 (Chat 5.12)
-- #14 (TD28) — SHIPPED 2026-06-08 (Chat 5.13)
-- #15 (TD29) — SHIPPED 2026-06-08 (Chat 5.13)
-- #16 (TD30) — SHIPPED 2026-06-08 (Chat 5.13)
-- #17 (TD31) — SHIPPED 2026-06-08 (Chat 5.13)
-- #18 (TD32) — SHIPPED 2026-06-08 (Chat 5.13)
-- #19 (TD33) — SHIPPED 2026-06-09 (Chat 5.14)
-- #20 (TD34) — SHIPPED 2026-06-12 (Chat 5.15)
-- #21 (TD35) — SHIPPED 2026-06-12 (Chat 5.16)
-- #22 (TD37) — SHIPPED 2026-06-12 (Chat 5.17)
-- #23 (TD38) — SHIPPED 2026-06-12 (Chat 5.18)
-- #24 (TD39) — SHIPPED 2026-06-14 (Chat 5.19)
-- #34 (Ops gap) — SHIPPED 2026-06-14 (Chat A) — commit `bd52c6b`
-- #35 (Ops gap) — SHIPPED 2026-06-14 (Chat A) — commit `bd52c6b`
-- #25 (P2-7) — SHIPPED 2026-06-14 (Chat A) — commit `1340396`
-- #49 (TD40) — SHIPPED 2026-06-14 (Chat A) — commit `6032b64`
-- #26 (P2-6 / TD1) — SHIPPED 2026-06-14 (Chat A) — commit `6032b64`
-- #47 (TD22) — SHIPPED 2026-06-14 (Chat A) — commit `4b638e6`
-- #48 (TD36) — SHIPPED 2026-06-14 (Chat A) — commit `fae6edf`
-- #27 (Chat 6 / F1 + F3) — SHIPPED 2026-06-14 (Chat 6) — commits Unit 1–4 + route-shadow fix; doc HEAD `5e787c9`
-
-When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
-
----
-
-## Chat bundles
-
-Execution overlay (added Chat 5.19) to reduce the number of chats to open. This GROUPS the existing numbered rows into chats — it does NOT renumber, move, or merge rows. Item numbers, phase membership, Status, and the ordering rationale below are all unchanged and remain the source of truth. Bundle = "open one chat, clear these items together."
-
-Bundling policy: bundle only small, independent, same-surface items; keep each large feature one chat (avoids the Section-16 context-loss risk). Conservative plan (chosen Chat 5.19).
-
-**Next chat to open: Chat 7 (#28)** — Chat 6 is COMPLETE (#27 SHIPPED 2026-06-14). The lowest-numbered OPEN item is now #28, a standalone large feature.
-
-| Chat | master_todo items | Theme | Surface | Notes |
-|---|---|---|---|---|
-| **A — Ops & alerting quick-wins** | #25, #26, #34, #35, #47, #48, #49 | Reconciliation/feedback alerting + ops gaps + cron false-positives + doc | Backend + doc only | COMPLETE — all seven SHIPPED 2026-06-14 (Chat A). #34/#35 `bd52c6b`; #25 `1340396`; #49/#26 `6032b64`; #47 `4b638e6`; #48 `fae6edf`. |
-| **B — Pre-GO-LIVE hygiene sweep** | #30, #31, #32, #33, #36, #37, #38 | Cross-cutting cleanup (whole Phase 9) | Backend + ops | #30/#31 are the same datetime sweep. Split #33 (pytest harness) into a follow-up if the chat runs long. |
-| **C — UI cleanup** | #40, #41 | Realized-P&L hide + stop_loss wiring | Frontend-led (#41 adds backend) | Both share the holding drill-down / holding-stats surface. |
-| **D — Deferred TDs** | #43, #44, #45 | Post-launch internal cleanup (TD1/TD3/TD7) | Backend + frontend | Run after GO LIVE is stable. |
-| **Chat 6** (standalone) | #27 | F1+F3 ad-hoc chat feature | Backend + frontend | COMPLETE — SHIPPED 2026-06-14 (Chat 6). New collection writes + endpoints + on-demand enrichment + chat surface. |
-| **Chat 7** (standalone) | #28 | F12 risk-summary + F15 tag views | Backend + frontend | Large feature. Keep alone. NEXT. |
-| **Chat 8** (standalone) | #29 | F13 watchlist | Backend + frontend | Large feature; multiplies data volume — must follow Phase 4 + Phase 6. Keep alone. |
-| **Chat 9** (standalone) | #39 | F11 capital-gains pack | Backend + frontend | Large feature — new tax router/service + page. Keep alone. |
-| **Chat 10 — GO LIVE** (standalone) | #42 | F7 real ICICI data import | Backend | Last, alone, so test pollution wipes in one operation. |
-| **Scheduler chat** (standalone) | #46 | TD21 registry-generated crontab migration | Backend + ops | Section 9 explicitly mandates its own dedicated chat. |
-
-Net: remaining OPEN work goes from ~9 chats → 8 (Chats B–D + 5 standalone; Chats A + 6 done). Sequencing still follows the Ordering rationale + per-row gating; bundles never override a gating dependency. Recommended order: (Chat 7) → B → Chat 8 → Chat 9 → C → Chat 10 → Scheduler → D, adjusting for whatever you want next. When you finish a bundle, mark each of its rows SHIPPED individually (the bundle is a chat-grouping, not a single work item) and advance the "Next item to start" pointer to the lowest-numbered OPEN row as usual.
-
----
-
-## Ordering rationale
-
-Ordered to minimize rework. Principle: **fix the code surface before adding features on top of it.**
-
-1. **Phase 1** — Unblock ops first (no code; immediate value; restores weekly digest).
-2. **Phase 1** — Reconcile documentation (TD15) before any chat that reads files with F-comments; otherwise future chats hallucinate against unmapped F-numbers.
-3. **Phase 2** — Fix transactions/holdings/audit invariants BEFORE Chat 9 touches `holdings` (stop_loss + realized P&L hide). SHIPPED Chat 5.10.
-4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
-5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps. SHIPPED Chat 5.12.
-6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched. Phase 5 SHIPPED Chat 5.13; Phase 6 #19 SHIPPED Chat 5.14, #20 SHIPPED Chat 5.15, #21 SHIPPED Chat 5.16, #22 SHIPPED Chat 5.17, #23 SHIPPED Chat 5.18, #24 SHIPPED Chat 5.19 — Phase 6 COMPLETE. Phase 7 (#25, #26) SHIPPED Chat A — Phase 7 COMPLETE.
-7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume. Chat 6 (#27) SHIPPED Chat 6.
-8. **Phase 9** — Cross-cutting cleanup (`datetime.utcnow()` sweep, Python ceiling, pytest harness, ops gaps) right before GO LIVE so launch lands on one clean state. (The two ops-gap quick-wins #34 + #35 were pulled forward into Chat A as small/independent alerting fixes; the rest of Phase 9 remains in Chat B.)
-9. **Phase 10** — Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss wiring).
-10. **Phase 11** — Chat 10 GO LIVE (F7 real data import) — last, so test pollution gets wiped in one operation.
-11. **Phase 12** — Deferred TDs (TD1, TD3, TD7) — after launch is stable.
-12. **New items (Chat 5.9 / 5.16 / 5.19 / 6)** — TD21 (registry-generated crontab migration) remains OPEN; TD22 (track_suggestion_outcomes daily failure) SHIPPED Chat A; TD36 (Tavily monthly→daily doc cleanup) SHIPPED Chat A; TD40 (weekly_suggestions_sell Sunday false MISSING) SHIPPED Chat A; #50 (news entity mis-tagging) + #51 (dividend-yield ×100 formatting) filed Chat 6; see the NEW ITEMS phase below.
-
----
-
-## Item legend
-
-- **Source column codes:**
- - `TD<N>` — Tech debt registry row in `Project_State.md` Section 18
- - `P0/P1/P2/P3-<N>` — Code review finding (see `code_review_findings_chat_6_audit.md` if archived, or the Chat 5.8 review)
- - `Chat <N>` — Pre-existing chat in the Section 13 chat split plan
- - `F<N>` — Feature ticket (mirrored from external registry; see TD15)
- - `Ops gap` — Operational gap called out in the review's ops-gaps section
-- **Status column codes:**
- - `OPEN` — Not started
- - `IN PROGRESS (Chat <N>)` — Being worked in the named chat
- - `SHIPPED <YYYY-MM-DD> (Chat <N>)` — Done; commit landed
- - `DEFERRED` — Acknowledged and intentionally pushed to a later phase
- - `DROPPED` — Explicitly de-scoped; note rationale in the row
-
----
-
-## PHASE 1 — Unblock operations (no code; do this week) — SHIPPED Chat 5.9
-
-| # | Source | Item | Files / surface | Status |
-|---|---|---|---|---|
-| 1 | TD14 / P1-5 | Fix Sunday 07:00 IST crontab line: drop bogus `--notify --run-type scheduled` flags. Optional: run `scripts/run_weekly_suggestions.py --direction=both` manually for immediate digest recovery. Also confirm whether nightly `cron_health_check` ntfy + email alerts have actually been arriving — if not, second silent failure in dual-transport path. **Chat 5.9 closed build-right: Part A flags removed from crontab (verified via `crontab -l`); Part B `CRON_REGISTRY` entry renamed `run_weekly_suggestions` → `weekly_suggestions` (commit `c097b473`) to match the heartbeat the script writes, killing the phantom Sunday MISSING. Dual-transport confirmed HEALTHY by inspection (email + ntfy both arrive daily). The daily 21:00 health alert is a SEPARATE failure → filed as #47 (TD22).** | EC2 `crontab -e` + `app/services/cron_heartbeat_service.py` | SHIPPED 2026-06-02 (Chat 5.9) |
-| 2 | TD10 | Remove redundant `0 0 * * 0 find ... -size +10M ...` crontab line (logrotate replaces it). Verify first logrotate cycle completed then remove. **Chat 5.9: GATE PASSED (rotation trail present for all 10 logs) AND the `find -size +10M` line was found ABSENT from the live crontab — already removed in a prior session or never deployed. End state satisfied; no edit needed.** | EC2 `crontab -e` | SHIPPED 2026-06-02 (Chat 5.9) |
-| 3 | TD15 | Reconcile F-number fix registry: read every file at HEAD that carries an F-comment, map each F-number to its file + one-line description, add rows to `Project_State.md` Section 18. Do BEFORE any code chat. **Chat 5.9: grepped at HEAD `c097b473` — 25 unique in-code F-numbers across TWO colliding namespaces (feature-F vs fix-Chat-5.5+-F). Authored the "F-number fix registry" subsection in Section 18 with a Kind column. Recovered the truncated Section 18 (and Sections 16-tail through 22) that the Chat 5.8 doc commit `8f74b50` had silently amputated. No overlap found that lets #26 or #43 drop — both stay OPEN/DEFERRED.** | `docs/Project_State.md` | SHIPPED 2026-06-02 (Chat 5.9) |
-
-## PHASE 2 — Transactions / holdings / audit consistency — SHIPPED Chat 5.10
-
-Fix this surface before Chat 9 touches it. All five items shipped + verified on EC2 against localhost:8000.
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 4 | P1-1 | Make `PATCH /transactions/{id}` and `DELETE /transactions/{id}` write `transactions_audit` BEFORE applying the change. **Chat 5.10 SHIPPED: both handlers now `log_change(...)` BEFORE `update_one(...)`; PATCH audits a computed `{**before, **update_fields}` after-state then applies then re-reads; `validate_replay` still runs first so a rejected edit/delete writes no audit row.** | `app/routers/transactions.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `17f9f94` |
-| 5 | P1-3 | Add `validate_replay` to `/portfolio/holdings/{isin}/sell` and the manual import path. **Chat 5.10 SHIPPED: `/sell` replays then 400s before the ledger write; `add_manual_transactions.py` gates SELL inserts on `validate_replay` and aborts with `RuntimeError`.** | `app/routers/holdings.py`; `scripts/add_manual_transactions.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `5cf3087` |
-| 6 | P1-2 | Delete duplicate route handler `list_transactions`; keep `get_holding_transactions`. **Chat 5.10 SHIPPED: deleted the shadowed EOF handler; behaviour-neutral.** | `app/routers/holdings.py` | SHIPPED 2026-06-06 (Chat 5.10) — committed after `17f9f94`, before `5cf3087` |
-| 7 | P2-9 | Make `add_buy` / `sell` non-atomic path safer. **Chat 5.10 SHIPPED (warning-flag path): both handlers wrap `recompute_holding` in try/except; on exception return 2xx `{status:"recorded_with_warning", ...}`. M10 transactions REJECTED.** | `app/routers/holdings.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `fb23307` |
-| 8 | P2-10 | Serialize `recompute_holding` per-ISIN. **Chat 5.10 SHIPPED (advisory-lock doc): `recompute_holding` wraps its body in `_per_isin_recompute_lock` (atomic insert into `recompute_locks`, TTL-reclaimed 60s). `asyncio.Lock` REJECTED (sync handlers).** | `app/services/holdings_service.py`; `app/db/client.py`; `app/db/indexes.py` | SHIPPED 2026-06-06 (Chat 5.10) — commit `b34721e` |
-
-## PHASE 3 — Intraday & price correctness — SHIPPED Chat 5.11
-
-All three items shipped in ONE backend code commit (`a2806cd`); all touch only `app/services/price_service.py`.
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 9 | P1-4 / TD23 | Guard `_intraday_row_from_df` against yfinance returning yesterday's bar on holidays. **Chat 5.11 SHIPPED: latest 5m bar IST date != today → None; added module-level `IST` + `_to_ist()`.** | `app/services/price_service.py` | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
-| 10 | P2-14 / TD24 | Align `price_stale` docstring vs code. **Chat 5.11 SHIPPED (code canonical): kept `timedelta(days=6)`; docstring corrected to "6 calendar days".** | `app/services/price_service.py` | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
-| 11 | P2-13 / TD25 | Rewrite `bulk_get_previous_closes` to avoid pulling ~34k docs. **Chat 5.11 SHIPPED (per-ISIN `find_one`): delegates to `get_previous_close`; eliminates the ~34k-doc pull.** | `app/services/price_service.py` | SHIPPED 2026-06-08 (Chat 5.11) — commit `a2806cd` |
-
-## PHASE 4 — Storage hygiene (must land BEFORE Chat 10 GO LIVE) — SHIPPED Chat 5.12
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 12 | P2-3 | Add TTL index on `prices_intraday.captured_at` (90 days). **Chat 5.12 SHIPPED (TD26): `captured_at_ttl` (ASC, 7776000s) alongside the non-TTL `captured_at_desc`; works because captured_at is a BSON Date.** | `app/db/indexes.py` | SHIPPED 2026-06-08 (Chat 5.12) |
-| 13 | P2-4 | New `scripts/purge_news_bodies.py` daily cron. **Chat 5.12 SHIPPED (TD27): `$unset {body_text}` on classified news older than 30d (age on `fetched_at`), stamp `body_purged_at`; `--dry-run`; CronSpec + 02:30 IST crontab.** | `scripts/purge_news_bodies.py` (NEW) + crontab + `CRON_REGISTRY` | SHIPPED 2026-06-08 (Chat 5.12) |
-
-## PHASE 5 — Frontend correctness & quick wins — SHIPPED Chat 5.13
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 14 | P2-2 | Swap `invalidateQueries` → `refetchQueries` in `notes-panel.tsx` + `refresh-button.tsx`. **Chat 5.13 SHIPPED (TD28): minimal name-swap; aligns the two outliers with the project-wide convention.** | `components/notes-panel.tsx`, `components/refresh-button.tsx` | SHIPPED 2026-06-08 (Chat 5.13) — frontend HEAD `f59958` |
-| 15 | P3-3 | Remove unused `from pydoc import doc` import. **Chat 5.13 SHIPPED (TD29): behaviour-neutral.** | `app/routers/holdings.py` line 6 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
-| 16 | P3-6 | Fix doc drift: `MONGODB_URL` vs `MONGODB_URI`. **Chat 5.13 SHIPPED (TD30): confirmed Section 10 already reads `MONGODB_URI`; doc-only confirmation.** | `docs/Project_State.md` | SHIPPED 2026-06-08 (Chat 5.13) |
-| 17 | P3-7 | Add ISIN `pattern` to the two `/suggestions/{isin}` Path params. **Chat 5.13 SHIPPED (TD31): `pattern=r"^[A-Z0-9]{12}$"` alongside length; malformed ISINs 422 at the boundary.** | `app/routers/suggestions.py` ~245 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
-| 18 | P3-8 | Drop `"$options": "i"` from `transactions/search` regex. **Chat 5.13 SHIPPED (TD32): restores index use; corrected the false "(case-insensitive)" comment.** | `app/routers/transactions.py` ~102-115 | SHIPPED 2026-06-08 (Chat 5.13) — backend HEAD `090d96c` |
-
-## PHASE 6 — External-service hardening — SHIPPED Chat 5.14–5.19 (COMPLETE)
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 19 | P2-5 | Atomic Tavily quota claim. **Chat 5.14 SHIPPED (TD33): one conditional `find_one_and_update` filtered on `calls_today < TAVILY_DAILY_CALL_LIMIT`; cap-hit via `DuplicateKeyError` on the unique `date_unique` index. Pre-check removed.** | `app/services/tavily_client.py` | SHIPPED 2026-06-09 (Chat 5.14) — commit `4ac2c95` |
-| 20 | P3-4 | Retry `notify.email()` on transient 5xx/429. **Chat 5.15 SHIPPED (TD34): 1 retry (2 attempts), 30s blocking backoff; 400s + no-status return immediately. `{ok,id,error}` contract unchanged.** | `app/services/notify.py` | SHIPPED 2026-06-12 (Chat 5.15) — commit `7d77b9c` |
-| 21 | P3-5 | Pass `inserted_id` explicitly to `send_combined_digest`. **Chat 5.16 SHIPPED (TD35): `_persist_run` sets `run.id = result.inserted_id` on every persist path; both `find_one` re-derivations removed; signature unchanged.** | `app/services/digest_delivery.py`; `app/services/suggestion_engine.py`; `scripts/run_weekly_suggestions.py` | SHIPPED 2026-06-12 (Chat 5.16) — commit `f4168b3` |
-| 22 | P3-1 | Reject NaN in `_to_decimal`. **Chat 5.17 SHIPPED (TD37): float branch raises `ValueError("NaN not allowed")` (`v != v`); surfaces as 422 via the Money validator; float ingress only.** | `app/models/_common.py` ~12 | SHIPPED 2026-06-12 (Chat 5.17) — commit `1d627d7` |
-| 23 | P2-12 | Fallback log for `cron_run` heartbeat-insert failure. **Chat 5.18 SHIPPED (TD38): `_persist` appends JSON-per-line to `/home/ubuntu/cron-heartbeat-fallback.log` (never raises); `count_today_heartbeats_from_fallback` mirrors the Mongo counter; `cron_health_check` merges both (no double-count).** | `app/services/cron_heartbeat_service.py` + `scripts/cron_health_check.py` | SHIPPED 2026-06-12 (Chat 5.18) — commit `0515fef` |
-| 24 | P3-9 | Wrap `cron_health_check.main` Mongo reads; self-failure alert. **Chat 5.19 SHIPPED (TD39): wraps the per-cron read loop; on Mongo-read failure fires "anomaly: health-check itself failed" on BOTH transports (GUARDED ntfy + email) then RE-RAISES. #23 merge loop preserved inside. LAST Phase 6 item — Phase 6 COMPLETE.** | `scripts/cron_health_check.py` | SHIPPED 2026-06-14 (Chat 5.19) — commit `7fcda9e` |
-
-## PHASE 7 — Reconciliation alerting & feedback correctness — SHIPPED Chat A (COMPLETE)
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 25 | P2-7 | `take_auto_snapshot` fires ntfy on drift. **Chat A SHIPPED: `push_public("price",...)` when invested drift vs the last manual snapshot exceeds `DRIFT_ALERT_THRESHOLD_INVESTED` (₹1,000), ntfy ONLY, rising-edge deduped; new `_send_auto_drift_alert` mirrors only the ntfy half of `_send_drift_alerts`.** | `app/services/reconciliation.py` ~78-115 | SHIPPED 2026-06-14 (Chat A) — commit `1340396` |
-| 26 | P2-6 / TD1 | Direction-aware feedback relabel. **Chat A SHIPPED: added `direction: Literal["buy","sell"]="buy"` to `SuggestionFeedback`; outcome filter routes buy via `{$or:[{direction:buy},{direction:{$exists:false}}]}` and sell via `{direction:"sell"}`. Does NOT close TD1/#43.** | `app/routers/suggestions.py` ~310-325 | SHIPPED 2026-06-14 (Chat A) — commit `6032b64` |
-
-## PHASE 8 — New features per chat split plan
-
-Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are independent; Chat 8 (watchlist) must come last among these.
-
-| # | Source | Item | Files / surface | Status |
-|---|---|---|---|---|
-| 27 | Chat 6 / F1 + F3 | Ad-hoc chat about suggestions (F1) + ad-hoc chat about a specific holding (F3). Share `conversations` collection. New `POST /chat/suggestions` and `POST /chat/holdings/{isin}` endpoints. Frontend chat surface. **Chat 6 SHIPPED: generalized the per-stock endpoint to ANY known NSE instrument (held → full position/tax overlay; not-held → buy-research framing with on-demand fundamentals + classified news enrichment), per user requirement to research stocks not owned. Delivered in 4 units + a route-shadow fix: Unit 1 data layer (`conversation.scope` + `scope_created_desc` index + `lookup_by_isin`); Unit 2 `ensure_stock_context(isin)` enrichment orchestrator (freshness-gated, reuses fundamentals_service/news_fetcher/news_classifier, writes only Phase-2 reference collections); Unit 3 `conversation_service` chat layer + `routers/conversations.py` (`POST /chat/suggestions`, `POST /chat/holdings/{isin}`, `GET /chat/history`) + `main.py` include — single structured Sonnet `{answer, intent}` call mirroring `dossier_service`; Unit 4 frontend `ChatPanel` + `StockResearchPanel` + `lib/api.ts` (no new npm dep). Fix: reordered `instruments.py` so static `/search/{symbol_prefix}` precedes dynamic `/{exchange}/{symbol}`. Verified end-to-end on EC2.** | `routers/conversations.py` (NEW), `services/conversation_service.py` (NEW), `models/conversation.py`, `services/instrument_service.py`, `routers/instruments.py`, `main.py`, `db/indexes.py`; frontend `components/chat-panel.tsx` (NEW), `components/stock-research-panel.tsx` (NEW), `lib/api.ts`, `app/suggestions/page.tsx`, `app/holdings/[isin]/page.tsx` | SHIPPED 2026-06-14 (Chat 6) |
-| 28 | Chat 7 / F12 + F15 | `/portfolio/risk-summary` (concentration & risk alerts) + `/portfolio/by-tag?tag=X` (tag-based portfolio views). | `routers/portfolio.py`, `services/portfolio_service.py`, frontend dashboard additions | OPEN — NEXT |
-| 29 | Chat 8 / F13 | Watchlist: `build_universe` becomes NIFTY 100 ∪ watchlist ∪ held − excluded. Extend `refresh_fundamentals.py` AND `fetch_news_for_universe.py` to cover watchlist ISINs. New `/watchlist` CRUD endpoints (reuse `monitored_stocks` with `status="watchlist"`). Frontend watchlist surface. | `services/suggestion_engine.py`, `scripts/refresh_fundamentals.py`, `scripts/fetch_news_for_universe.py`, `routers/suggestions.py`, frontend new page | OPEN |
-
-## PHASE 9 — Cross-cutting cleanup before GO LIVE
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 30 | P2-1 | Replace 9 `datetime.utcnow()` call sites with project's `utcnow()`. | `routers/portfolio.py:43`, `services/scoring_service.py:116,813,890`, `services/dossier_service.py:166,192`, `services/fundamentals_service.py:370,485,505` | OPEN |
-| 31 | P2-8 | Audit every `datetime.now(timezone.utc)` Mongo write site; replace with `utcnow()`. Add CI lint rule. | `routers/transactions.py:196,245,267`, `services/reconciliation.py:78,~138`, `services/tavily_client.py:50,~55`, `services/price_service.py:155` | OPEN |
-| 32 | P3-2 | Pin `requires-python = ">=3.12,<3.14"` in `pyproject.toml`. | `pyproject.toml` | OPEN |
-| 33 | Review note | Stand up basic pytest harness. Minimum: `_fifo_replay`, `preview_sell`, `validate_replay`, `recompute_holding` idempotency, `submit_feedback` write-before-apply ordering, `take_auto_snapshot` drift math. | `tests/*` (NEW) | OPEN |
-| 34 | Ops gap | Audit `/health`. **Chat A SHIPPED: returns 503 + `{"status":"degraded","mongo":"fail"}` on ping failure, 200 + ok on success; yfinance NOT probed.** | `app/main.py` | SHIPPED 2026-06-14 (Chat A) — commit `bd52c6b` |
-| 35 | Ops gap | ntfy push on `insert_intraday_quotes` exception. **Chat A SHIPPED: wrapped in try/except → GUARDED `push_public("errors",...)` then re-raise so `cron_run` records the failure.** | `scripts/refresh_prices_intraday.py` | SHIPPED 2026-06-14 (Chat A) — commit `bd52c6b` |
-| 36 | Ops gap | Add `POST /admin/recompute/{isin}` (Tailscale-only). | `app/routers/admin.py` (NEW) | OPEN |
-| 37 | Ops gap | Rehearse Atlas backup → fresh-DB restore; document exact `mongorestore`. | `docs/Project_State.md` | OPEN |
-| 38 | Ops gap | Switch backend logging to JSON-structured. | `app/main.py` (logging config) | OPEN |
-
-## PHASE 10 — Chat 9 pre-launch cleanup
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 39 | Chat 9 / F11 | Capital gains pack. `GET /tax/capital-gains?fy=YYYY-YY` (STCG/LTCG per lot for the FY). Frontend tax view page. | `routers/tax.py` (NEW), `services/tax_service.py` (NEW), frontend tax page | OPEN |
-| 40 | Chat 9 | Realized P&L UI hide. Backend field stays; frontend stops rendering everywhere. | Frontend: holdings-table, holding-stats, totals-row, holding-header | OPEN |
-| 41 | Chat 9 / TD6 | Wire `holdings.stop_loss`. Reader + writer + alerts (ntfy on intraday cross-below). Frontend edit field. Closes TD6. | `routers/holdings.py`, `services/price_service.py`, `scripts/refresh_prices_intraday.py`, frontend `holding-stats.tsx` | OPEN |
-
-## PHASE 11 — GO LIVE
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 42 | Chat 10 / F7 | One-time real ICICI data import. Wipe + re-import. Wipe scope: ONLY `transactions`, `transactions_staging`, `holdings`. Preserve everything else. | `scripts/refresh_from_icici.py` (NEW or wrapping import_orderbooks) | OPEN |
-
-## PHASE 12 — Post-launch deferred work
-
-| # | Source | Item | Files | Status |
-|---|---|---|---|---|
-| 43 | TD1 | Make `monitored_stocks` direction-aware (dual rows per ISIN). Reconcile with #26. **Chat A note: #26 added direction-aware RELABEL but monitored_stocks itself stays direction-agnostic; revisit whether the practical pain is gone.** | `models/monitored_stock.py`, `routers/suggestions.py`, `services/suggestion_engine.get_excluded_isins` | DEFERRED |
-| 44 | TD3 | Split `dossier_service.valuation_verdict` into `{verdict, rationale}`. | `services/dossier_service.py`, frontend `suggestion-card.tsx` | DEFERRED |
-| 45 | TD7 | Refactor `CandidateScore` so sell-side groups are first-class fields. | `models/suggestion.py`, `services/scoring_service.py`, `services/explainability.py`, frontend | DEFERRED |
-
-## NEW ITEMS — filed Chat 5.9 / 5.16 / 5.19 / 6 (do not renumber existing rows)
-
-| # | Source | Item | Files / surface | Status |
-|---|---|---|---|---|
-| 46 | TD21 | Registry-generated crontab migration (the deferred scheduler-architecture work). `CRON_REGISTRY` gains a parseable cron expression per `CronSpec` → new `scripts/render_crontab.py` renders a committed `ops/crontab` → `deploy.sh` installs it + a drift-validation step. Chosen OVER in-process APScheduler. Update the F4 "no silent failures" triad in Project_State §9 when it lands. Its own dedicated chat. | `app/services/cron_heartbeat_service.py`, `scripts/render_crontab.py` (NEW), `ops/crontab` (NEW), `deploy.sh` | OPEN |
-| 47 | TD22 | `track_suggestion_outcomes` cron FAILS every weekday. **Chat A SHIPPED: root cause was a stats-dict key drift — `snapshot_open_outcomes()` returns its count under `active_outcomes` (renamed in Commit A.5), but `main()` read `stats["open_outcomes"]` → KeyError every run before any log line flushed. Fix: read `active_outcomes` + rename the heartbeat metadata key/print label. Reproduced live at `6032b64`, verified fixed at `4b638e6`.** | `scripts/track_suggestion_outcomes.py`, `app/services/outcome_tracker.py` | SHIPPED 2026-06-14 (Chat A) — commit `4b638e6` |
-| 48 | TD36 | Stale-doc cleanup (Tavily "monthly" → daily). **Chat A SHIPPED: corrected all "monthly" → "daily (resets 00:00 UTC)" in README + data_flow; also fixed "00:00 IST on the 1st" → "00:00 UTC each day" and a non-existent env var `TAVILY_MONTHLY_QUOTA` → `TAVILY_DAILY_CALL_LIMIT`. DOC-ONLY.** | `README.md`, `docs/data_flow.md` | SHIPPED 2026-06-14 (Chat A) — commit `fae6edf` |
-| 49 | TD40 | (Chat 5.19) idle `weekly_suggestions_sell` CronSpec `expected_weekdays={6}` causes a false Sunday MISSING. **Chat A SHIPPED (option 1): set `expected_weekdays=set()` so `is_expected_today()` is always False; the umbrella `weekly_suggestions --direction=both` covers both directions. #23/TD38 fallback paths left untouched.** | `app/services/cron_heartbeat_service.py` | SHIPPED 2026-06-14 (Chat A) — commit `6032b64` |
-| 50 | Chat 6 obI have the byte-exact source for both docs. Before I produce the two full-file replacements, let me confirm the markdown artifact format (I've only created code artifacts so far this chat).I have the byte-exact source for both docs and the markdown artifact format. Both are delivered as complete full-file replacements per the standing rule. I've woven in only the intended Chat 6 changes (un-wrapping the terminal mid-word breaks from your paste), preserved every existing row, kept Project_State's immutable section structure, and retained the `End of …` sentinels.
-
-Here is **master_todo.md** (full-file replacement):
-
-<artifact title="master_todo.md (Chat 6 close)">
-<metadata><file>master_todo.md</file></metadata>
-<content>
-# Master Todo — Personal AI Stock Advisor
-
-This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
-
-**Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-14 (Chat 6 — #27 F1+F3 ad-hoc chat feature SHIPPED across 4 units + 1 route-shadow fix; Phase 8 #27 COMPLETE; pointer advanced to #28; filed #50 + #51)
-**Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
-**Current backend SHA (Chat 6 close):** deployed code HEAD `5e787c9842496a720768f867560d18c31220ea81` (#27 F1+F3 ad-hoc chat shipped across five backend commits — Unit 1 data layer, Unit 2 enrichment orchestrator, Unit 3 chat service + endpoints, then the `/instruments/search` route-shadow fix; the Chat 6 doc commit advances it further). **Current frontend SHA (Chat 6 close):** `6093f6342e6a6ddb1ecf0c8a1b7fa2239d825c7d` (Unit 4 chat UI — ChatPanel + StockResearchPanel + lib/api.ts; no new npm dependency). Chat 6 opened at backend `4403bb5348c37e323824efc03777050e3631ce15` and frontend `f59958015b8b07b6e84e3add7b4a302d32b43490`. Prior: **Current backend SHA (Chat A close):** deployed code HEAD `fae6edf446dab815982b767b8f9a15c2fe36e6b5` (the #48 doc-only commit; the Chat A `Project_State.md` + `master_todo.md` doc commit advanced it further). Chat A shipped seven items across five code/doc commits: #34 + #35 (Ops gaps) on `bd52c6baf9a37325cc91d50f495bee8d4be70421`; #25 (P2-7) on `1340396eb1d614a1d171c5c5c3a97f35330bf64e`; #49 (TD40) + #26 (P2-6) on `6032b644c43132aeda96807448836573cadc154a`; #47 (TD22) on `4b638e6f5282883c094f4233e288b24294157565`; #48 (TD36, doc-only) on `fae6edf446dab815982b767b8f9a15c2fe36e6b5`. Chat A was backend + doc only (frontend unchanged). Chat A opened at backend `c4b50364eb5dd12bca46649c702afcd00677eb5d` (the Chat 5.19 doc commit). Prior: **Current backend SHA (Chat 5.19 close):** deployed code HEAD `7fcda9eb1b0e7a5cee7aba684ef7129d77b9b977` (Phase 6 TD39 / #24 self-failure dual-transport alert wrapping `cron_health_check.main`'s Mongo reads shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.19 doc commit advances it further). Chat 5.19 opened at backend `247510f105969f991cf661eabada2b25d47ce799` (the Chat 5.18 doc commit). Prior: **Current backend SHA (Chat 5.18 close):** deployed code HEAD `0515fef4c7384710124dbc2f73ff726662d61137` (Phase 6 TD38 / #23 fallback heartbeat log + dual-source health check shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.18 doc commit advances it further). Chat 5.18 opened at backend `98ead2a2e499f09bdade95b3201b7d76d7531ee6` (the Chat 5.17 doc commit). Prior: **Current backend SHA (Chat 5.17 close):** deployed code HEAD `1d627d7861ead18b05df0158fe41c06c42de89d2` (Phase 6 TD37 / #22 reject NaN in `_to_decimal` shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.17 doc commit advances it further). Chat 5.17 opened at backend `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (the Chat 5.16 doc commit). Prior: **Current backend SHA (Chat 5.16 close):** deployed code HEAD `f4168b33437 25c0f873d5fd99d1c68bc5d6c88cc` (Phase 6 TD35 / #21 explicit `inserted_id` flow into digest delivery shipped on ONE backend code commit — the Chat 5.16 doc commit advances it further). Chat 5.16 opened at backend `67fd6803d5ffd609e378b4219c5a4710046247aa` (the Chat 5.15 doc commit). Prior: Chat 5.15 closed at deployed code HEAD `7d77b9cbee9f3155f22c86057b20640f21599ee9` (Phase 6 TD34 / #20 `notify.email()` transient-5xx/429 retry on ONE backend code commit); it opened at backend `582cd18d5d50d90b1ae4d1174a22a59799d69ca0` (the Chat 5.14 doc commit). Prior: Chat 5.14 closed at deployed code HEAD `4ac2c955782490818eefa6024c9daead92b0b0eb` (Phase 6 TD33 / #19 atomic Tavily quota claim on ONE backend code commit) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged — backend-only); it opened at backend `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Prior: Chat 5.13 closed at deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop on three backend code commits) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (TD28 refetchQueries swap on one frontend commit); it opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
-
-> Note (Chat 5.9): the on-disk copy of this file had the "Ordering rationale" + "When you finish an item…" paragraph duplicated 8 times (a paste/commit artifact). The Chat 5.9 full-file replacement collapsed it back to a single copy. No item rows were affected.
-
----
-
-## Current position
-
-**Next item to start: #28 (Chat 7 / F12 + F15 — `/portfolio/risk-summary` concentration & risk alerts + `/portfolio/by-tag?tag=X` tag-based portfolio views). It is the lowest-numbered OPEN row and a standalone large feature (kept one-per-chat to avoid Section-16 context loss).**
-
-Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 + Phase 7 are fully SHIPPED, and Phase 8 #27 (Chat 6 / F1 + F3 ad-hoc chat) is now SHIPPED. Phase 7 (#25–#26, reconciliation alerting + feedback direction) COMPLETE — both shipped in Chat A.
+Per the standing rule, the next item (#29, Chat 8) continues in a fresh chat to keep context clean.
 
 **Chat A (Ops & alerting quick-wins) — closed 2026-06-14.** Bundled seven small, independent, backend/doc-only rows and cleared all of them, each marked SHIPPED individually:
 - **#34 (Ops gap, `app/main.py`):** `GET /health` was hardcoding `{"status":"ok"}` + HTTP 200 even when the Mongo `ping()` failed (it only flipped the `mongo` field). Now returns 503 + `{"status":"degraded","mongo":"fail"}` on ping failure, 200 + `{"status":"ok","mongo":"ok"}` on success — aligns code with the README §10 claim. yfinance deliberately NOT probed on the hot path (a Yahoo throttle would cause false 503s; price-source health stays in the `refresh_prices*` cron heartbeats). Commit `bd52c6b`.
@@ -292,8 +49,6 @@ Per the standing rule, the next item (#27, Chat 6) continued in a fresh chat to 
 End-to-end verified on EC2 against localhost:8000: F1 returns the real weekly run with cited ISINs (HINDZINC/JSWSTEEL/VBL); F3 held (Reliance) works the +6.3% gain / LTCG / 1.6% weight / July-17 earnings overlay; F3 not-held (HDFC Bank, INFY) gives buy-research analysis with fundamentals + classified news; unknown ISIN -> 404; bad ISIN shape -> 422; history newest-first + scope/isin filtered; `model_used=claude-sonnet-4-5`, token counts + `cost_usd` populated.
 
 Two issues surfaced during #27 testing, filed as new rows (NOT fixed this chat): **#50** news entity mis-tagging (the HDFCBANK chat returned TCS/Kenya articles — wrong `entities_isins` in `news_articles`, upstream of chat in `news_fetcher`/`news_classifier`) and **#51** `dividend_yield` ×100 formatting shared by `dossier_service._fmt_pct` and the chat formatter (Reliance showed "46%"; verified the chat formatter is byte-consistent with the dossier `_fmt_pct`, so it is a pre-existing app-wide yfinance unit inconsistency, not new to #27).
-
-Per the standing rule, the next item (#28, Chat 7) continues in a fresh chat to keep context clean.
 
 Items completed since this file was created:
 - #1 (TD14) — SHIPPED 2026-06-02 (Chat 5.9)
@@ -328,6 +83,7 @@ Items completed since this file was created:
 - #47 (TD22) — SHIPPED 2026-06-14 (Chat A) — commit `4b638e6`
 - #48 (TD36) — SHIPPED 2026-06-14 (Chat A) — commit `fae6edf`
 - #27 (Chat 6 / F1 + F3) — SHIPPED 2026-06-14 (Chat 6) — backend `5e787c9`, frontend `6093f63`
+- #28 (Chat 7 / F12 + F15) — SHIPPED 2026-06-15 (Chat 7) — backend Unit 1 `97041621`, Unit 2 `803e6610`; frontend `e14d6a75`
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
 
@@ -339,7 +95,7 @@ Execution overlay (added Chat 5.19) to reduce the number of chats to open. This 
 
 Bundling policy: bundle only small, independent, same-surface items; keep each large feature one chat (avoids the Section-16 context-loss risk). Conservative plan (chosen Chat 5.19).
 
-**Next chat to open: Chat 7 (#28)** — Chat A is COMPLETE (all seven rows SHIPPED 2026-06-14) and Chat 6 is COMPLETE (#27 SHIPPED 2026-06-14). The lowest-numbered OPEN item is now #28, a standalone large feature.
+**Next chat to open: Chat 8 (#29)** — Chat A is COMPLETE (all seven rows SHIPPED 2026-06-14), Chat 6 is COMPLETE (#27 SHIPPED 2026-06-14), and Chat 7 is COMPLETE (#28 SHIPPED 2026-06-15). The lowest-numbered OPEN item is now #29, a standalone large feature (watchlist; must come last among the Phase-8 features because it multiplies data volume).
 
 | Chat | master_todo items | Theme | Surface | Notes |
 |---|---|---|---|---|
@@ -348,13 +104,13 @@ Bundling policy: bundle only small, independent, same-surface items; keep each l
 | **C — UI cleanup** | #40, #41 | Realized-P&L hide + stop_loss wiring | Frontend-led (#41 adds backend) | Both share the holding drill-down / holding-stats surface. |
 | **D — Deferred TDs** | #43, #44, #45 | Post-launch internal cleanup (TD1/TD3/TD7) | Backend + frontend | Run after GO LIVE is stable. |
 | **Chat 6** (standalone) | #27 | F1+F3 ad-hoc chat feature | Backend + frontend | COMPLETE — SHIPPED 2026-06-14 (Chat 6). 4 units + 1 route-shadow fix. Filed #50 + #51. |
-| **Chat 7** (standalone) | #28 | F12 risk-summary + F15 tag views | Backend + frontend | Large feature. Keep alone. NEXT. |
-| **Chat 8** (standalone) | #29 | F13 watchlist | Backend + frontend | Large feature; multiplies data volume — must follow Phase 4 + Phase 6. Keep alone. |
+| **Chat 7** (standalone) | #28 | F12 risk-summary + F15 tag views | Backend + frontend | COMPLETE — SHIPPED 2026-06-15 (Chat 7). 2 backend units (`97041621`, `803e6610`) + 2 frontend units (`e14d6a75`). Read-only; no new collections/indexes/deps. |
+| **Chat 8** (standalone) | #29 | F13 watchlist | Backend + frontend | Large feature; multiplies data volume — must follow Phase 4 + Phase 6. Keep alone. NEXT. |
 | **Chat 9** (standalone) | #39 | F11 capital-gains pack | Backend + frontend | Large feature — new tax router/service + page. Keep alone. |
 | **Chat 10 — GO LIVE** (standalone) | #42 | F7 real ICICI data import | Backend | Last, alone, so test pollution wipes in one operation. |
 | **Scheduler chat** (standalone) | #46 | TD21 registry-generated crontab migration | Backend + ops | Section 9 explicitly mandates its own dedicated chat. |
 
-Net: remaining OPEN work goes from ~9 chats → 8 (Chats B–D + 5 standalone; Chats A and 6 done). Sequencing still follows the Ordering rationale + per-row gating; bundles never override a gating dependency. Recommended order: Chat 7 → B → Chat 8 → Chat 9 → C → Chat 10 → Scheduler → D, adjusting for whatever you want next. When you finish a bundle, mark each of its rows SHIPPED individually (the bundle is a chat-grouping, not a single work item) and advance the "Next item to start" pointer to the lowest-numbered OPEN row as usual.
+Net: remaining OPEN work goes from ~8 chats → 7 (Chats B–D + 4 standalone; Chats A, 6 and 7 done). Sequencing still follows the Ordering rationale + per-row gating; bundles never override a gating dependency. Recommended order: Chat 8 → B → Chat 9 → C → Chat 10 → Scheduler → D, adjusting for whatever you want next. When you finish a bundle, mark each of its rows SHIPPED individually (the bundle is a chat-grouping, not a single work item) and advance the "Next item to start" pointer to the lowest-numbered OPEN row as usual.
 
 ---
 
@@ -368,7 +124,7 @@ Ordered to minimize rework. Principle: **fix the code surface before adding feat
 4. **Phase 3** — Fix intraday correctness early; every dashboard load and every sell-side suggestion depends on it. SHIPPED Chat 5.11.
 5. **Phase 4** — Storage hygiene (TTL + body purge) BEFORE Chat 10 GO LIVE — real ICICI data import is when collections start filling for keeps. SHIPPED Chat 5.12.
 6. **Phases 5-7** — Frontend correctness + external-service hardening + reconciliation alerting; mostly independent of one another, can be batched. Phase 5 SHIPPED Chat 5.13; Phase 6 #19 SHIPPED Chat 5.14, #20 SHIPPED Chat 5.15, #21 SHIPPED Chat 5.16, #22 SHIPPED Chat 5.17, #23 SHIPPED Chat 5.18, #24 SHIPPED Chat 5.19 — Phase 6 COMPLETE. Phase 7 (#25, #26) SHIPPED Chat A — Phase 7 COMPLETE.
-7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume. Chat 6 (#27 F1+F3 ad-hoc chat) SHIPPED Chat 6.
+7. **Phase 8** — New features (Chats 6-8) AFTER underlying services are correct; Chat 8 (watchlist) must come after Phase 4 (storage) + Phase 6 (Tavily race) since it multiplies data volume. Chat 6 (#27 F1+F3 ad-hoc chat) SHIPPED Chat 6; Chat 7 (#28 F12 risk-summary + F15 by-tag) SHIPPED Chat 7 — both read-only over existing surfaces. Only #29 (watchlist) remains.
 8. **Phase 9** — Cross-cutting cleanup (`datetime.utcnow()` sweep, Python ceiling, pytest harness, ops gaps) right before GO LIVE so launch lands on one clean state. (The two ops-gap quick-wins #34 + #35 were pulled forward into Chat A as small/independent alerting fixes; the rest of Phase 9 remains in Chat B.)
 9. **Phase 10** — Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss wiring).
 10. **Phase 11** — Chat 10 GO LIVE (F7 real data import) — last, so test pollution gets wiped in one operation.
@@ -468,8 +224,8 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | # | Source | Item | Files / surface | Status |
 |---|---|---|---|---|
 | 27 | Chat 6 / F1 + F3 | Ad-hoc chat about suggestions (F1) + ad-hoc chat about a specific holding (F3). Share `conversations` collection scaffolding. New `POST /chat/suggestions` and `POST /chat/holdings/{isin}` endpoints. Frontend chat surface. **Chat 6 SHIPPED across 4 units + 1 route-shadow fix: Unit 1 `conversation.py` real model + `scope` field + `scope_created_desc` index + `instrument_service.lookup_by_isin`; Unit 2 `conversation_service.ensure_stock_context(isin)` on-demand enrichment (fundamentals/earnings/news via the existing cron-path services, freshness-gated, writes only Phase-2 reference collections); Unit 3 chat service (buy-research framing for not-yet-owned names, position/tax overlay for held names, latest buy+sell run summary for F1; single structured Sonnet `{answer,intent}` call mirroring `dossier_service._generate_one`; Sonnet $3/$15 MTok → Money cost_usd; persist) + `routers/conversations.py` (`POST /chat/suggestions`, `POST /chat/holdings/{isin}` ISIN-validated + 404 on unknown instrument, `GET /chat/history`) + `main.py` include; Unit 4 frontend `ChatPanel` + `StockResearchPanel` (symbol→ISIN via existing `/instruments/search`) + `lib/api.ts` + embeds on `/suggestions` and `/holdings/[isin]`, self-contained markdown renderer (no new npm dep). Path-2 enrichment makes F3 work for ANY known NSE instrument, held or not. Generalized the per-stock endpoint (kept the documented `/chat/holdings/{isin}` path). Surfaced + fixed a latent `/instruments/search` route-shadow (dynamic `/{exchange}/{symbol}` declared first → search unreachable; reordered). Filed #50 (news entity mis-tagging) + #51 (dividend_yield ×100 formatting). End-to-end verified on EC2.** | `routers/conversations.py` (NEW), `services/conversation_service.py` (NEW), `models/conversation.py`, `services/instrument_service.py`, `routers/instruments.py`, `app/main.py`, frontend `components/chat-panel.tsx` (NEW) + `components/stock-research-panel.tsx` (NEW) + `lib/api.ts` + `app/suggestions/page.tsx` + `app/holdings/[isin]/page.tsx` | SHIPPED 2026-06-14 (Chat 6) — backend `5e787c9`, frontend `6093f63` |
-| 28 | Chat 7 / F12 + F15 | `/portfolio/risk-summary` (concentration & risk alerts) + `/portfolio/by-tag?tag=X` (tag-based portfolio views). | `routers/portfolio.py`, `services/portfolio_service.py`, frontend dashboard additions | OPEN — NEXT |
-| 29 | Chat 8 / F13 | Watchlist: `build_universe` becomes NIFTY 100 ∪ watchlist ∪ held − excluded. Extend `refresh_fundamentals.py` AND `fetch_news_for_universe.py` to cover watchlist ISINs. New `/watchlist` CRUD endpoints (reuse `monitored_stocks` with `status="watchlist"`). Frontend watchlist surface. | `services/suggestion_engine.py`, `scripts/refresh_fundamentals.py`, `scripts/fetch_news_for_universe.py`, `routers/suggestions.py`, frontend new page | OPEN |
+| 28 | Chat 7 / F12 + F15 | `/portfolio/risk-summary` (concentration & risk alerts) + `/portfolio/by-tag?tag=X` (tag-based portfolio views). **Chat 7 SHIPPED across 2 backend units + 2 frontend units, design-approved before code, both endpoints READ-ONLY over the existing Phase-1 holdings/price surfaces (no new collections/indexes/deps). Unit 1 (`97041621`): extracted `_annotate_holdings(holdings, latest_prices) -> (annotated, accum)` out of `compute_summary` (behaviour-preserving, gated by a `/portfolio/summary` curl-diff that printed `OK: /summary unchanged`), added `compute_risk_summary` on the SAME helper (no parallel aggregation) — `concentration_by_holding` (every priced holding, desc by %), `concentration_by_sector`, two-tier `alerts` from four module constants (SINGLE_HOLDING WARN 10/HIGH 20, SECTOR WARN 30/HIGH 50, the TOP_MOVERS_LIMIT pattern) + a low-severity `stale_price` data-quality note — and `GET /portfolio/risk-summary` mirroring the `/summary` skeleton. Verified: 2 warn alerts (GAEL 13.67%, LT 10.02%), 28 holdings, 7 sectors; risk top concentration == /summary concentration[0]. Unit 2 (`803e6610`): `GET /portfolio/by-tag?tag=X` — required `tag` (Query min_length=1; missing/empty → 422), `find({"deleted_at": None, "tags": tag})` (exact case-sensitive array membership), annotated via the SAME path as `holdings.list_holdings` so rows render in the existing HoldingsTable, plus tag-scoped totals; unknown tag → zeroed 200; reuses `_to_dec` (no parallel converter). Verified: retail → TATASTEEL count 1 matching cross-check, shape parity with /portfolio/holdings, missing+empty → 422. Unit 3 (frontend): RiskSummary/HoldingsByTag types + getRiskSummary/getHoldingsByTag in lib/api.ts (new types — ConcentrationItem/SectorBucket didn't match), new RiskSummaryCard mounted full-width on the dashboard via an independent useQuery, + Tags nav link. Unit 4 (frontend): dedicated `app/tags/page.tsx` — tag-pill selector from holdings.tags → getHoldingsByTag → tag-scoped totals + reused HoldingsTable. `npm run build`/lint clean via ~/deploy-ui.sh. No new TD/follow-ups.** | `routers/portfolio.py`, `services/portfolio_service.py`, frontend `lib/api.ts` + `components/risk-summary-card.tsx` (NEW) + `app/page.tsx` + `app/tags/page.tsx` (NEW) | SHIPPED 2026-06-15 (Chat 7) — backend Unit 1 `97041621`, Unit 2 `803e6610`; frontend `e14d6a75` |
+| 29 | Chat 8 / F13 | Watchlist: `build_universe` becomes NIFTY 100 ∪ watchlist ∪ held − excluded. Extend `refresh_fundamentals.py` AND `fetch_news_for_universe.py` to cover watchlist ISINs. New `/watchlist` CRUD endpoints (reuse `monitored_stocks` with `status="watchlist"`). Frontend watchlist surface. | `services/suggestion_engine.py`, `scripts/refresh_fundamentals.py`, `scripts/fetch_news_for_universe.py`, `routers/suggestions.py`, frontend new page | OPEN — NEXT |
 
 ## PHASE 9 — Cross-cutting cleanup before GO LIVE
 
@@ -531,7 +287,7 @@ Do AFTER Phases 2 + 6 so underlying surfaces are correct. Chats 6 and 7 are inde
 | 5 | 14-18 | Frontend correctness + quick wins | Independent — SHIPPED Chat 5.13 |
 | 6 | 19-24 | External-service hardening | Foundation for Chat 8 (parallelism) — COMPLETE: #19 SHIPPED Chat 5.14, #20 SHIPPED Chat 5.15, #21 SHIPPED Chat 5.16, #22 SHIPPED Chat 5.17, #23 SHIPPED Chat 5.18, #24 SHIPPED Chat 5.19 |
 | 7 | 25-26 | Reconciliation alerting + feedback direction | COMPLETE — #25 + #26 SHIPPED Chat A |
-| 8 | 27-29 | New features (Chats 6, 7, 8) | Underlying surfaces correct — #27 SHIPPED Chat 6; #28 NEXT, #29 OPEN |
+| 8 | 27-29 | New features (Chats 6, 7, 8) | Underlying surfaces correct — #27 SHIPPED Chat 6; #28 SHIPPED Chat 7; #29 NEXT |
 | 9 | 30-38 | Pre-launch sweep + ops gaps | Last clean state before GO LIVE — #34 + #35 SHIPPED (Chat A); #30-33, #36-38 OPEN |
 | 10 | 39-41 | Chat 9 pre-launch cleanup (F11 + realized P&L hide + stop_loss) | OPEN |
 | 11 | 42 | Chat 10 GO LIVE (F7 real data import) | OPEN |
