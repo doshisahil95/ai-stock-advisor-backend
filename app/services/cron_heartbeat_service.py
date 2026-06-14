@@ -75,7 +75,14 @@ CRON_REGISTRY: list[CronSpec] = [
         cron_name="weekly_suggestions_sell",
         description="Weekly sell-side suggestions: profit-booking candidates from active holdings.",
         schedule_human="Sun 07:30 IST",
-        expected_weekdays={6},  # Sunday only (IST Mon=0..Sun=6)
+        # #49/TD40: idle when the EC2 crontab runs the umbrella
+        # `weekly_suggestions --direction=both` (logged under
+        # 'weekly_suggestions'). An empty expected_weekdays set makes
+        # is_expected_today() always False, so cron_health_check never emits
+        # a false "MISSING: weekly_suggestions_sell" on Sundays. Restore to
+        # {6} ONLY if you split the crontab into a standalone sell-side job
+        # that logs its own heartbeat under this cron_name.
+        expected_weekdays=set(),
     ),
     # Phase 1 crons (instrumented in this commit)
     CronSpec(

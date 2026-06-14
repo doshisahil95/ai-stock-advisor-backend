@@ -252,6 +252,12 @@ class SuggestionFeedback(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["acted", "passed", "rejected"]
     note: str = Field(default="", max_length=500)
+    # #26 (P2-6): which side of the book this feedback is for, so the outcome
+    # relabel targets the correct-direction outcome (an ISIN can carry both a
+    # non-expired buy outcome and a non-expired sell outcome). Defaults to
+    # "buy" so the current frontend -- which does not yet send direction --
+    # keeps working unchanged; a future sell-aware UI passes "sell".
+    direction: Literal["buy", "sell"] = "buy"
 
 
 @router.post("/{isin}/feedback")
@@ -348,10 +354,27 @@ def submit_feedback(
     # 5. Re-label the most recent non-expired outcome for this ISIN.
     #    Sort by suggested_at desc, take the first one. This is the
     #    suggestion the user is actually looking at on the page.
+    # #26 (P2-6): relabel the most recent non-expired outcome FOR THE SAME
+    # DIRECTION. The same ISIN can carry both a non-expired buy outcome and a
+    # non-expired sell outcome; without this filter a buy-side action could
+    # relabel a sell-side outcome (or vice versa). Pre-F2 outcomes have no
+    # direction field and coerce to "buy", so the buy branch includes
+    # {direction: {$exists: False}} -- the same back-compat guard used by
+    # get_latest_run() and compute_system_performance(). Does NOT close
+    # TD1/#43; cross-direction relabel policy stays deferred.
+    if payload.direction == "buy":
+        direction_filter: dict = {
+            "$or": [
+                {"direction": "buy"},
+                {"direction": {"$exists": False}},
+            ]
+        }
+    else:
+        direction_filter = {"direction": "sell"}
     latest_outcome = Collections.suggestion_outcomes().find_one(
-        {"isin": isin, "tracking_status": {"$ne": "expired"}},
+        {"isin": isin, "tracking_status": {"$ne": "expired"}, **direction_filter},
         sort=[("suggested_at", -1)],
-        projection={"_id": 1, "tracking_status": 1},
+        projection={"_id": 1, "tracking_status": 1, "direction": 1},
     )
     if latest_outcome:
         Collections.suggestion_outcomes().update_one(
@@ -366,9 +389,10 @@ def submit_feedback(
             },
         )
         log.info(
-            "Feedback for %s: action=%s prev_status=%s (relabeled outcome %s from %s); upserted_monitored=%s",
+            "Feedback for %s: action=%s direction=%s prev_status=%s (relabeled outcome %s from %s); upserted_monitored=%s",
             isin,
             payload.action,
+            payload.direction,
             previous_status,
             latest_outcome["_id"],
             latest_outcome.get("tracking_status"),
