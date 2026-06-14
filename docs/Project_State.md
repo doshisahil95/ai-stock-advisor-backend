@@ -1,4 +1,3 @@
-
 # PROJECT_STATE.md
 
 Living source of truth for the Personal AI Stock Advisor. Updated at the end of every chat. Bootstrap document for any new conversation — read top to bottom before doing anything. Do not skim, assume, or redesign.
@@ -525,6 +524,8 @@ The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouch
 | 11 | #42 | Chat 10 GO LIVE (F7 real data import) | OPEN |
 | 12 | #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | #46-49 | TD21 scheduler migration, TD22 outcomes-cron failure, TD36 Tavily doc cleanup, TD40 weekly_suggestions_sell Sunday false MISSING | OPEN |
+
+**Chat-bundle overlay (added 5.19, source of truth = master_todo.md "Chat bundles").** To cut the number of chats to open, the remaining OPEN rows are grouped (NOT renumbered/moved) into ~10 chats: **Chat A** (#25, #26, #34, #35, #47, #48, #49 — ops & alerting quick-wins, backend/doc, NEXT), **Chat B** (#30, #31, #32, #33, #36, #37, #38 — Phase 9 hygiene sweep), **Chat C** (#40, #41 — UI cleanup), **Chat D** (#43, #44, #45 — deferred TDs), and six standalone large items kept one-per-chat to avoid Section-16 context loss: #27 (Chat 6), #28 (Chat 7), #29 (Chat 8), #39 (Chat 9), #42 (Chat 10 GO LIVE), #46 (scheduler). Bundles never override a per-row gating dependency; each row is still marked SHIPPED individually.
 
 **Open items carried past Chat 5.19** (tracked in master_todo.md with stable numbers; pointer now at #25):
 * **#25 (P2-7, NEXT):** make `take_auto_snapshot` fire an ntfy `push_public("price", ...)` when drift change exceeds threshold vs the last manual snapshot (ntfy only — email too noisy on a daily cron). `app/services/reconciliation.py`. Phase 7.

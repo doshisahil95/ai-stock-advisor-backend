@@ -1,10 +1,9 @@
-
 # Master Todo — Personal AI Stock Advisor
 
 This file is the canonical, ordered, end-to-end task list to reach product completion. It is the source of truth for what to do next. Every new chat reads it after `Project_State.md`.
 
 **Created:** 2026-05-29 (Chat 5.8 — review + planning)
-**Last updated:** 2026-06-14 (Chat 5.19 — Phase 6 #24 shipped; Phase 6 COMPLETE)
+**Last updated:** 2026-06-14 (Chat 5.19 — Phase 6 #24 shipped, Phase 6 COMPLETE; remaining OPEN work bundled into Chats A–D + 6 standalone chats — see "Chat bundles")
 **Audit baseline:** Backend SHA `c6b1437b90c9555ab9090657af74ab550cf6e1cd`, Frontend SHA `4f31b49b103f92ea5b4721f9728156041e908f49`
 **Current backend SHA (Chat 5.19 close):** deployed code HEAD `7fcda9eb1b0e7a5cee7aba684ef7129d77b9b977` (Phase 6 TD39 / #24 self-failure dual-transport alert wrapping `cron_health_check.main`'s Mongo reads shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.19 doc commit advances it further). **Current frontend SHA:** `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged — Chat 5.19 was backend-only). Chat 5.19 opened at backend `247510f105969f991cf661eabada2b25d47ce799` (the Chat 5.18 doc commit). Prior: **Current backend SHA (Chat 5.18 close):** deployed code HEAD `0515fef4c7384710124dbc2f73ff726662d61137` (Phase 6 TD38 / #23 fallback heartbeat log + dual-source health check shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.18 doc commit advances it further). Chat 5.18 opened at backend `98ead2a2e499f09bdade95b3201b7d76d7531ee6` (the Chat 5.17 doc commit). Prior: **Current backend SHA (Chat 5.17 close):** deployed code HEAD `1d627d7861ead18b05df0158fe41c06c42de89d2` (Phase 6 TD37 / #22 reject NaN in `_to_decimal` shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.17 doc commit advances it further). Chat 5.17 opened at backend `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (the Chat 5.16 doc commit). Prior: **Current backend SHA (Chat 5.16 close):** deployed code HEAD `f4168b3343725c0f873d5fd99d1c68bc5d6c88cc` (Phase 6 TD35 / #21 explicit `inserted_id` flow into digest delivery shipped on ONE backend code commit; HEAD shown is after that code commit — the Chat 5.16 doc commit advances it further). Chat 5.16 opened at backend `67fd6803d5ffd609e378b4219c5a4710046247aa` (the Chat 5.15 doc commit). Prior: Chat 5.15 closed at deployed code HEAD `7d77b9cbee9f3155f22c86057b20640f21599ee9` (Phase 6 TD34 / #20 `notify.email()` transient-5xx/429 retry on ONE backend code commit); it opened at backend `582cd18d5d50d90b1ae4d1174a22a59799d69ca0` (the Chat 5.14 doc commit). Prior: Chat 5.14 closed at deployed code HEAD `4ac2c955782490818eefa6024c9daead92b0b0eb` (Phase 6 TD33 / #19 atomic Tavily quota claim on ONE backend code commit) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (unchanged — backend-only); it opened at backend `5ab01ef0df2ebb3c3d1d0aba26cdce9be17c17fe` (the Chat 5.13 doc commit). Prior: Chat 5.13 closed at deployed code HEAD `090d96c0042e7d5ccd154dcaf6329a0bba57ebb7` (TD29 dead-import, TD31 ISIN pattern, TD32 regex `$options` drop on three backend code commits) + frontend `f59958015b8b07b6e84e3add7b4a302d32b43490` (TD28 refetchQueries swap on one frontend commit); it opened at backend `07d9a413b39d330e3ea9047dec4e38917a446449` and frontend `4f31b49b103f92ea5b4721f9728156041e908f49`.
 
@@ -51,6 +50,31 @@ Items completed since this file was created:
 - #24 (TD39) — SHIPPED 2026-06-14 (Chat 5.19)
 
 When you finish an item, change its row's Status column from `OPEN` to `SHIPPED <YYYY-MM-DD> (Chat <N>)` and advance the "Next item to start" pointer. Do not delete shipped rows — they are the audit trail.
+
+---
+
+## Chat bundles
+
+Execution overlay (added Chat 5.19) to reduce the number of chats to open. This GROUPS the existing numbered rows into chats — it does NOT renumber, move, or merge rows. Item numbers, phase membership, Status, and the ordering rationale below are all unchanged and remain the source of truth. Bundle = "open one chat, clear these items together."
+
+Bundling policy: bundle only small, independent, same-surface items; keep each large feature one chat (avoids the Section-16 context-loss risk). Conservative plan (chosen Chat 5.19).
+
+**Next chat to open: Chat A** (its lowest-numbered OPEN item is #25, which is also the global pointer).
+
+| Chat | master_todo items | Theme | Surface | Notes |
+|---|---|---|---|---|
+| **A — Ops & alerting quick-wins** | #25, #26, #34, #35, #47, #48, #49 | Reconciliation/feedback alerting + ops gaps + cron false-positives + doc | Backend + doc only | All small, independent, mostly observability/alerting. #48 doc-only; #49/#47 cron-registry. NEXT. |
+| **B — Pre-GO-LIVE hygiene sweep** | #30, #31, #32, #33, #36, #37, #38 | Cross-cutting cleanup (whole Phase 9) | Backend + ops | #30/#31 are the same datetime sweep. Split #33 (pytest harness) into a follow-up if the chat runs long. |
+| **C — UI cleanup** | #40, #41 | Realized-P&L hide + stop_loss wiring | Frontend-led (#41 adds backend) | Both share the holding drill-down / holding-stats surface. |
+| **D — Deferred TDs** | #43, #44, #45 | Post-launch internal cleanup (TD1/TD3/TD7) | Backend + frontend | Run after GO LIVE is stable. |
+| **Chat 6** (standalone) | #27 | F1+F3 ad-hoc chat feature | Backend + frontend | Large feature — new collection + endpoints + chat surface. Keep alone. |
+| **Chat 7** (standalone) | #28 | F12 risk-summary + F15 tag views | Backend + frontend | Large feature. Keep alone. |
+| **Chat 8** (standalone) | #29 | F13 watchlist | Backend + frontend | Large feature; multiplies data volume — must follow Phase 4 + Phase 6. Keep alone. |
+| **Chat 9** (standalone) | #39 | F11 capital-gains pack | Backend + frontend | Large feature — new tax router/service + page. Keep alone. |
+| **Chat 10 — GO LIVE** (standalone) | #42 | F7 real ICICI data import | Backend | Last, alone, so test pollution wipes in one operation. |
+| **Scheduler chat** (standalone) | #46 | TD21 registry-generated crontab migration | Backend + ops | Section 9 explicitly mandates its own dedicated chat. |
+
+Net: remaining OPEN work goes from ~14 chats → 10 (Chats A–D + 6 standalone). Sequencing still follows the Ordering rationale + per-row gating; bundles never override a gating dependency. Recommended order: A → (Chat 6/7) → B → Chat 8 → Chat 9 → C → Chat 10 → Scheduler → D, adjusting for whatever you want next. When you finish a bundle, mark each of its rows SHIPPED individually (the bundle is a chat-grouping, not a single work item) and advance the "Next item to start" pointer to the lowest-numbered OPEN row as usual.
 
 ---
 
