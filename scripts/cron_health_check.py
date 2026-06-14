@@ -18,10 +18,17 @@ BOTH fail.
 The check itself writes a heartbeat (recursive — intentional). If everything
 is healthy, no alert is sent. Silent success.
 
+If the health check's OWN Mongo reads fail (e.g. Atlas unreachable) it cannot
+evaluate any cron, so it fires a dedicated "health-check itself failed" alert
+on BOTH transports (ntfy errors channel + email — both are Mongo-independent)
+and then re-raises, marking this run a failure (its heartbeat falls to the disk
+fallback in cron_heartbeat_service._persist) so tomorrow's check re-evaluates
+(#24 / P3-9, Phase 6 external-service hardening).
+
 Usage (cron):
     0 21 * * *  cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. \\
-                /home/ubuntu/.local/bin/uv run python scripts/cron_health_check.py \\
-                >> /home/ubuntu/cron-health.log 2>&1
+        /home/ubuntu/.local/bin/uv run python scripts/cron_health_check.py \\
+        >> /home/ubuntu/cron-health.log 2>&1
 """
 
 from __future__ import annotations
@@ -52,53 +59,125 @@ def main() -> int:
         anomalies: list[str] = []
         per_cron_status: list[dict] = []
         fallback_total = 0
+        # The per-cron loop is the only place this script reads Mongo
+        # (count_today_heartbeats). If those reads fail (e.g. Atlas
+        # unreachable) we cannot evaluate any cron, so the normal
+        # anomaly-alert path below is never reached. Wrap the loop so a
+        # read failure still produces an alert instead of a silent crash
+        # with no notification (#24 / P3-9). ist_today_window_utc() and
+        # count_today_heartbeats_from_fallback() do not touch Mongo, so they
+        # stay outside / inside the loop unchanged.
+        try:
+            for spec in get_registry():
+                # Skip ourselves — we're literally running right now, so a count
+                # of 0 success would be a false alarm. Future runs see this one
+                # via get_latest_per_cron.
+                if spec.cron_name == "cron_health_check":
+                    continue
 
-        for spec in get_registry():
-            # Skip ourselves — we're literally running right now, so a count
-            # of 0 success would be a false alarm. Future runs see this one
-            # via get_latest_per_cron.
-            if spec.cron_name == "cron_health_check":
-                continue
-
-            expected = is_expected_today(spec)
-            counts = count_today_heartbeats(
-                spec.cron_name,
-                ist_today_utc_start=today_start,
-                ist_tomorrow_utc_start=tomorrow_start,
-            )
-            # Merge in any heartbeats that fell back to disk because their Mongo
-            # insert failed (best-effort sink in cron_heartbeat_service._persist).
-            # A run lands in at most one source, so this never double-counts.
-            fallback_counts = count_today_heartbeats_from_fallback(
-                spec.cron_name,
-                ist_today_utc_start=today_start,
-                ist_tomorrow_utc_start=tomorrow_start,
-            )
-            for _k in counts:
-                counts[_k] += fallback_counts[_k]
-            fallback_total += fallback_counts["total"]
-            per_cron_status.append(
-                {
-                    "cron_name": spec.cron_name,
-                    "expected": expected,
-                    "counts": counts,
-                }
-            )
-
-            if not expected:
-                continue
-
-            ran_ok = counts["success"] + counts["skipped"]
-            if ran_ok < spec.min_runs_per_day:
-                anomalies.append(
-                    f"MISSING: {spec.cron_name} "
-                    f"(expected {spec.min_runs_per_day}+ runs today, "
-                    f"got {counts['success']} success + {counts['skipped']} skipped)"
+                expected = is_expected_today(spec)
+                counts = count_today_heartbeats(
+                    spec.cron_name,
+                    ist_today_utc_start=today_start,
+                    ist_tomorrow_utc_start=tomorrow_start,
                 )
-            if counts["failure"] > 0:
-                anomalies.append(
-                    f"FAILED: {spec.cron_name} ({counts['failure']} failure(s) today)"
+                # Merge in any heartbeats that fell back to disk because their Mongo
+                # insert failed (best-effort sink in cron_heartbeat_service._persist).
+                # A run lands in at most one source, so this never double-counts.
+                fallback_counts = count_today_heartbeats_from_fallback(
+                    spec.cron_name,
+                    ist_today_utc_start=today_start,
+                    ist_tomorrow_utc_start=tomorrow_start,
                 )
+                for _k in counts:
+                    counts[_k] += fallback_counts[_k]
+                fallback_total += fallback_counts["total"]
+
+                per_cron_status.append(
+                    {
+                        "cron_name": spec.cron_name,
+                        "expected": expected,
+                        "counts": counts,
+                    }
+                )
+
+                if not expected:
+                    continue
+
+                ran_ok = counts["success"] + counts["skipped"]
+                if ran_ok < spec.min_runs_per_day:
+                    anomalies.append(
+                        f"MISSING: {spec.cron_name} "
+                        f"(expected {spec.min_runs_per_day}+ runs today, "
+                        f"got {counts['success']} success + {counts['skipped']} skipped)"
+                    )
+                if counts["failure"] > 0:
+                    anomalies.append(
+                        f"FAILED: {spec.cron_name} ({counts['failure']} failure(s) today)"
+                    )
+        except Exception as exc:
+            # The health check's own Mongo reads failed — it could not evaluate
+            # any cron this run, so the normal anomaly-alert path below is
+            # unreachable. Fire a dedicated self-failure alert on BOTH transports
+            # (both Mongo-independent), mirroring the dual-transport redundancy of
+            # the normal path, then re-raise so cron_run records this run as a
+            # failure (its heartbeat falls to the disk fallback since Mongo is
+            # down) and tomorrow's check re-evaluates. The alerts are best-effort
+            # notification and must not mask the original Mongo error.
+            detail = f"{type(exc).__name__}: {exc}"
+            log.exception("cron_health_check could not read heartbeats from Mongo")
+
+            ntfy_message = (
+                "anomaly: health-check itself failed — could not read cron "
+                f"heartbeats from MongoDB ({detail}). No per-cron health could be "
+                "evaluated this run; investigate Atlas / network immediately."
+            )
+            # push_public raises on failure — guard it so a failed push cannot
+            # block the email leg or mask the re-raised Mongo error.
+            try:
+                push_public(
+                    channel="errors",
+                    title="⚠ Cron health-check FAILED (Mongo unreachable)",
+                    message=ntfy_message,
+                    priority="urgent",
+                    tags=["rotating_light", "cron"],
+                )
+                print("✓ Self-failure alert published to ntfy (errors channel)")
+            except Exception:
+                log.exception("Failed to publish self-failure alert to ntfy")
+
+            self_fail_text = (
+                "⚠ Cron health-check FAILED\n\n"
+                "The daily cron health check could not read heartbeats from "
+                "MongoDB, so no per-cron health could be evaluated this run.\n\n"
+                f"Error: {detail}\n\n"
+                "Generated by scripts/cron_health_check.py on EC2. "
+                "Investigate Atlas / network immediately."
+            )
+            self_fail_html = (
+                "<h2>⚠ Cron health-check FAILED</h2>"
+                "<p>The daily cron health check could not read heartbeats from "
+                "MongoDB, so no per-cron health could be evaluated this run.</p>"
+                f"<p><b>Error:</b> {detail}</p>"
+                "<p style='color:#666;font-size:12px;'>"
+                "Generated by scripts/cron_health_check.py on EC2. "
+                "Investigate Atlas / network immediately."
+                "</p>"
+            )
+            # notify.email() never raises — returns {ok, id, error}.
+            email_result = email(
+                subject="Portfolio Advisor — cron health-check FAILED (Mongo unreachable)",
+                html=self_fail_html,
+                text=self_fail_text,
+            )
+            if email_result.get("ok"):
+                print(f"✓ Self-failure alert email sent: id={email_result.get('id')}")
+            else:
+                log.error(
+                    "Self-failure alert email failed: %s", email_result.get("error")
+                )
+
+            raise
 
         hb.metadata["per_cron_status"] = per_cron_status
         hb.metadata["anomaly_count"] = len(anomalies)
@@ -106,7 +185,7 @@ def main() -> int:
         hb.metadata["fallback_heartbeats_merged"] = fallback_total
 
         print("=" * 70)
-        print(" Cron health check")
+        print("  Cron health check")
         print("=" * 70)
         for entry in per_cron_status:
             print(
@@ -137,6 +216,7 @@ def main() -> int:
             f"Per-cron status today (IST):\n{status_text}\n\n"
             f"Generated by scripts/cron_health_check.py on EC2."
         )
+
         anomaly_html = "".join(f"<li>{a}</li>" for a in anomalies)
         status_html = "".join(
             f"<tr>"
@@ -159,7 +239,7 @@ def main() -> int:
             f"{status_html}"
             f"</table>"
             f"<p style='color:#666;font-size:12px;'>"
-            f"Generated by scripts/cron_health_check.py on EC2. "
+            f"Generated by scripts/cron_health_check.py on EC2.\n"
             f"See docs/data_flow.md for the F4 cron-health architecture."
             f"</p>"
         )
