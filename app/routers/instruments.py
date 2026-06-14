@@ -24,6 +24,28 @@ router = APIRouter(prefix="/instruments", tags=["instruments"])
 # ── Instruments (read-only) ──────────────────────────────────────────────────
 
 
+# NOTE: the static "/search/..." route MUST be declared before the dynamic
+# "/{exchange}/{symbol}" route. FastAPI matches in registration order, so if the
+# dynamic route comes first it captures "/instruments/search/INFY" as
+# exchange="search", symbol="INFY" and the search endpoint becomes unreachable.
+@router.get("/search/{symbol_prefix}", summary="Search instruments by symbol prefix")
+def search_instruments(symbol_prefix: str, limit: int = 20) -> list[dict]:
+    """Find instruments whose symbol starts with the given prefix.
+
+    Useful for confirming an ICICI symbol exists in the NSE master before
+    creating an override.
+    """
+    cursor = (
+        Collections.instruments()
+        .find(
+            {"symbol": {"$regex": f"^{symbol_prefix.upper()}", "$options": ""}},
+            {"_id": 0, "exchange": 1, "symbol": 1, "isin": 1, "name": 1},
+        )
+        .limit(limit)
+    )
+    return list(cursor)
+
+
 @router.get(
     "/{exchange}/{symbol}", summary="Look up an instrument by exchange and symbol"
 )
@@ -41,24 +63,6 @@ def get_instrument(exchange: str, symbol: str) -> dict:
         for k, v in meta.items()
         if k != "_id"
     }
-
-
-@router.get("/search/{symbol_prefix}", summary="Search instruments by symbol prefix")
-def search_instruments(symbol_prefix: str, limit: int = 20) -> list[dict]:
-    """Find instruments whose symbol starts with the given prefix.
-
-    Useful for confirming an ICICI symbol exists in the NSE master before
-    creating an override.
-    """
-    cursor = (
-        Collections.instruments()
-        .find(
-            {"symbol": {"$regex": f"^{symbol_prefix.upper()}", "$options": ""}},
-            {"_id": 0, "exchange": 1, "symbol": 1, "isin": 1, "name": 1},
-        )
-        .limit(limit)
-    )
-    return list(cursor)
 
 
 # ── Overrides ────────────────────────────────────────────────────────────────
