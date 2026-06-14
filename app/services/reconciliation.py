@@ -1,11 +1,11 @@
 """Reconciliation service.
 
 Two flows:
-  1. Manual snapshot: user enters ICICI numbers via UI/API → service computes
-     deltas vs our system, compares to expected deltas, alerts if drift.
-  2. Automatic snapshot: daily cron captures our-side numbers only. Compares
-     against the last manual snapshot to detect "we changed but ICICI didn't"
-     (or vice-versa) drift over time.
+1. Manual snapshot: user enters ICICI numbers via UI/API → service computes
+   deltas vs our system, compares to expected deltas, alerts if drift.
+2. Automatic snapshot: daily cron captures our-side numbers only. Compares
+   against the last manual snapshot to detect "we changed but ICICI didn't"
+   (or vice-versa) drift over time.
 
 Expected deltas are stored in user_profile.reconciliation_baseline; when the
 user enters a manual snapshot that has zero drift, the deltas become the new
@@ -83,7 +83,25 @@ def _get_expected_deltas() -> dict:
 def take_auto_snapshot() -> dict:
     """Daily cron-driven snapshot: our-side only, no ICICI input.
 
-    Compares against the last manual snapshot to detect drift.
+    Compares against the last manual snapshot to detect drift. When our
+    invested base has moved away from the last manual reconciliation point by
+    more than DRIFT_ALERT_THRESHOLD_INVESTED, fire an ntfy push
+    (master_todo #25).
+
+    ntfy ONLY — email is intentionally skipped on this path. The manual
+    snapshot path (_send_drift_alerts) keeps the dual ntfy+email transport
+    because it is user-triggered and point-in-time; this auto snapshot runs
+    every day, so an email on every drift day would be noise.
+
+    Rising-edge: the push fires only when this snapshot has drift AND the most
+    recent prior auto snapshot did not, so a standing divergence does not
+    re-push on every daily run. Taking a fresh manual snapshot resets the
+    comparison baseline, which re-arms the alert.
+
+    Current-value drift is deliberately NOT alerted on the auto path: over a
+    multi-day gap it is dominated by live-price movement (the same reason the
+    manual path only treats a huge current-value delta as a wrong-quantity
+    signal), so it would fire constantly.
     """
     our = _get_our_numbers()
     snapshot = {
@@ -102,21 +120,48 @@ def take_auto_snapshot() -> dict:
         delta_invested_change = _to_dec(our["our_invested"]) - _to_dec(
             last_manual.get("our_invested")
         )
+        drift_invested = abs(delta_invested_change)
+
         # Mongo strips tzinfo; restore it for safe subtraction.
         last_taken_at = last_manual["taken_at"]
         if last_taken_at.tzinfo is None:
             last_taken_at = last_taken_at.replace(tzinfo=timezone.utc)
         days_since = (datetime.now(timezone.utc) - last_taken_at).days
-        if abs(delta_invested_change) > Decimal("100") and days_since >= 14:
+
+        if drift_invested > Decimal("100") and days_since >= 14:
             snapshot["notes"] = (
                 f"Auto snapshot: our_invested changed by ₹{delta_invested_change} "
                 f"since last manual reconciliation {days_since} days ago. "
                 f"Consider entering current ICICI numbers."
             )
 
-        Collections.reconciliation_snapshots().insert_one(
-            _convert_decimals_to_decimal128(snapshot)
+        # master_todo #25: ntfy-only drift alert on the daily auto path.
+        # Record the same drift/status fields the manual snapshot uses so the
+        # reconciliation_snapshots collection stays consistent across flavors.
+        has_drift = drift_invested > DRIFT_ALERT_THRESHOLD_INVESTED
+        snapshot["drift_invested"] = drift_invested
+        snapshot["has_drift"] = has_drift
+        snapshot["alerts_sent"] = []
+
+        # Rising-edge dedupe: only alert when drift NEWLY appears. The prior
+        # auto snapshot's has_drift tells us whether we already alerted for
+        # this episode; legacy auto docs lack the field (-> falsy -> first
+        # post-deploy drift still alerts once).
+        last_auto = Collections.reconciliation_snapshots().find_one(
+            {"type": "auto"}, sort=[("taken_at", -1)]
         )
+        already_alerting = bool(last_auto and last_auto.get("has_drift"))
+
+        if has_drift and not already_alerting:
+            snapshot["alerts_sent"] = _send_auto_drift_alert(
+                drift_invested=drift_invested,
+                delta_invested_change=delta_invested_change,
+                days_since=days_since,
+            )
+
+    Collections.reconciliation_snapshots().insert_one(
+        _convert_decimals_to_decimal128(snapshot)
+    )
     return snapshot
 
 
@@ -229,9 +274,10 @@ def take_manual_snapshot(
 
 
 def _send_drift_alerts(snapshot: dict) -> list[str]:
-    """Fire ntfy + email when drift is detected. Returns which channels succeeded."""
-    sent = []
+    """Fire ntfy + email when drift is detected.
 
+    Returns which channels succeeded."""
+    sent = []
     drift_lines = []
     if snapshot.get("drift_invested", 0) > DRIFT_ALERT_THRESHOLD_INVESTED:
         drift_lines.append(
@@ -290,6 +336,48 @@ def _send_drift_alerts(snapshot: dict) -> list[str]:
         log.info("reconciliation drift email sent: id=%s", result.get("id"))
     else:
         log.error("email alert failed: %s", result.get("error"))
+
+    return sent
+
+
+def _send_auto_drift_alert(
+    drift_invested: Decimal,
+    delta_invested_change: Decimal,
+    days_since: int,
+) -> list[str]:
+    """Fire an ntfy-only drift alert for the daily auto snapshot (master_todo #25).
+
+    Mirrors the ntfy half of _send_drift_alerts but deliberately omits the
+    email leg: the auto snapshot runs daily and email would be noise. Uses the
+    same push_public("price") transport (reconciliation drift = portfolio
+    impact = price channel). push_public raises on transport failure, so the
+    call is guarded and the failure is logged, never propagated into the cron.
+
+    Returns which channels succeeded (["ntfy"] or []), stored on the snapshot's
+    alerts_sent field for parity with the manual path.
+    """
+    sent: list[str] = []
+    body_text = (
+        "Portfolio Advisor: reconciliation drift detected (auto snapshot)\n\n"
+        f"Our invested base has moved ₹{delta_invested_change:+,.2f} "
+        f"(|drift| ₹{drift_invested:,.2f}) since the last manual reconciliation "
+        f"{days_since} days ago.\n\n"
+        "This usually means a corporate action was applied on one side but not "
+        "the other.\nRe-enter current ICICI numbers on the dashboard's "
+        "Reconciliation page."
+    )
+
+    try:
+        push_public(
+            channel="price",  # reconciliation drift = portfolio impact = price channel
+            title="Portfolio reconciliation drift (auto)",
+            message=body_text,
+            priority="high",
+            tags=["warning", "money_with_wings"],
+        )
+        sent.append("ntfy")
+    except Exception as exc:
+        log.error("auto-snapshot drift ntfy alert failed: %s", exc)
 
     return sent
 
