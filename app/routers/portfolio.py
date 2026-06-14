@@ -10,7 +10,7 @@ from bson import Decimal128, ObjectId
 from fastapi import APIRouter
 
 from app.db.client import Collections
-from app.services.portfolio_service import compute_summary
+from app.services.portfolio_service import compute_risk_summary, compute_summary
 from app.services.price_service import bulk_get_latest_prices
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
@@ -79,3 +79,22 @@ def portfolio_summary() -> dict:
 
     summary = compute_summary(holdings, latest_prices)
     return _serialize(summary)
+
+
+@router.get(
+    "/risk-summary",
+    summary="Concentration & risk alerts over current holdings (read-only)",
+)
+def portfolio_risk_summary() -> dict:
+    """F12 (#28). Concentration by holding and by sector, plus threshold-based
+    risk alerts, over the active holdings.
+
+    Read-only. Reuses the same annotation path as /portfolio/summary, so the
+    concentration figures match. All amounts in INR; Decimals as strings.
+    """
+    holdings = list(
+        Collections.holdings().find({"deleted_at": None}).sort("invested_amount", -1)
+    )
+    isins = [h["isin"] for h in holdings]
+    latest_prices = bulk_get_latest_prices(isins) if isins else {}
+    return _serialize(compute_risk_summary(holdings, latest_prices))

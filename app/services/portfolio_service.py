@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +21,14 @@ log = logging.getLogger(__name__)
 # How many top movers to return in each category
 TOP_MOVERS_LIMIT = 5
 CONCENTRATION_LIMIT = 5
+
+# F12 (#28): concentration risk-alert thresholds (% of portfolio current value).
+# Two-tier severity: cross the WARN bound -> "warn"; cross the HIGH bound -> "high".
+# Operational constants live in code (project convention), not env/settings.
+SINGLE_HOLDING_CONCENTRATION_WARN_PCT = 10.0
+SINGLE_HOLDING_CONCENTRATION_HIGH_PCT = 20.0
+SECTOR_CONCENTRATION_WARN_PCT = 30.0
+SECTOR_CONCENTRATION_HIGH_PCT = 50.0
 
 
 def _to_dec(v: Any) -> Decimal:
@@ -55,13 +63,8 @@ def _bulk_previous_closes(
     if not isin_to_latest_date:
         return {}
 
-    # Build $facet — one branch per ISIN. For ~32 holdings this is fine;
-    # for 100s of holdings we'd switch to a per-ISIN find.
-    # Simpler approach: do one aggregation across all relevant ISINs at once.
     pipeline = [
         {"$match": {"isin": {"$in": list(isin_to_latest_date.keys())}}},
-        # Keep only docs strictly before each ISIN's latest date.
-        # We can't do per-ISIN "$lt" easily; instead, take all docs and filter in the next stage.
         {"$sort": {"isin": 1, "date": -1}},
         {
             "$group": {
@@ -75,36 +78,38 @@ def _bulk_previous_closes(
     for group in Collections.prices_daily().aggregate(pipeline):
         isin = group["_id"]
         latest_date = isin_to_latest_date[isin]
-        # Find the first entry whose date < latest_date (already sorted desc)
         prev_close = None
         for entry in group["all_dates"]:
             if entry["date"] < latest_date:
                 prev_close = _to_dec(entry["close"])
                 break
         result[isin] = prev_close
-
     return result
 
 
-def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dict:
-    """Compute the full portfolio summary.
+def _annotate_holdings(
+    holdings: list[dict], latest_prices: dict[str, dict]
+) -> tuple[list[dict], dict]:
+    """Annotate each holding with live value/P&L and accumulate portfolio totals.
 
-    Args:
-        holdings: list of active holding docs (from holdings collection)
-        latest_prices: {isin: latest_price_doc} from prices_daily
+    Extracted from compute_summary so the summary and risk-summary endpoints
+    share ONE annotation path (no parallel aggregation). Behaviour-preserving:
+    the per-holding dicts and running totals are exactly what compute_summary
+    built inline before.
 
     Returns:
-        Dict matching the GET /portfolio/summary response shape.
+        (annotated, accum) where `annotated` is the per-holding list and
+        `accum` carries running Decimal totals used by callers:
+        {total_invested, total_current, total_day_gain, total_prev_value}.
     """
-    now = datetime.now(timezone.utc)
-
-    # ── Per-holding annotation ──────────────────────────────────────────────
     isin_to_latest_date = {
         h["isin"]: latest_prices[h["isin"]]["date"]
         for h in holdings
         if h["isin"] in latest_prices
     }
     prev_closes = _bulk_previous_closes(isin_to_latest_date)
+
+    now = datetime.now(timezone.utc)
 
     annotated: list[dict] = []
     total_invested = Decimal("0")
@@ -125,7 +130,7 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
                 {
                     "isin": isin,
                     "symbol": h["symbol"],
-                    "sector": h.get("sector", "Unknown"),
+                    "sector": h.get("sector") or "Unknown",
                     "quantity": qty,
                     "avg_cost": avg_cost,
                     "invested": invested,
@@ -161,8 +166,6 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
             day_gain_pct = None
 
         # Mark stale if price is more than 6 calendar days old
-        from datetime import timedelta
-
         price_date = latest["date"]
         if price_date.tzinfo is None:
             price_date = price_date.replace(tzinfo=timezone.utc)
@@ -192,6 +195,35 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         )
         total_invested += invested
         total_current += cur_value
+
+    accum = {
+        "total_invested": total_invested,
+        "total_current": total_current,
+        "total_day_gain": total_day_gain,
+        "total_prev_value": total_prev_value,
+    }
+    return annotated, accum
+
+
+def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dict:
+    """Compute the full portfolio summary.
+
+    Args:
+        holdings: list of active holding docs (from holdings collection)
+        latest_prices: {isin: latest_price_doc} from prices_daily
+
+    Returns:
+        Dict matching the GET /portfolio/summary response shape.
+    """
+    now = datetime.now(timezone.utc)
+
+    # ── Per-holding annotation ──────────────────────────────────────────────
+    # Shared with compute_risk_summary via _annotate_holdings (one path).
+    annotated, _accum = _annotate_holdings(holdings, latest_prices)
+    total_invested = _accum["total_invested"]
+    total_current = _accum["total_current"]
+    total_day_gain = _accum["total_day_gain"]
+    total_prev_value = _accum["total_prev_value"]
 
     # ── Top-level totals ────────────────────────────────────────────────────
     total_unrealized = total_current - total_invested
@@ -270,7 +302,6 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
 
     # ── Movers ──────────────────────────────────────────────────────────────
     with_pnl = [h for h in annotated if h["unrealized_pnl"] is not None]
-
     top_gainers_pct = sorted(
         with_pnl, key=lambda h: h["unrealized_pnl_pct"] or 0, reverse=True
     )[:TOP_MOVERS_LIMIT]
@@ -336,7 +367,6 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
     sector_invested: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     sector_current: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     sector_count: dict[str, int] = defaultdict(int)
-
     for h in annotated:
         sector = h["sector"] or "Unknown"
         sector_invested[sector] += h["invested"]
@@ -379,4 +409,141 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         "day_losers": [_day_mover_brief(h) for h in day_losers],
         "concentration": concentration_brief,
         "sector_breakdown": sector_breakdown,
+    }
+
+
+def compute_risk_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dict:
+    """Compute concentration & risk alerts over the active holdings (read-only).
+
+    F12 (#28). Reuses _annotate_holdings (the SAME path compute_summary uses)
+    so the concentration figures here are identical to /portfolio/summary's —
+    no parallel aggregation. Produces:
+      - concentration_by_holding: every priced holding, desc by % of portfolio
+      - concentration_by_sector:  per-sector % of portfolio
+      - alerts: two-tier (warn/high) single-holding + sector concentration
+                breaches, plus a low-severity stale/missing-price data note.
+
+    Thresholds are the module constants above (not env-configurable).
+    Empty/unpriced portfolios return zeros and empty arrays.
+    """
+    now = datetime.now(timezone.utc)
+    annotated, accum = _annotate_holdings(holdings, latest_prices)
+    total_current = accum["total_current"]
+
+    # ── Concentration by holding (priced holdings only) ─────────────────────
+    priced = [h for h in annotated if h["current_value"] is not None]
+    concentration_by_holding = []
+    for h in sorted(priced, key=lambda x: float(x["current_value"]), reverse=True):
+        pct = (
+            float((h["current_value"] / total_current) * 100)
+            if total_current > 0
+            else 0.0
+        )
+        concentration_by_holding.append(
+            {
+                "isin": h["isin"],
+                "symbol": h["symbol"],
+                "sector": h["sector"] or "Unknown",
+                "current_value": h["current_value"],
+                "pct_of_portfolio": round(pct, 2),
+            }
+        )
+
+    # ── Concentration by sector ─────────────────────────────────────────────
+    sector_current: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    sector_count: dict[str, int] = defaultdict(int)
+    for h in annotated:
+        sector = h["sector"] or "Unknown"
+        if h["current_value"]:
+            sector_current[sector] += h["current_value"]
+        sector_count[sector] += 1
+
+    concentration_by_sector = []
+    for sector in sorted(
+        sector_current.keys(), key=lambda s: -float(sector_current[s])
+    ):
+        cur = sector_current[sector]
+        pct = float((cur / total_current) * 100) if total_current > 0 else 0.0
+        concentration_by_sector.append(
+            {
+                "sector": sector,
+                "stock_count": sector_count[sector],
+                "current_value": cur.quantize(Decimal("0.01")),
+                "pct_of_portfolio": round(pct, 2),
+            }
+        )
+
+    # ── Alerts ──────────────────────────────────────────────────────────────
+    alerts: list[dict] = []
+
+    for h in concentration_by_holding:
+        pct = h["pct_of_portfolio"]
+        if pct > SINGLE_HOLDING_CONCENTRATION_HIGH_PCT:
+            severity, threshold = "high", SINGLE_HOLDING_CONCENTRATION_HIGH_PCT
+        elif pct > SINGLE_HOLDING_CONCENTRATION_WARN_PCT:
+            severity, threshold = "warn", SINGLE_HOLDING_CONCENTRATION_WARN_PCT
+        else:
+            continue
+        alerts.append(
+            {
+                "type": "single_holding_concentration",
+                "severity": severity,
+                "isin": h["isin"],
+                "symbol": h["symbol"],
+                "pct_of_portfolio": pct,
+                "threshold": threshold,
+                "message": (
+                    f"{h['symbol']} is {pct:.2f}% of the portfolio "
+                    f"(over the {threshold:.0f}% {severity} threshold)."
+                ),
+            }
+        )
+
+    for s in concentration_by_sector:
+        pct = s["pct_of_portfolio"]
+        if pct > SECTOR_CONCENTRATION_HIGH_PCT:
+            severity, threshold = "high", SECTOR_CONCENTRATION_HIGH_PCT
+        elif pct > SECTOR_CONCENTRATION_WARN_PCT:
+            severity, threshold = "warn", SECTOR_CONCENTRATION_WARN_PCT
+        else:
+            continue
+        alerts.append(
+            {
+                "type": "sector_concentration",
+                "severity": severity,
+                "sector": s["sector"],
+                "pct_of_portfolio": pct,
+                "threshold": threshold,
+                "message": (
+                    f"The {s['sector']} sector is {pct:.2f}% of the portfolio "
+                    f"(over the {threshold:.0f}% {severity} threshold)."
+                ),
+            }
+        )
+
+    # Stale / missing price data: annotated holdings flagged price_stale=True
+    # (covers both >6-day-old prices and holdings with no price at all — the
+    # latter are excluded from total_current, so their weight is understated).
+    stale = [h for h in annotated if h.get("price_stale")]
+    if stale:
+        alerts.append(
+            {
+                "type": "stale_price",
+                "severity": "info",
+                "count": len(stale),
+                "isins": [h["isin"] for h in stale],
+                "symbols": [h["symbol"] for h in stale],
+                "message": (
+                    f"{len(stale)} holding(s) have stale (>6 days old) or missing "
+                    "price data; concentration figures may be understated."
+                ),
+            }
+        )
+
+    return {
+        "as_of": now,
+        "total_current_value": total_current.quantize(Decimal("0.01")),
+        "concentration_by_holding": concentration_by_holding,
+        "concentration_by_sector": concentration_by_sector,
+        "alerts": alerts,
     }
