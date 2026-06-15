@@ -1,4 +1,3 @@
-
 # PROJECT_STATE.md
 
 Living source of truth for the Personal AI Stock Advisor. Updated at the end of every chat. Bootstrap document for any new conversation — read top to bottom before doing anything. Do not skim, assume, or redesign.
@@ -162,7 +161,8 @@ ding="utf-8", case_sensitive=True, extra="ignore")` — reads the file directly 
 
 **Repos:** backend `https://github.com/doshisahil95/ai-stock-advisor-backend` · frontend `https://github.com/doshisahil95/ai-stock-advisor-frontend`.
 
-**Last verified SHAs (Chat 8 closed, 2026-06-15):**
+**Last verified SHAs (Chat B closed, 2026-06-15):**
+* Backend (Chat B close — backend + doc-only chat): code HEAD **`025b8a0688a67d181f09ed800b6692f574fdb9bc`** — Chat B shipped Phase 9 #30 (11 `datetime.utcnow()`->`utcnow()` sites / 5 files), #31 (tree-wide tz-aware `datetime.now(timezone.utc)` Mongo-write sweep -> `utcnow()` + 19 `# tz-ok:` annotations + NEW `scripts/check_datetime_hygiene.py` tokenize-based lint guard), and #32 (`requires-python = ">=3.12,<3.14"` pin + `uv lock` relock). Frontend unchanged `58bf6369`. The Chat B `Project_State.md` + `master_todo.md` doc commit advances HEAD further. Chat B opened at backend `0b6e1147` (the Chat 8 doc-commit HEAD).
 * Backend: **`67704025650bed4cbce9549ea45a064bae892c12`** (Chat 8 code HEAD — #29 CORS fix; the Chat 8 `Project_State.md` + `master_todo.md` doc commit advances it further — pin next chat). Chat 8 shipped #29 (F13 watchlist) across four commits: Unit 1 write-model + universe (`34ff906d7cf6b2c8d1e1ccc210810023f069f7aa` — `MonitoredStockWatchlistPatch` + `build_universe` = NIFTY 100 ∪ watchlist + `get_watchlist_isins`), Unit 2 `/watchlist` CRUD (`a250d00189c67ddc073715affc9175b9fc68383d` — new `routers/watchlist.py` + widened audit-action Literal + `main.py` include), Unit 3 cron coverage (`9857570b8e1799c274d2ce422b44bef419f17d11` — `refresh_fundamentals.py` + `fetch_news_for_universe.py` fold in watchlist ISINs), CORS fix (`67704025` — `main.py` allow_methods += PUT). Opened at `803e6610` (Chat 7 code HEAD; the Chat 7 doc commit `c162d9c2` was the actual open base for the file re-reads).
 * Frontend: **`58bf6369e73916c26e534fc517ac92f2f3dfedb5`** (Chat 8 — Unit 4: `lib/api.ts` watchlist types + bindings, new `app/watchlist/page.tsx`, `app/page.tsx` Watchlist nav link; no new npm dependency). Opened at `e14d6a750f802dae941d512837ff1788a7a3a0f0`.
 * Prior code-HEAD closes: Chat 7 backend `803e6610` (#28 F12 risk-summary `97041621` + F15 by-tag `803e6610`), frontend `e14d6a75` · Chat 6 backend `5e787c9` (#27 F1+F3 ad-hoc chat across five commits — Unit 1 data layer off open base `4403bb5`, Unit 2 enrichment `c407985`, Unit 3 chat service + endpoints `15ea9c0`→`dd82636`, route-shadow fix `5e787c9`), frontend `6093f63` (Unit 4 chat UI) · Chat A `fae6edf` (ops & alerting bundle, backend+doc only; frontend `f59958`) · 5.19 `7fcda9e` (TD39 cron_health_check self-failure dual-transport alert) · 5.18 `0515fef` (TD38 fallback heartbeat log + dual-source health check) · 5.17 `1d627d7` (TD37 reject NaN in _to_decimal) · 5.16 `f4168b3` (TD35 explicit inserted_id flow) · 5.15 `7d77b9c` (TD34 notify retry) · 5.14 `4ac2c95` (TD33 atomic Tavily) · 5.13 backend `090d96c` (TD29/31/32), frontend `f59958` (TD28) · 5.12 `49bf33f` (TD26 then TD27) · 5.11 `a2806cd` (TD23/24/25) · 5.10 `b34721e`.
@@ -202,8 +202,8 @@ app/
     user_profile.py           UserProfile (singleton, _id="sahil")
   routers/
     holdings.py               /portfolio/holdings*, /sell, /preview-sell, /history, /transactions. (done: #5 validate_replay on /sell; #6 dup list_transactions deleted; #7 try/except around recompute_holding -> recorded_with_warning; #15/TD29 dead `from pydoc import doc` removed). NOTE: `list_holdings` is the canonical annotate path that F15/#28 `/portfolio/by-tag` reuses verbatim
-    portfolio.py              /portfolio/summary + /portfolio/risk-summary (F12/#28) + /portfolio/by-tag (F15/#28). _serialize recursive Decimal/Decimal128->str, ObjectId->str, datetime->ISO. master_todo #30: utcnow() sweep (line ~43)
-    transactions.py           /transactions/search, CRUD, audit. (fix F21 reason required). (done: #4 write-before-apply audit-then-apply; #18/TD32 dropped $options:i on search regex). master_todo #31: tz-aware datetime sweep
+    portfolio.py              /portfolio/summary + /portfolio/risk-summary (F12/#28) + /portfolio/by-tag (F15/#28). _serialize recursive Decimal/Decimal128->str, ObjectId->str, datetime->ISO. (done #30 Chat B: utcnow() sweep)
+    transactions.py           /transactions/search, CRUD, audit. (fix F21 reason required). (done: #4 write-before-apply audit-then-apply; #18/TD32 dropped $options:i on search regex). (done #31 Chat B: tz-aware Mongo-write sweep -> utcnow())
     reconciliation.py         /reconciliation/snapshot, /snapshots, /auto-snapshot
     instruments.py            /instruments (symbol_overrides CRUD) + /instruments/search/{symbol_prefix} + /instruments/{exchange}/{symbol}. (done #27 route-shadow fix: STATIC /search/{symbol_prefix} declared BEFORE dynamic /{exchange}/{symbol}; NOTE comment guards the ordering). (#29 frontend watchlist add-control + the chat research panel both call /instruments/search)
     cost_basis.py             /cost-basis/adjustments
@@ -214,7 +214,7 @@ app/
   services/
     instrument_service.py     lookup_isin, lookup_metadata, bulk_lookup_isins, refresh_from_nse. (done #27: lookup_by_isin(isin) — reverse lookup ISIN -> instrument dict, NSE-preferred)
     yfinance_lookup.py        thin yfinance Ticker wrapper. fetch_metadata(symbol, exchange) lru-cached, swallows exceptions -> safe-default dict
-    price_service.py          EOD+intraday fetch, bulk_get_latest_prices (returns {isin: doc} with `close` Decimal128 + `date`), bulk_get_previous_closes, annotate_with_current_price, get_previous_close. IST + _to_ist() helpers (TD23). (done: #9/TD23 holiday guard; #10/TD24 docstring; #11/TD25 per-ISIN find_one; TD26 captured_at BSON Date). (#29 watchlist GET endpoints price-enrich via bulk_get_latest_prices; unchanged). master_todo #31: tz-aware sweep (line 155); #41 (Chat 9): stop_loss alert trigger
+    price_service.py          EOD+intraday fetch, bulk_get_latest_prices (returns {isin: doc} with `close` Decimal128 + `date`), bulk_get_previous_closes, annotate_with_current_price, get_previous_close. IST + _to_ist() helpers (TD23). (done: #9/TD23 holiday guard; #10/TD24 docstring; #11/TD25 per-ISIN find_one; TD26 captured_at BSON Date). (#29 watchlist GET endpoints price-enrich via bulk_get_latest_prices; unchanged). (done #31 Chat B: tz-aware Mongo-write sweep -> utcnow(), incl. bulk_get_latest_intraday now_utc; in-memory aware sites annotated # tz-ok). #41 (Chat 9): stop_loss alert trigger
     holdings_service.py       recompute_holding (per-ISIN advisory-lock wrapper) + _recompute_holding_impl + _per_isin_recompute_lock (CM), validate_replay, preview_sell, _to_decimal. (done: #8/TD20 serialized per-ISIN via recompute_locks + 60s TTL)
     portfolio_service.py      compute_summary + _annotate_holdings + compute_risk_summary (F12/#28). _to_dec helper imported by routers/portfolio.py for by-tag totals
     transactions_audit_service.py  log_change, get_audit_for_transaction. (5.10: log_change invoked BEFORE apply — TD16)
@@ -222,8 +222,8 @@ app/
     news_classifier.py        Haiku batch classifier classify_unclassified(limit=None, isin_filter=None, only_recent_days=35), retry pass. (fix F27). #50 OPEN
     news_fetcher.py           fetch_for_instrument(isin, symbol, name, days=30, use_case="suggestions_news"), fetch_for_universe. #50 OPEN: this + classifier attach the entities_isins that can be wrong
     news_signals.py           compute_news_signals_for_isin, _bulk
-    scoring_service.py        extract_signals, score_candidates, weights, gates. F14 earnings-proximity gate; F2 sell-side scoring.  master_todo #30: utcnow() sweep (lines 116, 813, 890)
-    dossier_service.py        generate_dossiers_for_top_k, Sonnet. _generate_one (the wiring #27 mirrors). _to_float + _format_news_summaries + _build_position_context_block (CandidateScore-coupled). master_todo #30: utcnow() sweep (lines 166, 192). (TD3/#44 deferred); #51: _fmt_pct ×100 dividend_yield
+    scoring_service.py        extract_signals, score_candidates, weights, gates. F14 earnings-proximity gate; F2 sell-side scoring. (done #30 Chat B: utcnow() sweep, 3 sites)
+    dossier_service.py        generate_dossiers_for_top_k, Sonnet. _generate_one (the wiring #27 mirrors). _to_float + _format_news_summaries + _build_position_context_block (CandidateScore-coupled). (done #30 Chat B: utcnow() sweep, 2 sites). (TD3/#44 deferred); #51: _fmt_pct ×100 dividend_yield
     conversation_service.py   NEW (#27). ENRICHMENT (ensure_stock_context) + CHAT (chat_about_holding / chat_about_suggestions). Single Sonnet {answer,intent} call mirroring dossier_service._generate_one. Writes ONLY Phase-2 reference collections + conversations.
     suggestion_engine.py      run_suggestions (full pipeline); build_universe; get_watchlist_isins (NEW #29); get_excluded_isins; filter_universe; get_latest_run(direction); get_active_holdings_full(); compute_portfolio_value(holdings, prices). F2 direction. (done: #21/TD35 _persist_run sets run.id). (done #29: build_universe() = NIFTY 100 ∪ watchlist — instruments.find({"in_nifty100":True}) merged with watchlist ISINs resolved from instruments by ISIN, deduped, warns on watchlist ISINs not found in instruments; held stays filtered DOWNSTREAM by filter_universe so a held+watchlist ISIN is not a buy candidate. get_watchlist_isins() = {isin for monitored_stocks status=="watchlist"}, the single source of truth reused by the two cron scripts. get_excluded_isins UNCHANGED — it scans only rejected/tracking, so a watchlist row is never excluded; flipping rejected→watchlist auto-un-suppresses. The buy-pipeline universe log line now says "N names (NIFTY 100 + watchlist)".)
     outcome_tracker.py        create_outcomes_for_run, snapshot_open_outcomes (returns count under `active_outcomes`; #47), compute_system_performance. F2 direction stamp + read-time sign-flip
@@ -251,14 +251,15 @@ scripts/
   cron_health_check.py          F4 daily 21:00 IST; dual-transport. (done: #23/TD38; #24/TD39)
   smoke_test.py                 (TD8 dropped push_private)
   purge_news_bodies.py          (done: #13/TD27 daily 02:30 IST; $unset body_text + stamp body_purged_at; --dry-run)
+  check_datetime_hygiene.py     NEW (#31 Chat B). Tokenize-based datetime-hygiene lint guard: bans stdlib utcnow() tree-wide; fails any tz-aware datetime.now(timezone.utc) lacking a trailing # tz-ok: <reason>. Comment-aware, self-skipping, fragment-built needles (won't trip the existing greps). Run: uv run python -m scripts.check_datetime_hygiene (0=clean, 1=violations)
 tests/
-  __init__.py                   placeholder.  master_todo #33: stand up pytest harness
+  __init__.py                   placeholder.  master_todo #33 (Chat B NEXT): stand up pytest harness
 docs/
   data_flow.md                  (5 deliverable; 5.5 TD12 universe corrected). (done: #48/TD36 Tavily "monthly" -> "daily"). master_todo #29 note: build_universe universe definition now includes watchlist — verify data_flow's universe description stays accurate in the next doc-touch chat
   Project_State.md              THIS FILE (Chat 8 doc commit)
   master_todo.md                canonical ordered task list (Chat 5.8 NEW)
-pyproject.toml                  master_todo #32: pin requires-python upper bound (declares resend>=2.4 + anthropic)
-uv.lock
+pyproject.toml                  (done #32 Chat B: requires-python = ">=3.12,<3.14" pinned) (declares resend>=2.4 + anthropic)
+uv.lock                         (done #32 Chat B: requires-python field tracks the <3.14 pin via uv lock)
 README.md                       (5 deliverable; 5.5 §8/§11/§5). (done: #48/TD36 Tavily monthly -> daily). master_todo #29 note: README per-page/endpoint reference should gain the /watchlist endpoints + page in the next doc-touch chat
 ```
 
@@ -562,6 +563,7 @@ From `docs/data_flow.md`. Hard rules.
 | 6 | 2026-06-14 | #27 F1+F3 ad-hoc chat (Phase 8). Unit 1 data layer (open base `4403bb5`) → Unit 2 enrichment `c407985` → Unit 3 chat service + endpoints (`15ea9c0`→`dd82636`) → `/instruments/search` route-shadow fix `5e787c9`. Frontend Unit 4 `6093f63`. Filed #50 + #51. | backend `5e787c9` / frontend `6093f63` |
 | 7 | 2026-06-15 | #28 F12 risk-summary + F15 by-tag (Phase 8). Backend Unit 1 `97041621` → Unit 2 `803e6610`. Frontend Unit 3 + Unit 4 `e14d6a75`. Read-only; no new collections/indexes/deps; no new TD/follow-ups. | backend `803e6610` / frontend `e14d6a75` |
 | 8 | 2026-06-15 | #29 F13 watchlist (Phase 8 — COMPLETE). Backend Unit 1 write-model + universe `34ff906d` → Unit 2 /watchlist CRUD `a250d001` → Unit 3 cron coverage `9857570b` → CORS fix `67704025`. Frontend Unit 4 `58bf6369`. Evolved build_universe + reused monitored_stocks; no new collection/index/dep; no new TD/follow-ups. ALSO added the Phase 10.5 USER ACCEPTANCE REVIEW stage (#52) at the user's request. | backend `67704025` / frontend `58bf6369` |
+| B | 2026-06-15 | Phase 9 pre-GO-LIVE hygiene sweep (IN PROGRESS). #30 P2-1 (11 `datetime.utcnow()`->`utcnow()` sites / 5 files, incl. 2 `conversation_service` stragglers the row's stale list missed) + #31 P2-8 (tree-wide tz-aware Mongo-write sweep -> `utcnow()`, 15 sites, + 19 `# tz-ok:` annotations + NEW `scripts/check_datetime_hygiene.py` tokenize-based guard) + #32 P3-2 (`requires-python = ">=3.12,<3.14"` + `uv lock` relock) all SHIPPED. Backend + doc only; frontend unchanged. #33, #36, #37, #38 remain OPEN in Chat B. | backend `025b8a0` / frontend `58bf6369` |
 
 The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouched through Chat 8.
 
@@ -577,17 +579,17 @@ The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouch
 | 6 | #19-24 | External-service hardening | COMPLETE (5.14–5.19) |
 | 7 | #25-26 | Reconciliation alerting + feedback direction | COMPLETE — Chat A |
 | 8 | #27-29 | Chat 6 (F1+F3), Chat 7 (F12+F15), Chat 8 (F13 watchlist) | COMPLETE — #27 Chat 6; #28 Chat 7; #29 Chat 8 |
-| 9 | #30-38 | Cross-cutting cleanup before GO LIVE | PARTIAL — #34 + #35 SHIPPED (Chat A); #30-33, #36-38 OPEN (Chat B NEXT) |
+| 9 | #30-38 | Cross-cutting cleanup before GO LIVE | PARTIAL — #34 + #35 SHIPPED (Chat A); #30 + #31 + #32 SHIPPED 2026-06-15 (Chat B); #33, #36-38 OPEN (Chat B continues) |
 | 10 | #39-41 | Chat 9 pre-launch cleanup | OPEN |
 | 10.5 | #52 | USER ACCEPTANCE REVIEW (user walks the whole tool) | OPEN — second-to-last; gates GO LIVE (NEW Chat 8) |
 | 11 | #42 | Chat 10 GO LIVE (F7 real data import) | OPEN — gated behind Phase 10.5 |
 | 12 | #43-45 | Deferred TDs (TD1, TD3, TD7) | DEFERRED |
 | — | #46-51 | TD21 scheduler (OPEN), TD22 (SHIPPED A), TD36 (SHIPPED A), TD40 (SHIPPED A), #50 news entity mis-tagging (OPEN, Chat 6), #51 dividend_yield ×100 (OPEN, Chat 6)| #46/#50/#51 OPEN; #47/#48/#49 SHIPPED |
 
-**Chat-bundle overlay (added 5.19, source of truth = master_todo.md "Chat bundles").** Remaining OPEN rows are grouped (NOT renumbered) into chats: **Chat A** (COMPLETE), **Chat 6** (COMPLETE), **Chat 7** (COMPLETE), **Chat 8** (COMPLETE), **Chat B** (#30, #31, #32, #33, #36, #37, #38 — NEXT), **Chat C** (#40, #41), **Chat D** (#43, #44, #45), and standalone large items kept one-per-chat: #39 (Chat 9), **#52 (User Review chat — NEW Chat 8, second-to-last)**, #42 (Chat 10 GO LIVE, gated behind #52), #46 (scheduler). Bundles never override a per-row gating dependency.
+**Chat-bundle overlay (added 5.19, source of truth = master_todo.md "Chat bundles").** Remaining OPEN rows are grouped (NOT renumbered) into chats: **Chat A** (COMPLETE), **Chat 6** (COMPLETE), **Chat 7** (COMPLETE), **Chat 8** (COMPLETE), **Chat B** (#30, #31, #32 SHIPPED 2026-06-15; #33, #36, #37, #38 remain — IN PROGRESS), **Chat C** (#40, #41), **Chat D** (#43, #44, #45), and standalone large items kept one-per-chat: #39 (Chat 9), **#52 (User Review chat — NEW Chat 8, second-to-last)**, #42 (Chat 10 GO LIVE, gated behind #52), #46 (scheduler). Bundles never override a per-row gating dependency.
 
-**Open items carried past Chat 8** (tracked in master_todo.md; pointer now at #30):
-* **#30–#33, #36–#38 (Phase 9 / Chat B, NEXT):** datetime sweeps, Python ceiling, pytest harness, admin recompute endpoint, restore rehearsal, JSON logging.
+**Open items carried past Chat B** (tracked in master_todo.md; pointer now at #33):
+* **#33, #36–#38 (Phase 9 / Chat B, continuing):** pytest harness, admin recompute endpoint, restore rehearsal, JSON logging. (#30 `datetime.utcnow()` sweep + #31 tz-aware Mongo-write sweep + `scripts/check_datetime_hygiene.py` guard + #32 Python ceiling SHIPPED 2026-06-15 Chat B.)
 * **#39 (Chat 9 / F11), #40 + #41 (Chat C):** capital-gains pack; realized-P&L UI hide + stop_loss wiring.
 * **#52 (User Review chat / Phase 10.5, NEW):** complete user acceptance review; second-to-last; gates GO LIVE.
 * **#42 (Chat 10 / F7):** GO LIVE real ICICI import — gated behind #52.
@@ -634,6 +636,7 @@ Memorize these.
 * **(Chat 8) The two cron scripts (`refresh_fundamentals` + `fetch_news_for_universe`) fold in watchlist ISINs — THE data-volume multiplier. Each watchlist name adds ~1 Tavily call/run; the blast-radius is bounded by the EXISTING TD33 atomic daily ceiling (degrades safely), documented as a SOFT guardrail — NO hard watchlist-size cap (#29).**
 * **(Chat 8) CORS `allow_methods` must list every method the frontend uses (PUT was missing for the watchlist upsert). A missing method 503s the browser preflight even though curl-from-box passes — test browser-affecting CORS with a simulated preflight `OPTIONS` (#29).**
 * **(Chat 8) When the user explicitly directs a roadmap change, make it a REAL numbered row + phase (Phase 10.5 / #52 USER ACCEPTANCE REVIEW) and thread it through the pointer, ordering rationale, chat bundles, and every summary table — do NOT renumber existing rows or phases (used Phase "10.5" to avoid cascading the GO-LIVE=Phase 11 / Deferred=Phase 12 references).**
+* **(Chat B) The `app.models._common.utcnow()` naive-UTC storage invariant is now MACHINE-ENFORCED by `scripts/check_datetime_hygiene.py` (#31): stdlib `utcnow()` is BANNED tree-wide; every tz-aware `datetime.now(timezone.utc)` must be either swapped to `utcnow()` (Mongo writes) OR carry a trailing `# tz-ok: <reason>` annotation (in-memory compares / `astimezone(IST)` / JSON `as_of` / date-string computes). The guard is TOKENIZE-based, not line-based, so the formatter wrapping a long statement (parking the `# tz-ok` comment on the closing-bracket line) does NOT defeat it; it is comment-aware, self-skipping, and fragment-builds its needles so it won't trip the existing greps. A `replace_all`-style swap can silently MISS a near-duplicate site (it missed reconciliation `take_manual_snapshot` + price_service `bulk_get_latest_intraday`) — the guard is what catches it, so RE-RUN `uv run python -m scripts.check_datetime_hygiene` after any datetime edit (#30/#31).**
 
 **Chat 4 additions:** Don't trust Glean snippets/memory for field names — grep first. `cron_run()` yields `_Heartbeat`; `.meta` is an ATTRIBUTE. /cron/heartbeats returns `{heartbeats, health_summary}`. Accessor `Collections.instruments_fundamentals()`. `run_suggestions()` SLOW by default.
 
@@ -652,6 +655,8 @@ Memorize these.
 **Chat 5.10–5.19 + Chat A + Chat 6 + Chat 7:** (compacted; see the per-chat one-liners in Sections 14/15/20 above and prior versions for full prose.)
 
 **Chat 8:** `build_universe` EVOLVES to NIFTY 100 ∪ watchlist (no parallel builder); `get_watchlist_isins` is the single membership source reused by the engine + both crons. F13 reuses `monitored_stocks` status="watchlist" — one doc per ISIN via upsert-on-{isin}; the partial unique index (status:tracking) is untouched and doesn't need broadening; `get_excluded_isins` is unchanged (watchlist is structurally outside its scan; rejected→watchlist auto-un-excludes). The /watchlist CRUD reuses the SAME audit collection via a WIDENED `AuditAction` Literal, write-before-apply; PUT 404s unknown instruments, DELETE 404s non-watchlist docs (feedback rows never nuked); a Money-bearing patch goes through `_convert_decimals_to_decimal128`. The two crons fold in watchlist ISINs (the data-volume multiplier) bounded by the TD33 daily quota — a documented soft guardrail, no hard cap. CORS `allow_methods` must include every frontend method (PUT was missing → browser preflight 503 while curl-from-box passed; test with a simulated preflight OPTIONS). Run scripts as `-m` modules (a by-path invocation raises ModuleNotFoundError: app). A user-directed roadmap change becomes a real numbered row + phase (Phase 10.5 / #52) threaded through every view, without renumbering existing rows.
+
+**Chat B:** the datetime sweep is TWO rows — #30 (`datetime.utcnow()` -> `utcnow()`, 11 sites / 5 files incl. 2 `conversation_service` stragglers the row's stale list missed) and #31 (tree-wide tz-aware `datetime.now(timezone.utc)` Mongo-write sweep -> `utcnow()`, 15 sites, + 19 `# tz-ok:` annotations on in-memory sites). #31 also stood up `scripts/check_datetime_hygiene.py` — a tokenize-based guard (the line-based first draft FAILED on formatter-wrapped statements where the `# tz-ok` comment lands on the closing-bracket line; rewritten to group by logical line). #32 pinned `requires-python = ">=3.12,<3.14"` + `uv lock`. Backend + doc only; frontend untouched. Re-read every aware-now site at HEAD before patching (the master_todo line numbers were a stale map). Verified each on EC2: grep-clean for #30; guard PASSED + both negative controls (planted real utcnow() call AND planted unannotated aware-now) FAILED then cleared for #31; `uv sync` clean + Python 3.12.3 in range for #32.
 
 ## Section 15: Anti-patterns the assistant has fallen into
 
@@ -748,6 +753,9 @@ When any trigger fires, say verbatim: **`I AM LOSING CONTEXT`**
 | — | #27 | F1+F3 ad-hoc chat (Chat 6, no TD number) — backend `5e787c9`, frontend `6093f63` | 6 |
 | — | #28 | F12+F15 risk-summary + by-tag (Chat 7, no TD number) — backend `97041621`/`803e6610`; frontend `e14d6a75` | 7 |
 | — | #29 | F13 watchlist: MonitoredStockWatchlistPatch + build_universe = NIFTY 100 ∪ watchlist + get_watchlist_isins / /watchlist CRUD reusing monitored_stocks status="watchlist" + widened AuditAction / refresh_fundamentals + fetch_news_for_universe fold in watchlist ISINs (data-volume multiplier) / frontend /watchlist page + nav / CORS allow_methods += PUT (Chat 8, no TD number) — backend Unit 1 `34ff906d`, Unit 2 `a250d001`, Unit 3 `9857570b`, CORS `67704025`; frontend `58bf6369` | 8 |
+| — | #30 | P2-1: 11 `datetime.utcnow()`->`utcnow()` sites across 5 files (portfolio/scoring/dossier/fundamentals + 2 `conversation_service` stragglers) (Chat B, no TD number) — backend `025b8a0` | B |
+| — | #31 | P2-8: tree-wide tz-aware `datetime.now(timezone.utc)` Mongo-write sweep -> `utcnow()` (15 sites) + 19 `# tz-ok:` annotations + NEW `scripts/check_datetime_hygiene.py` tokenize-based lint guard (machine-enforces the naive-UTC invariant) (Chat B, no TD number) — backend `025b8a0` | B |
+| — | #32 | P3-2: pin `requires-python = ">=3.12,<3.14"` + `uv lock` relock (Chat B, no TD number) — backend `025b8a0` | B |
 
 **OPEN / DEFERRED TDs (full):**
 
