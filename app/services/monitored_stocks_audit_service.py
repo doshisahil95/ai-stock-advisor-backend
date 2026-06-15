@@ -29,6 +29,19 @@ from app.db.client import Collections
 log = logging.getLogger(__name__)
 
 FeedbackAction = Literal["acted", "passed", "rejected"]
+# F13: the /watchlist CRUD path (app/routers/watchlist.py) reuses this same
+# audit collection + log_change for its write-before-apply trail. Watchlist
+# lifecycle actions are additive to the feedback actions above; AuditAction is
+# the full union that log_change accepts.
+WatchlistAuditAction = Literal["watchlist_add", "watchlist_update", "watchlist_remove"]
+AuditAction = Literal[
+    "acted",
+    "passed",
+    "rejected",
+    "watchlist_add",
+    "watchlist_update",
+    "watchlist_remove",
+]
 
 # Bump when the audit doc shape changes incompatibly. Read endpoints can
 # branch on this field to handle older rows. Mirrors how _schema_version
@@ -39,7 +52,7 @@ SCHEMA_VERSION = 1
 def log_change(
     *,
     isin: str,
-    action: FeedbackAction,
+    action: AuditAction,
     previous_status: str | None,
     new_status: str,
     note: str,

@@ -20,6 +20,7 @@ from app.routers import (
     reconciliation,
     suggestions,
     transactions,
+    watchlist,
 )
 
 logging.basicConfig(
@@ -74,6 +75,7 @@ app.include_router(transactions.router)
 app.include_router(suggestions.router)
 app.include_router(cron.router)
 app.include_router(conversations.router)
+app.include_router(watchlist.router)
 
 
 @app.get("/health", tags=["meta"])
