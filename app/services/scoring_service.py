@@ -11,6 +11,7 @@ from typing import Any
 
 from bson import Decimal128
 
+from app.models._common import utcnow
 from app.models.suggestion import CandidateScore, GateResult, SignalScore
 
 log = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def evaluate_earnings_proximity_gate(
         if next_earnings.tzinfo is not None
         else next_earnings
     )
-    now_naive = datetime.utcnow().replace(tzinfo=None)
+    now_naive = utcnow().replace(tzinfo=None)
     days_until = (naive_next - now_naive).total_seconds() / 86400.0
     passed = days_until > max_days_within
 
@@ -889,7 +890,7 @@ def extract_sell_signals(
             if hasattr(first_purchased, "tzinfo") and first_purchased.tzinfo is not None
             else first_purchased
         )
-        now_naive = datetime.utcnow().replace(tzinfo=None)
+        now_naive = utcnow().replace(tzinfo=None)
         days_held = (now_naive - naive_fp).total_seconds() / 86400.0
         # India equity LTCG threshold: > 365 days.
         signals["is_ltcg_eligible"] = 100.0 if days_held > 365 else 0.0
@@ -972,7 +973,7 @@ def evaluate_sell_gates(
             if hasattr(first_purchased, "tzinfo") and first_purchased.tzinfo is not None
             else first_purchased
         )
-        now_naive = datetime.utcnow().replace(tzinfo=None)
+        now_naive = utcnow().replace(tzinfo=None)
         days_held = (now_naive - naive_fp).total_seconds() / 86400.0
         passed = days_held >= age_threshold
         gates.append(

@@ -422,7 +422,7 @@ def refresh_earnings_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
     Returns stats dict: {events_fetched, events_inserted, future_deleted, source_raw}.
     """
     dates, raw_cal = fetch_earnings_calendar_yfinance(symbol, exchange)
-    now_naive = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now_naive = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Replace-future semantics: drop all future events for this ISIN
     # then insert the freshly-fetched list. Past events untouched.
@@ -548,7 +548,7 @@ def get_next_earnings_for_isin(
     Consumer helper for the suggestion engine gates/signals.
     """
     if as_of is None:
-        as_of = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        as_of = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     elif as_of.tzinfo is not None:
         as_of = as_of.replace(tzinfo=None)
 
@@ -572,7 +572,7 @@ def get_next_earnings_bulk(
     if not isins:
         return {}
     if as_of is None:
-        as_of = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        as_of = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     elif as_of.tzinfo is not None:
         as_of = as_of.replace(tzinfo=None)
 

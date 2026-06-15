@@ -10,6 +10,7 @@ from bson import Decimal128, ObjectId
 from fastapi import APIRouter, Query
 
 from app.db.client import Collections
+from app.models._common import utcnow
 from app.services.portfolio_service import (
     _to_dec,
     compute_risk_summary,
@@ -58,7 +59,7 @@ def portfolio_summary() -> dict:
     if not holdings:
         return _serialize(
             {
-                "as_of": datetime.utcnow(),
+                "as_of": utcnow(),
                 "totals": {
                     "invested": Decimal("0"),
                     "current_value": Decimal("0"),

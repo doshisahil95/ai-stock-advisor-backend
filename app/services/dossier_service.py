@@ -23,6 +23,7 @@ from bson import Decimal128
 
 from app.config.settings import settings
 from app.db.client import Collections
+from app.models._common import utcnow
 from app.models.suggestion import CandidateScore
 
 log = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ def _build_position_context_block(
         fp = first_purchased
         if hasattr(fp, "tzinfo") and fp.tzinfo is not None:
             fp = fp.replace(tzinfo=None)
-        now_naive = datetime.utcnow()
+        now_naive = utcnow()
         days_held = (now_naive - fp).total_seconds() / 86400.0
         if days_held > 365:
             tax_window = "LTCG-eligible (held > 365 days)"
@@ -180,7 +181,7 @@ def _build_position_context_block(
         ne = next_earnings
         if hasattr(ne, "tzinfo") and ne.tzinfo is not None:
             ne = ne.replace(tzinfo=None)
-        days_to_earn = (ne - datetime.utcnow()).total_seconds() / 86400.0
+        days_to_earn = (ne - utcnow()).total_seconds() / 86400.0
         next_earnings_str = (
             f"{ne.date().isoformat()} ({days_to_earn:+.0f} days from now)"
         )
