@@ -50,12 +50,57 @@ PRICE_HISTORY_DAYS = 252
 
 
 def build_universe() -> list[dict]:
-    """Buy-side universe: NIFTY 100 instruments."""
-    cursor = Collections.instruments().find(
-        {"in_nifty100": True},
-        {"_id": 0, "isin": 1, "symbol": 1, "exchange": 1, "name": 1},
+    """Buy-side universe: NIFTY 100 instruments UNION watchlist (F13).
+
+    NIFTY 100 instruments plus any ISIN the user has explicitly watchlisted
+    (monitored_stocks status=="watchlist"). Watchlist names are typically
+    outside NIFTY 100, so the ones not already present are resolved from the
+    instruments collection by ISIN and merged in, deduped by ISIN.
+
+    Held names are NOT added here -- they're filtered downstream by
+    filter_universe exactly as before, so a held ISIN that is also
+    watchlisted stays out of the buy candidate set. Watchlist membership is
+    never excluded by get_excluded_isins (it only scans rejected/tracking),
+    so watchlisting a previously-rejected ISIN un-suppresses it.
+
+    Returns dicts of {isin, symbol, exchange, name}.
+    """
+    proj = {"_id": 0, "isin": 1, "symbol": 1, "exchange": 1, "name": 1}
+    by_isin: dict[str, dict] = {
+        inst["isin"]: inst
+        for inst in Collections.instruments().find({"in_nifty100": True}, proj)
+    }
+    watchlist_isins = get_watchlist_isins()
+    missing = watchlist_isins - by_isin.keys()
+    if missing:
+        found = 0
+        for inst in Collections.instruments().find(
+            {"isin": {"$in": list(missing)}}, proj
+        ):
+            by_isin[inst["isin"]] = inst
+            found += 1
+        not_in_instruments = len(missing) - found
+        if not_in_instruments:
+            log.warning(
+                "build_universe: %d watchlist ISIN(s) not found in instruments "
+                "(no price/fundamentals available, skipped)",
+                not_in_instruments,
+            )
+    return list(by_isin.values())
+
+
+def get_watchlist_isins() -> set[str]:
+    """All ISINs the user has explicitly watchlisted (F13).
+
+    monitored_stocks rows with status=="watchlist". Force-added to the
+    buy-side universe by build_universe and to the data-refresh universe by
+    the fundamentals + news cron scripts (the F13 data-volume multiplier).
+    """
+    cursor = Collections.monitored_stocks().find(
+        {"status": "watchlist"},
+        {"_id": 0, "isin": 1},
     )
-    return list(cursor)
+    return {d["isin"] for d in cursor if d.get("isin")}
 
 
 def get_held_isins() -> set[str]:
@@ -433,7 +478,7 @@ def _run_buy_pipeline(
     try:
         universe = build_universe()
         run.universe_size = len(universe)
-        log.info("Universe: %d NIFTY 100 stocks", len(universe))
+        log.info("Universe: %d names (NIFTY 100 + watchlist)", len(universe))
 
         if limit:
             universe = universe[:limit]

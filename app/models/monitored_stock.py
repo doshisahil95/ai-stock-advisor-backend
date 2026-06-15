@@ -149,3 +149,46 @@ class MonitoredStockFeedbackPatch(BaseModel):
     acted_at: datetime | None = None
     passed_at: datetime | None = None
     rejected_at: datetime | None = None
+
+
+class MonitoredStockWatchlistPatch(BaseModel):
+    """Typed shape of the $set patch written by the /watchlist CRUD path (F13).
+
+    Mirrors MonitoredStockFeedbackPatch: constructing this model at write
+    time catches Literal drift (status, alert_on) loudly instead of letting
+    the schema silently rot. The field set MUST match what the /watchlist
+    router's $set block writes -- if you add a field there, add it here too,
+    and vice versa.
+
+    status is pinned to "watchlist". The router upserts on {isin} with the
+    identity seeds (added_by / added_at / created_at / symbol / name) in
+    $setOnInsert, so this patch carries only the mutable watchlist fields.
+
+    Caller pattern:
+        patch = MonitoredStockWatchlistPatch(...)
+        set_doc = patch.model_dump(exclude_none=True)
+        Collections.monitored_stocks().update_one(
+            {"isin": isin},
+            {"$set": set_doc, "$setOnInsert": {...identity seeds...}},
+            upsert=True,
+        )
+
+    exclude_none=True is intentional: optional price/alert/tag fields left
+    unset by the caller must not overwrite existing values on a re-PUT. The
+    router passes through only the fields the client actually supplied.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
+    status: Literal["watchlist"] = "watchlist"
+    target_buy_price: Money | None = None
+    alert_above: Money | None = None
+    alert_below: Money | None = None
+    alert_on: list[AlertOn] | None = None
+    tags: list[str] | None = None
+    user_notes: str | None = None
+    thesis: str | None = None
+    conviction: float | None = Field(default=None, ge=0, le=1)
+    last_user_interest_at: datetime | None = None
+    updated_at: datetime
