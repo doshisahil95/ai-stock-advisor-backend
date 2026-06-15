@@ -348,7 +348,7 @@ def _format_position_block(
         fp = first_purchased
         if hasattr(fp, "tzinfo") and fp.tzinfo is not None:
             fp = fp.replace(tzinfo=None)
-        days_held = (datetime.utcnow() - fp).total_seconds() / 86400.0
+        days_held = (utcnow() - fp).total_seconds() / 86400.0
         if days_held > 365:
             tax_window = "LTCG-eligible (held > 365 days)"
         else:
@@ -373,7 +373,7 @@ def _format_position_block(
         ne = next_earnings
         if hasattr(ne, "tzinfo") and ne.tzinfo is not None:
             ne = ne.replace(tzinfo=None)
-        days_to_earn = (ne - datetime.utcnow()).total_seconds() / 86400.0
+        days_to_earn = (ne - utcnow()).total_seconds() / 86400.0
         next_earnings_str = (
             f"{ne.date().isoformat()} ({days_to_earn:+.0f} days from now)"
         )
