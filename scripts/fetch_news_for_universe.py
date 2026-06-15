@@ -32,6 +32,7 @@ from app.db.client import Collections
 from app.services.cron_heartbeat_service import cron_run
 from app.services.news_classifier import classify_unclassified
 from app.services.news_fetcher import fetch_for_universe
+from app.services.suggestion_engine import get_watchlist_isins
 from app.services.tavily_client import get_today_quota
 
 logging.basicConfig(
@@ -55,6 +56,27 @@ def get_universe_for_news() -> list[dict]:
         {"_id": 0, "isin": 1, "symbol": 1, "name": 1, "exchange": 1},
     )
     return list(cursor)
+
+
+def get_watchlist_for_news() -> list[dict]:
+    """Watchlisted ISINs resolved to instrument dicts for news fetch (F13).
+
+    Reuses suggestion_engine.get_watchlist_isins() -- the single source of
+    truth for watchlist membership (status=="watchlist") -- and resolves to
+    {isin, symbol, name, exchange}. Folded into the fetch universe by main()
+    so watchlist names (typically outside NIFTY 100) get news + Haiku
+    classification like any other candidate. Part of the F13 data-volume
+    multiplier: each name consumes one Tavily call/run (TD33 daily quota).
+    """
+    isins = get_watchlist_isins()
+    if not isins:
+        return []
+    return list(
+        Collections.instruments().find(
+            {"isin": {"$in": list(isins)}},
+            {"_id": 0, "isin": 1, "symbol": 1, "name": 1, "exchange": 1},
+        )
+    )
 
 
 def main() -> int:
@@ -100,6 +122,17 @@ def main() -> int:
                 universe = list(cursor)
             else:
                 universe = get_universe_for_news()
+
+            # F13: fold in watchlisted ISINs (status=="watchlist") regardless
+            # of branch -- watchlist names are typically outside NIFTY 100 and
+            # would otherwise never get news. Deduped by ISIN. Data-volume
+            # multiplier: each added name consumes one Tavily call/run against
+            # the daily quota (TD33), which stops the run early if exceeded.
+            seen = {u["isin"] for u in universe}
+            for inst in get_watchlist_for_news():
+                if inst["isin"] not in seen:
+                    seen.add(inst["isin"])
+                    universe.append(inst)
 
             if args.limit:
                 universe = universe[: args.limit]

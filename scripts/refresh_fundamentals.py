@@ -29,6 +29,7 @@ from app.services.fundamentals_service import (
     refresh_universe,
 )
 from app.services.cron_heartbeat_service import cron_run
+from app.services.suggestion_engine import get_watchlist_isins
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,15 +56,39 @@ def get_active_holdings() -> list[dict]:
     )
 
 
+def get_watchlist_instruments() -> list[dict]:
+    """Watchlisted ISINs resolved to instrument dicts (F13).
+
+    Reuses suggestion_engine.get_watchlist_isins() -- the single source of
+    truth for watchlist membership (status=="watchlist") -- and resolves to
+    {isin, symbol, exchange} from instruments. Watchlist names are typically
+    outside NIFTY 100, so without this they would never get weekly
+    fundamentals/earnings. This is part of the F13 data-volume multiplier.
+    """
+    isins = get_watchlist_isins()
+    if not isins:
+        return []
+    return list(
+        Collections.instruments().find(
+            {"isin": {"$in": list(isins)}},
+            {"_id": 0, "isin": 1, "symbol": 1, "exchange": 1},
+        )
+    )
+
+
 def get_nifty100_union_holdings() -> list[dict]:
     """Default universe for the weekly refresh: NIFTY 100 ∪ active holdings.
 
     Held stocks may be outside NIFTY 100 (e.g. midcaps). They still need
     fresh fundamentals + earnings for F2 sell-side scoring.
+
+    F13: watchlisted ISINs (status=="watchlist") are also folded in here --
+    they are typically outside NIFTY 100 and would otherwise never receive
+    weekly fundamentals/earnings. Part of the data-volume multiplier.
     """
     seen: set[str] = set()
     targets: list[dict] = []
-    for inst in get_nifty100() + get_active_holdings():
+    for inst in get_nifty100() + get_active_holdings() + get_watchlist_instruments():
         isin = inst["isin"]
         if isin in seen:
             continue
