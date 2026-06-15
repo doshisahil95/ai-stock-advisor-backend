@@ -175,7 +175,7 @@ Crontab lives on EC2 — `ssh ubuntu@100.112.20.41 'crontab -l'`. Source-of-trut
 | `*/15 9-15 * * 1-5` | `refresh_prices_intraday.py` | `refresh_prices_intraday` | 15-min snapshots during market hours into `prices_intraday` (append-only) |
 | `30 19 * * 1-5` | `take_reconciliation_snapshot.py` | `reconciliation_snapshot` | Auto reconciliation against cached ICICI baseline; emits `_send_drift_alerts` on threshold breach |
 | `45 19 * * 1-5` | `track_suggestion_outcomes.py` | `track_suggestion_outcomes` | Per-candidate outcome tracking; writes to `suggestion_outcomes` for `/suggestions/performance` |
-| `0 6 * * 0` | `refresh_fundamentals.py` | `refresh_fundamentals` | Weekly fundamentals for the buy-side universe into `instruments_fundamentals` |
+| `0 6 * * 0` | `refresh_fundamentals.py` | `refresh_fundamentals` | Weekly fundamentals + earnings for NIFTY 100 ∪ active holdings ∪ watchlist (#29) into `instruments_fundamentals` |
 | `30 6 * * 0` | `fetch_news_for_universe.py --include-held` | `fetch_news_universe` | Weekly Tavily + Haiku classified news for universe ∪ held ∪ watchlist into `news_articles` (A16 — `--include-held` is mandatory) |
 | `0 7 * * 0` | `run_weekly_suggestions.py --direction=both --notify --run-type scheduled` | `weekly_suggestions` | Buy + sell pipelines + combined digest (one email + one ntfy push for both sides) |
 | `0 21 * * *` | `cron_health_check.py` | `cron_health_check` | F4 daily comparator; pushes on BOTH transports (`errors` ntfy channel + Resend email; commit 8 added email) if heartbeats lag. Also writes its own heartbeat via `cron_run("cron_health_check")` and skips itself when comparing registry vs heartbeats |
@@ -222,7 +222,7 @@ Auto-reconciliation against the cached ICICI baseline in `user_profile.reconcili
 
 #### `refresh_fundamentals.py` (176 lines)
 
-Weekly fundamentals for the Phase 2 universe (NIFTY 100 ∪ active holdings).  Upserts one `instruments_fundamentals` doc per ISIN with ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp.  Missing-data ISINs are skipped (not zeroed) so cross-sectional normalization isn't poisoned.  Also folds in the F14 earnings calendar refresh for the same universe via `refresh_earnings_universe` (same yfinance round-trip).
+Weekly fundamentals for the Phase 2 universe (NIFTY 100 ∪ active holdings ∪ watchlist — watchlist ISINs folded in via `get_watchlist_instruments()`, #29).  Upserts one `instruments_fundamentals` doc per ISIN with ROE, ROA, operating margin, debt-to-equity, P/E, P/B, earnings growth YoY, plus the fundamentals timestamp.  Missing-data ISINs are skipped (not zeroed) so cross-sectional normalization isn't poisoned.  Also folds in the F14 earnings calendar refresh for the same universe via `refresh_earnings_universe` (same yfinance round-trip).
 
 #### `fetch_news_for_universe.py` (175 lines)
 
@@ -491,6 +491,7 @@ Check the Atlas console (M10 cluster `personal`). If the cluster is healthy but 
 - **F5a / F5b** — stateful feedback (5a = state machine; 5b = two-mechanism exclusion guarantee).
 - **F6 / F10** — feedback UI + write-before-apply audit pattern.
 - **F14** — earnings-proximity gate, shared between buy and sell pipelines.
+- **F13 (#29)** — watchlist. `GET/PUT/DELETE /watchlist[/{isin}]` reusing `monitored_stocks` (status="watchlist"); `build_universe` = NIFTY 100 ∪ watchlist; `refresh_fundamentals` + `fetch_news_for_universe` fold in watchlist ISINs (the data-volume multiplier). Frontend `/watchlist` page.
 - **TD8** — self-hosted ntfy decommission (shipped 2026-05-18, code cleanup 2026-05-23 in commits 7a/7b).
 - **TD9** — orphan `NTFY_*` env var cleanup.  SHIPPED Chat 5.5 2026-05-24.
 - **A1 / A2 / A3 / ... / A19** — Chat-5 audit findings. See `docs/Project_State.md` for the full registry. Commits 1-7b of Chat 5 cleared A2-part-2 through A19 plus TD8.
