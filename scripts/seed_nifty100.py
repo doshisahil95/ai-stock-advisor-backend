@@ -24,6 +24,7 @@ from pymongo import UpdateOne
 
 from app.db.client import Collections
 from app.services.price_service import fetch_eod_prices, upsert_prices
+from app.models._common import utcnow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def mark_nifty100_in_instruments(symbols: list[str]) -> dict:
         return {"matched": 0, "modified": 0}
 
     coll = Collections.instruments()
-    now = datetime.now(timezone.utc)
+    now = utcnow()
 
     # Find which symbols actually exist in our instruments
     matched_docs = list(

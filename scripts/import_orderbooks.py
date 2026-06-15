@@ -23,7 +23,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 from app.services.instrument_service import bulk_lookup_isins
 
 logging.basicConfig(
@@ -215,8 +215,8 @@ def main() -> int:
         # Add staging-specific metadata
         for r in valid_rows:
             r["_schema_version"] = 1
-            r["created_at"] = datetime.now(timezone.utc)
-            r["updated_at"] = datetime.now(timezone.utc)
+            r["created_at"] = utcnow()
+            r["updated_at"] = utcnow()
             r["deleted_at"] = None
             # remaining_quantity will be computed during recompute_holding;
             # for BUY rows in staging, initialize to qty (FIFO logic will adjust on promote)

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 
 AuditAction = Literal["edit", "delete"]
 
@@ -39,7 +39,7 @@ def log_change(
                 "before": before,
                 "after": after,
                 "reason": reason or "",
-                "changed_at": datetime.now(timezone.utc),
+                "changed_at": utcnow(),
                 "_schema_version": 1,
             }
         )

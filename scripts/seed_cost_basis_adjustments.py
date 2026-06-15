@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -85,8 +85,8 @@ def main() -> int:
 
         doc = dict(adj)
         doc["_schema_version"] = 1
-        doc["created_at"] = datetime.now(timezone.utc)
-        doc["updated_at"] = datetime.now(timezone.utc)
+        doc["created_at"] = utcnow()
+        doc["updated_at"] = utcnow()
         coll.insert_one(_convert_decimals_to_decimal128(doc))
         log.info("Inserted: %s (₹%s)", adj["name"], adj["amount"])
         inserted += 1

@@ -19,6 +19,7 @@ import requests
 from pymongo import UpdateOne
 
 from app.db.client import Collections
+from app.models._common import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -308,7 +309,7 @@ def parse_equity_rows(csv_text: str) -> list[dict]:
                 "lot_size": lot_size,
                 "tick_size": 0.05,  # NSE default tick for equity
                 "source": "nse_official",
-                "refreshed_at": datetime.now(timezone.utc),
+                "refreshed_at": utcnow(),
             }
         )
 
@@ -339,7 +340,7 @@ def refresh_from_nse() -> dict:
         }
 
     coll = Collections.instruments()
-    now = datetime.now(timezone.utc)
+    now = utcnow()
 
     # Read existing instruments into memory (~50ms for 2.5K docs)
     existing_docs = {
@@ -484,7 +485,7 @@ def add_override(
         notes=notes,
     )
     payload = override.model_dump()
-    payload["updated_at"] = datetime.now(timezone.utc)
+    payload["updated_at"] = utcnow()
 
     Collections.symbol_overrides().update_one(
         {"source_broker": source_broker, "source_symbol": src_sym},

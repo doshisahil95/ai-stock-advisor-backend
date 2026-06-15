@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 
@@ -270,7 +270,7 @@ def classify_unclassified(
     if only_recent_days is not None:
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=only_recent_days)
+        cutoff = utcnow() - timedelta(days=only_recent_days)
         query["fetched_at"] = {"$gte": cutoff}
 
     cursor = coll.find(

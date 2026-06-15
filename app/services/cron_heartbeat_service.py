@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator, Literal
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 
 # ────────────────────────────────────────────────────────────────────
 # Status values written to the `status` field on heartbeat docs.
@@ -205,7 +205,7 @@ def cron_run(cron_name: str) -> Iterator[_Heartbeat]:
     """
     hb = _Heartbeat(
         cron_name=cron_name,
-        started_at=datetime.now(timezone.utc),
+        started_at=utcnow(),
     )
     try:
         yield hb
@@ -214,7 +214,7 @@ def cron_run(cron_name: str) -> Iterator[_Heartbeat]:
         hb.error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
-        hb.finished_at = datetime.now(timezone.utc)
+        hb.finished_at = utcnow()
         _persist(hb)
 
 

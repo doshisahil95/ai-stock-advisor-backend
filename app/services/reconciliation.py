@@ -210,7 +210,7 @@ def take_manual_snapshot(
     )
 
     snapshot = {
-        "taken_at": datetime.now(timezone.utc),
+        "taken_at": utcnow(),
         "type": "manual",
         **our,
         "icici_invested": _to_dec(icici_invested),

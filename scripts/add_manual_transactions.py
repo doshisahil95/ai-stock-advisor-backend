@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 from app.services.holdings_service import validate_replay
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
@@ -255,7 +255,7 @@ def adjust_tmpv_cost_basis() -> int:
                 "price": new_price,
                 "total_fees": new_fees,
                 "notes": new_notes,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": utcnow(),
             }
         )
 
@@ -294,8 +294,8 @@ def insert_manual_transactions() -> dict:
 
         doc = dict(tx)
         doc["_schema_version"] = 1
-        doc["created_at"] = datetime.now(timezone.utc)
-        doc["updated_at"] = datetime.now(timezone.utc)
+        doc["created_at"] = utcnow()
+        doc["updated_at"] = utcnow()
         doc["deleted_at"] = None
         if doc["type"] == "BUY":
             doc["remaining_quantity"] = doc["quantity"]
