@@ -109,7 +109,9 @@ def _annotate_holdings(
     }
     prev_closes = _bulk_previous_closes(isin_to_latest_date)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware for is_stale price-age compare (price_date coerced aware)
 
     annotated: list[dict] = []
     total_invested = Decimal("0")
@@ -213,9 +215,11 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         latest_prices: {isin: latest_price_doc} from prices_daily
 
     Returns:
-        Dict matching the GET /portfolio/summary response shape.
+    Dict matching the GET /portfolio/summary response shape.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: as_of timestamp in JSON response (not a Mongo write)
 
     # ── Per-holding annotation ──────────────────────────────────────────────
     # Shared with compute_risk_summary via _annotate_holdings (one path).
@@ -426,7 +430,9 @@ def compute_risk_summary(holdings: list[dict], latest_prices: dict[str, dict]) -
     Thresholds are the module constants above (not env-configurable).
     Empty/unpriced portfolios return zeros and empty arrays.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: as_of timestamp in JSON response (not a Mongo write)
     annotated, accum = _annotate_holdings(holdings, latest_prices)
     total_current = accum["total_current"]
 

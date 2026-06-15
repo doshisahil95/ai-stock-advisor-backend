@@ -610,7 +610,9 @@ def score_candidates(
             lower_is_better_set,
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware base for fundamentals/price age diffs (both coerced aware below)
     results: list[CandidateScore] = []
 
     for c in candidates:
@@ -1084,7 +1086,9 @@ def score_sell_candidates(
         )
 
     # Phase 4: compose final candidate scores.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware base for fundamentals/price age diffs (both coerced aware below)
     results: list[CandidateScore] = []
     for c in candidates:
         isin = c["isin"]

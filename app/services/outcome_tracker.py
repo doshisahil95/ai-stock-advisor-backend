@@ -149,7 +149,9 @@ def snapshot_open_outcomes() -> dict:
     selection now includes outcomes labeled 'open', 'acted', 'passed', and
     'rejected'. Only 'expired' outcomes are skipped. See module docstring.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware base for in-memory holding-period diffs (suggested_at coerced aware)
     coll = Collections.suggestion_outcomes()
 
     active_outcomes = list(coll.find({"tracking_status": {"$ne": "expired"}}))

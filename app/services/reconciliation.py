@@ -126,7 +126,9 @@ def take_auto_snapshot() -> dict:
         last_taken_at = last_manual["taken_at"]
         if last_taken_at.tzinfo is None:
             last_taken_at = last_taken_at.replace(tzinfo=timezone.utc)
-        days_since = (datetime.now(timezone.utc) - last_taken_at).days
+        days_since = (
+            datetime.now(timezone.utc) - last_taken_at
+        ).days  # tz-ok: aware diff vs last_taken_at (coerced aware above)
 
         if drift_invested > Decimal("100") and days_since >= 14:
             snapshot["notes"] = (

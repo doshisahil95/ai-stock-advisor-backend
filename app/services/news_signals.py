@@ -55,7 +55,9 @@ def compute_news_signals_for_isin(
     recency_split_days: int = 7,
 ) -> dict:
     """Compute news signals for one stock over the last `window_days`."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware base for news recency-window cutoffs computed below
     cutoff_window = now - timedelta(days=window_days)
     cutoff_recent = now - timedelta(days=recency_split_days)
 

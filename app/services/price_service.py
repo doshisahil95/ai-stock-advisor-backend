@@ -68,7 +68,9 @@ def fetch_eod_prices(
         yt = to_yahoo_ticker(h["symbol"], h.get("exchange", "NSE"))
         ticker_meta[yt] = h
 
-    end_date = datetime.now(timezone.utc).date() + timedelta(
+    end_date = datetime.now(
+        timezone.utc
+    ).date() + timedelta(  # tz-ok: .date() for yfinance date range, not stored
         days=1
     )  # yfinance is exclusive on end
     start_date = end_date - timedelta(days=days_back)
@@ -408,7 +410,9 @@ def annotate_with_current_price(
         price_date = price_date.replace(tzinfo=timezone.utc)
     # 6 calendar days (~4 NSE trading days across a weekend) is the canonical
     # threshold (P2-14 / master_todo #10: code is canonical, docstring aligned).
-    is_stale = (datetime.now(timezone.utc) - price_date) > timedelta(days=6)
+    is_stale = (datetime.now(timezone.utc) - price_date) > timedelta(
+        days=6
+    )  # tz-ok: aware staleness diff (price_date coerced aware above)
 
     holding_doc["current_price"] = current_price
     holding_doc["current_value"] = current_value

@@ -310,7 +310,9 @@ def is_fresh(
         return False
     if fetched_at.tzinfo is None:
         fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-    age = datetime.now(timezone.utc) - fetched_at
+    age = (
+        datetime.now(timezone.utc) - fetched_at
+    )  # tz-ok: aware age diff (fetched_at coerced aware above)
     return age <= timedelta(days=max_age_days)
 
 

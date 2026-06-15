@@ -77,4 +77,6 @@ def utcnow() -> datetime:
     tz-aware values silently got naive in storage — fixing here so in-memory
     comparisons against Mongo reads (naive) don't TypeError.
     """
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(timezone.utc).replace(
+        tzinfo=None
+    )  # tz-ok: canonical naive-UTC helper (the one sanctioned aware-now source)

@@ -47,7 +47,9 @@ class TavilyError(Exception):
 
 
 def _today_utc_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d"
+    )  # tz-ok: formats to date string, not stored as datetime
 
 
 def _increment_quota(use_case: str, credits: int) -> int:

@@ -405,7 +405,9 @@ def ist_today_window_utc(now_utc: datetime | None = None) -> tuple[datetime, dat
     Mongo stores naive UTC; we strip tzinfo before returning so the bounds
     can be used directly in `$gte`/`$lt` against stored started_at values.
     """
-    now = now_utc or datetime.now(timezone.utc)
+    now = now_utc or datetime.now(
+        timezone.utc
+    )  # tz-ok: needs aware for .astimezone(IST) window math
     now_ist = now.astimezone(IST)
     today_ist_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_ist_start = today_ist_start + timedelta(days=1)
@@ -417,6 +419,8 @@ def ist_today_window_utc(now_utc: datetime | None = None) -> tuple[datetime, dat
 
 def is_expected_today(spec: CronSpec, now_utc: datetime | None = None) -> bool:
     """True if this cron is expected to run today (per IST weekday)."""
-    now = now_utc or datetime.now(timezone.utc)
+    now = now_utc or datetime.now(
+        timezone.utc
+    )  # tz-ok: needs aware for .astimezone(IST) weekday
     ist_weekday = now.astimezone(IST).weekday()
     return ist_weekday in spec.expected_weekdays

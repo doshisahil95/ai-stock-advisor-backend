@@ -142,7 +142,9 @@ def search_transactions(
             status.HTTP_400_BAD_REQUEST,
             f"from_date ({from_date}) cannot be after to_date ({to_date})",
         )
-    today_eod_naive = datetime.now(timezone.utc).replace(
+    today_eod_naive = datetime.now(
+        timezone.utc
+    ).replace(  # tz-ok: future-date validation bound, made naive inline below
         hour=23, minute=59, second=59, tzinfo=None
     )
     if parsed_to and parsed_to.replace(tzinfo=None) > today_eod_naive:

@@ -180,7 +180,9 @@ def get_excluded_isins(
     next chunk(s) of work may add a direction column to monitored_stocks.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(
+            timezone.utc
+        )  # tz-ok: in-memory; coerced aware and compared below, not persisted
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
 
@@ -286,7 +288,9 @@ def filter_by_data_freshness(
 ) -> tuple[list[dict], int]:
     filtered: list[dict] = []
     dropped = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )  # tz-ok: aware base for price-date age compare (coerced aware below)
 
     for c in candidates:
         isin = c["isin"]
@@ -386,7 +390,7 @@ def compute_portfolio_value(
 
 
 def _today_ist_str() -> str:
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc)  # tz-ok: IST date-string compute, not stored
     now_ist = now_utc + timedelta(hours=5, minutes=30)
     return now_ist.strftime("%Y-%m-%d")
 
