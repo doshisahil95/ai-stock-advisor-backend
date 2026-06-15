@@ -607,7 +607,7 @@ def bulk_get_latest_intraday(isins: list[str]) -> dict[str, dict]:
     if not isins:
         return {}
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = utcnow()
     today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 
     pipeline = [
