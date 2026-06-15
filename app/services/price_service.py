@@ -21,7 +21,7 @@ import yfinance as yf
 from pymongo import ASCENDING, DESCENDING, UpdateOne
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ def _df_to_rows(ticker_df, yahoo_ticker: str, meta: dict) -> list[dict]:
                     if adj_close is not None
                     else None,
                     "source": "yfinance",
-                    "fetched_at": datetime.now(timezone.utc),
+                    "fetched_at": utcnow(),
                     "_schema_version": 1,
                 }
             )
@@ -444,7 +444,7 @@ def fetch_intraday_quotes(holdings_meta: list[dict]) -> list[dict]:
 
     BATCH_SIZE = 50
     all_rows: list[dict] = []
-    now_utc = datetime.now(timezone.utc)
+    now_utc = utcnow()
 
     ticker_meta: dict[str, dict] = {}
     for h in holdings_meta:

@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import re
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128
+from app.models._common import _convert_decimals_to_decimal128, utcnow
 from app.services.holdings_service import recompute_holding
 from app.services.transactions_audit_service import log_change
 from app.services.holdings_service import recompute_holding, validate_replay
@@ -241,7 +241,7 @@ def edit_transaction(tx_id: str, payload: EditTransactionRequest) -> dict:
     # audit row BEFORE mutating the ledger. If the audit insert fails, the
     # update_one never runs -- same invariant as the F10 feedback handler and
     # the transactions_audit guarantee in Project_State Section 11.
-    update_fields["updated_at"] = datetime.now(timezone.utc)
+    update_fields["updated_at"] = utcnow()
     after_preview = {**before, **update_fields}
     log_change(
         transaction_id=str(oid),
@@ -304,7 +304,7 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
         after=None,
         reason=payload.reason,
     )
-    now = datetime.now(timezone.utc)
+    now = utcnow()
     Collections.transactions().update_one(
         {"_id": oid},
         {"$set": {"deleted_at": now, "updated_at": now}},

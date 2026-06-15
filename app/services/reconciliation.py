@@ -105,7 +105,7 @@ def take_auto_snapshot() -> dict:
     """
     our = _get_our_numbers()
     snapshot = {
-        "taken_at": datetime.now(timezone.utc),
+        "taken_at": utcnow(),
         "type": "auto",
         **our,
         "_schema_version": 1,

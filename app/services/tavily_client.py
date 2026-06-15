@@ -18,6 +18,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from app.config.settings import settings
 from app.db.client import Collections
+from app.models._common import utcnow
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _increment_quota(use_case: str, credits: int) -> int:
     Returns the NEW total calls today. Raises TavilyQuotaExceeded at the cap.
     """
     today = _today_utc_str()
-    now = datetime.now(timezone.utc)
+    now = utcnow()
     try:
         result = Collections.tavily_quota().find_one_and_update(
             {
