@@ -62,7 +62,7 @@ app.add_middleware(
     ],
     allow_origin_regex=r"https://.*\.ts\.net",  # Funnel subdomain wildcard
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS", "PUT"],
     allow_headers=["*"],
 )
 
