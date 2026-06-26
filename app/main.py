@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.client import ping
 from app.db.indexes import ensure_all_indexes
 from app.routers import (
+    admin,
     conversations,
     cost_basis,
     cron,
@@ -76,6 +77,7 @@ app.include_router(suggestions.router)
 app.include_router(cron.router)
 app.include_router(conversations.router)
 app.include_router(watchlist.router)
+app.include_router(admin.router)
 
 
 @app.get("/health", tags=["meta"])
