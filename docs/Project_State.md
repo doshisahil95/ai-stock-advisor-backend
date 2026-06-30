@@ -621,7 +621,7 @@ The Chat 5.10 SellSheet recorded_with_warning follow-up remains OPEN and untouch
 
 **Chat-bundle overlay (added 5.19, source of truth = master_todo.md "Chat bundles").** Remaining OPEN rows are grouped (NOT renumbered) into chats: **Chat A** (COMPLETE), **Chat 6** (COMPLETE), **Chat 7** (COMPLETE), **Chat 8** (COMPLETE), **Chat B** (#30, #31, #32 SHIPPED 2026-06-15; #33 SHIPPED 2026-06-26; #36 SHIPPED 2026-07-01; #37, #38 remain — IN PROGRESS), **Chat C** (#40, #41), **Chat D** (#43, #44, #45), and standalone large items kept one-per-chat: #39 (Chat 9), **#52 (User Review chat — NEW Chat 8, second-to-last)**, #42 (Chat 10 GO LIVE, gated behind #52), #46 (scheduler). Bundles never override a per-row gating dependency.
 
-**Open items carried past Chat B** (tracked in master_todo.md; pointer now at #37):
+**Open items carried past Chat B** (tracked in master_todo.md; pointer now at #38):
 * **#38 (Phase 9 / Chat B, continuing):** JSON-structured backend logging (NEXT). (#36 admin recompute endpoint SHIPPED 2026-07-01 Chat B on `1ef0ead`; #37 Atlas backup → fresh-DB restore rehearsal SHIPPED 2026-07-01 Chat B, DOC + OPS only — runbook in Section 4.) (#30 `datetime.utcnow()` sweep + #31 tz-aware Mongo-write sweep + `scripts/check_datetime_hygiene.py` guard + #32 Python ceiling SHIPPED 2026-06-15 Chat B; #33 pytest harness SHIPPED 2026-06-26 Chat B.)
 * **#39 (Chat 9 / F11), #40 + #41 (Chat C):** capital-gains pack; realized-P&L UI hide + stop_loss wiring.
 * **#52 (User Review chat / Phase 10.5, NEW):** complete user acceptance review; second-to-last; gates GO LIVE.
