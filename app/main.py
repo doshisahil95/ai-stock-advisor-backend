@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +26,105 @@ from app.routers import (
     watchlist,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+# --- Structured JSON logging (master_todo #38) -----------------------------
+# One single-line JSON object per log record into stdout (journald), replacing
+# the prior logging.basicConfig text formatter. Stdlib only — no new
+# dependency (keeps the #32 ">=3.12,<3.14" environment lean).
+
+# Standard LogRecord attributes that are NOT caller-supplied context. Anything
+# on a record outside this set (and not private) is merged into the JSON
+# object, so an explicit extra={...} (e.g. isin, cron_name) is preserved.
+_RESERVED_LOG_RECORD_ATTRS = frozenset(
+    {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "message",
+        "module",
+        "msecs",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "taskName",
+        "thread",
+        "threadName",
+    }
 )
+
+
+class JsonLogFormatter(logging.Formatter):
+    """Render each LogRecord as a single-line JSON object.
+
+    Fields: timestamp (UTC ISO-8601 ms + 'Z'), level, logger, message,
+    module, func, line; traceback when exc_info is present; plus any
+    caller-supplied extra={...} keys merged at the top level.
+
+    The timestamp is derived from record.created via datetime.fromtimestamp
+    (NOT datetime.now()/utcnow()), so this stays clean against
+    scripts/check_datetime_hygiene.py.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, tz=timezone.utc)
+        payload: dict = {
+            "timestamp": ts.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "func": record.funcName,
+            "line": record.lineno,
+        }
+        if record.exc_info:
+            payload["traceback"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
+        for key, value in record.__dict__.items():
+            if key in _RESERVED_LOG_RECORD_ATTRS or key.startswith("_"):
+                continue
+            payload[key] = value
+        return json.dumps(payload, default=str, ensure_ascii=False)
+
+
+def _configure_logging() -> None:
+    """Install the JSON formatter on the root + uvicorn handlers.
+
+    Replaces logging.basicConfig. All stdout — app loggers AND uvicorn /
+    uvicorn.access request logs — becomes one structured JSON stream into
+    journald. uvicorn configures its own logging when it loads, then imports
+    this module, so this call runs last and wins; handlers.clear() keeps it
+    idempotent. (master_todo #38)
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonLogFormatter())
+
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+    # Route uvicorn's own loggers through the same JSON handler and stop them
+    # propagating to root (otherwise every uvicorn line would log twice).
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        ulog = logging.getLogger(name)
+        ulog.handlers.clear()
+        ulog.addHandler(handler)
+        ulog.setLevel(logging.INFO)
+        ulog.propagate = False
+
+
+_configure_logging()
 log = logging.getLogger(__name__)
 
 
