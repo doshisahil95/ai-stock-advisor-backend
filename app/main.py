@@ -22,6 +22,7 @@ from app.routers import (
     portfolio,
     reconciliation,
     suggestions,
+    tax,
     transactions,
     watchlist,
 )
@@ -175,6 +176,7 @@ app.include_router(cron.router)
 app.include_router(conversations.router)
 app.include_router(watchlist.router)
 app.include_router(admin.router)
+app.include_router(tax.router)
 
 
 @app.get("/health", tags=["meta"])

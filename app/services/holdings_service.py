@@ -118,7 +118,14 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
     """
     lots: deque[_Lot] = deque()
     realized_pnl = Decimal("0")
+    # F11/#39: per-disposal capital-gains records captured during FIFO depletion.
+    # Read-only consumer is tax_service.compute_capital_gains; _recompute_holding_impl
+    # pops this off `computed` so it never lands on the holdings doc. This is NOT a
+    # parallel FIFO path -- it is the single FIFO source of truth emitting one row per
+    # buy-lot consumed by a SELL (buy/sell dates + per-share cost/proceeds incl. fees).
+    realized_lots: list[dict] = []
     total_dividends = Decimal("0")
+
     first_purchased_at: datetime | None = None
     last_traded_at: datetime | None = None
 
@@ -152,6 +159,18 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                     lot.fees / lot.quantity if lot.quantity > 0 else Decimal("0")
                 )
                 realized_pnl += take * (sell_proceeds_per_share - buy_cost_per_share)
+                # F11/#39: record this buy-lot -> sell disposal for capital-gains.
+                # Per-share figures are already fee-normalized on both sides, so
+                # take*(proceeds/sh - cost/sh) equals this lot's realized_pnl slice.
+                realized_lots.append(
+                    {
+                        "buy_trade_date": lot.trade_date,
+                        "sell_trade_date": trade_date,
+                        "quantity": take,
+                        "buy_cost_per_share": buy_cost_per_share,
+                        "sell_proceeds_per_share": sell_proceeds_per_share,
+                    }
+                )
                 # Proportionally deplete the lot's buy-side fees too
                 if lot.quantity > 0:
                     lot.fees -= lot.fees * take / lot.quantity
@@ -221,6 +240,7 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
         "total_dividends_received": total_dividends,
         "first_purchased_at": first_purchased_at,
         "last_traded_at": last_traded_at,
+        "_realized_lots": realized_lots,
         "_remaining_lots": [
             {
                 "transaction_id": lot.transaction_id,
@@ -314,6 +334,10 @@ def _recompute_holding_impl(isin: str) -> Holding | None:
 
     computed = _fifo_replay(transactions)
     remaining_lots = computed.pop("_remaining_lots")
+    # F11/#39: capital-gains disposal records are for tax_service's read-only use;
+    # drop them so they never get written onto the holding doc (extra="forbid" would
+    # reject the extra key on the subsequent Holding(**doc) re-read).
+    computed.pop("_realized_lots", None)
 
     # Update transactions[i].remaining_quantity for each BUY
     by_id = {lot["transaction_id"]: lot["quantity"] for lot in remaining_lots}
