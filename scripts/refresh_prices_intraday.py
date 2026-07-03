@@ -13,6 +13,7 @@ from app.db.client import Collections
 from app.services.cron_heartbeat_service import cron_run
 from app.services.notify import push_public
 from app.services.price_service import (
+    evaluate_stop_loss_alerts,
     fetch_intraday_quotes,
     insert_intraday_quotes,
 )
@@ -73,6 +74,20 @@ def main() -> int:
 
         hb.metadata["rows_fetched"] = len(rows)
         hb.metadata["rows_inserted"] = inserted
+
+        # master_todo #41 (TD6): evaluate stop-loss rising-edge alerts on the
+        # SAME rows we just fetched + persisted -- no parallel price-fetch loop.
+        # Guarded so an alerting failure can never mask a successful price
+        # insert (the insert is this cron's primary job).
+        try:
+            alerts_fired = evaluate_stop_loss_alerts(rows)
+            hb.metadata["stop_loss_alerts_fired"] = alerts_fired
+            if alerts_fired:
+                log.info("Stop-loss alerts fired: %d", alerts_fired)
+        except Exception:
+            log.exception("evaluate_stop_loss_alerts failed after intraday insert")
+            hb.metadata["stop_loss_alerts_error"] = True
+
         log.info("Intraday refresh complete: %d inserted", inserted)
         return 0
 

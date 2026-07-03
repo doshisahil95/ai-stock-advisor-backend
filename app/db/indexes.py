@@ -99,6 +99,16 @@ def ensure_all_indexes() -> dict[str, list[str]]:
             ),
             IndexModel([("alert_type", ASCENDING)], name="alert_type"),
             IndexModel([("delivery_status", ASCENDING)], name="delivery_status"),
+            # master_todo #41 (TD6): dedup query index for the stop-loss
+            # rising-edge check (find_one by isin + alert_type, newest sent_at).
+            IndexModel(
+                [
+                    ("isin", ASCENDING),
+                    ("alert_type", ASCENDING),
+                    ("sent_at", DESCENDING),
+                ],
+                name="isin_type_sent_desc",
+            ),
         ]
     )
 
