@@ -739,6 +739,24 @@ def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
             )
             if not rearmed:
                 continue  # still below since the last delivered alert -- suppress
+        else:
+            # #67 (User review): a first-ever fire must PROVE the stop was armed
+            # -- some intraday tick for this ISIN was at/above stop_loss at some
+            # point, i.e. the price genuinely crossed DOWN through the stop. A
+            # stop_loss set at/above every price the stock has ever traded at
+            # (test/seed pollution like GAEL 1000 or OLAELEC 212312) was never
+            # armed and would otherwise fire on the very first tick. Suppress it.
+            armed = (
+                intraday.find_one(
+                    {
+                        "isin": isin,
+                        "price": {"$gte": Decimal128(stop_loss)},
+                    }
+                )
+                is not None
+            )
+            if not armed:
+                continue  # stop_loss >= every observed price -- never armed
 
         # Rising edge (or re-armed): fire.
         ltp_str = f"{ltp:.2f}"
