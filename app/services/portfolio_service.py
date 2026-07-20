@@ -251,15 +251,27 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
     #
     # fully_exited_count stays soft-deleted-only because it semantically
     # counts positions no longer held.
+    #
+    # #63 (Bundle B): dividends are money made and count toward total return.
+    # We ALSO sum total_dividends_received across the same all-holdings scan.
+    # COMPLIANCE: dividends are "income from other sources," NOT capital gains —
+    # they feed realised P&L / total-return figures ONLY and MUST NOT enter the
+    # STCG/LTCG /tax computation (tax_service is untouched). realized_pnl_lifetime
+    # stays capital-only (unchanged) so every existing consumer is unaffected;
+    # the dividend-inclusive figure is exposed as a separate key.
     realized_lifetime = Decimal("0")
+    dividends_lifetime = Decimal("0")
     fully_exited_count = 0
     for h in Collections.holdings().find(
         {},
-        {"realized_pnl": 1, "deleted_at": 1, "_id": 0},
+        {"realized_pnl": 1, "total_dividends_received": 1, "deleted_at": 1, "_id": 0},
     ):
         realized_lifetime += _to_dec(h.get("realized_pnl", 0))
+        dividends_lifetime += _to_dec(h.get("total_dividends_received", 0))
         if h.get("deleted_at") is not None:
             fully_exited_count += 1
+
+    realized_with_dividends = realized_lifetime + dividends_lifetime
 
     totals = {
         "invested": total_invested.quantize(Decimal("0.01")),
@@ -269,6 +281,10 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
         "day_gain": total_day_gain.quantize(Decimal("0.01")),
         "day_gain_pct": round(total_day_gain_pct, 2),
         "realized_pnl_lifetime": realized_lifetime.quantize(Decimal("0.01")),
+        "total_dividends_lifetime": dividends_lifetime.quantize(Decimal("0.01")),
+        "total_realized_with_dividends": realized_with_dividends.quantize(
+            Decimal("0.01")
+        ),
         "total_holdings": len(holdings),
         "fully_exited_lifetime": fully_exited_count,
     }

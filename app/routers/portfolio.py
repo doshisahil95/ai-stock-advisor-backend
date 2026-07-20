@@ -68,6 +68,8 @@ def portfolio_summary() -> dict:
                     "day_gain": Decimal("0"),
                     "day_gain_pct": 0.0,
                     "realized_pnl_lifetime": Decimal("0"),
+                    "total_dividends_lifetime": Decimal("0"),
+                    "total_realized_with_dividends": Decimal("0"),
                     "total_holdings": 0,
                     "fully_exited_lifetime": 0,
                 },
