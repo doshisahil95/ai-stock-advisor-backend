@@ -70,6 +70,17 @@ class Transaction(BaseDoc):
     price: Money = Field(..., ge=0)
     trade_date: datetime
     settlement_date: datetime | None = None
+    # #53: holding-period inheritance for demerger receipts.
+    # A demerger receipt is recorded as a BUY (source="manual_demerger") carrying
+    # the apportioned §49(2C) cost as `price`, dated at the RECEIPT date. Under the
+    # IT Act the demerged shares INHERIT the original acquisition date of the parent
+    # shares for the STCG/LTCG holding-period test. When set, `acquired_date` is the
+    # parent's original acquisition date and is used ONLY for holding-period
+    # classification (it feeds `_realized_lots.buy_trade_date` in _fifo_replay).
+    # It does NOT change cost basis (still `price`) or FIFO ordering (still
+    # `trade_date`). Absent -> `trade_date` is used, so every existing row and
+    # every non-demerger BUY behaves exactly as before.
+    acquired_date: datetime | None = None
     # Costs (just total — no breakdown per our agreement)
     total_fees: Money = Field(default=Decimal("0"), ge=0)
     # Optional: for BONUS / SPLIT

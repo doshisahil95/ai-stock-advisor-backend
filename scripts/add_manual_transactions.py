@@ -91,10 +91,17 @@ MANUAL_TRANSACTIONS = [
         "quantity": Decimal("100"),
         "price": Decimal("253.3647"),  # 31.15% of ₹813.37
         "trade_date": datetime(2025, 10, 1, tzinfo=timezone.utc),
+        # #53: demerger receipts INHERIT the parent's original acquisition date for
+        # the STCG/LTCG holding-period test (IT Act). This is the earliest TMPV
+        # (INE155A01022) BUY date. Cost basis stays the apportioned §49(2C) price
+        # above; only the holding period is measured from this date.
+        # TODO(sahil): replace with your actual earliest TMPV purchase date before
+        # the GO-LIVE (#42) import — the ICICI order book has the exact date.
+        "acquired_date": datetime(2022, 1, 1, tzinfo=timezone.utc),  # PLACEHOLDER
         "total_fees": Decimal("0"),
         "source": "manual_demerger",
         "source_ref": "DEMERGER_TATAMOTORS_2025:31.15pct_to_TMCV",
-        "notes": "Tata Motors demerger effective 01-Oct-2025. 1:1 ratio. Cost basis = 31.15% of original TMPV cost (₹813.37/sh × 100 sh × 31.15% / 100 sh = ₹253.36/sh).",
+        "notes": "Tata Motors demerger effective 01-Oct-2025. 1:1 ratio. Cost basis = 31.15% of original TMPV cost (₹813.37/sh × 100 sh × 31.15% / 100 sh = ₹253.36/sh). Holding period inherits the original TMPV acquisition date (#53).",
     },
     # ── Reliance Industries 1:1 Bonus (Oct/Nov 2024) ────────────────────────
     # 1 bonus share for every 1 share held. You held 5 RELIANCE shares → 5 bonus shares.
@@ -163,10 +170,17 @@ MANUAL_TRANSACTIONS = [
         "trade_date": datetime(
             2023, 7, 20, tzinfo=timezone.utc
         ),  # Jio Financial demerger record date
+        # #53: JIOFIN inherits the parent RELIANCE (INE002A01018) original
+        # acquisition date for the holding-period test. This is the earliest
+        # RELIANCE BUY date. Cost basis stays ₹113.43 (ICICI demat allocation);
+        # only the holding period is measured from this date.
+        # TODO(sahil): replace with your actual earliest RELIANCE purchase date
+        # before the GO-LIVE (#42) import — the ICICI order book has the exact date.
+        "acquired_date": datetime(2022, 1, 1, tzinfo=timezone.utc),  # PLACEHOLDER
         "total_fees": Decimal("0"),
         "source": "manual_demerger",
         "source_ref": "DEMERGER_JIOFIN_2023:1to1_from_RELIANCE",
-        "notes": "Jio Financial demerger from Reliance — 5 shares received (1:1 ratio for 5 RELIANCE held). Cost basis ₹113.43/share per ICICI demat allocation.",
+        "notes": "Jio Financial demerger from Reliance — 5 shares received (1:1 ratio for 5 RELIANCE held). Cost basis ₹113.43/share per ICICI demat allocation. Holding period inherits the original RELIANCE acquisition date (#53).",
     },
     # ── Tata Steel 1:10 stock split (28-Jul-2022) ───────────────────────────
     # Each share split into 10 (face value reduced from ₹10 to ₹1).

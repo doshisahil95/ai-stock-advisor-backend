@@ -164,6 +164,53 @@ def test_demerger_cost_basis_is_read_from_ledger_not_double_counted(fake_db):
     assert lot["gain"] == Decimal("1500.00")
 
 
+def test_demerger_inherited_holding_period_classifies_ltcg(fake_db):
+    # #53: a demerger receipt is a BUY dated at the RECEIPT date (2024-05-01) but
+    # carrying acquired_date = the parent's original acquisition (2022-01-01). The
+    # SELL is 2024-09-01 — only ~4 months after receipt (would be STCG on the
+    # receipt date) but >2 years after the inherited acquisition date, so it must
+    # classify LTCG and report the long holding period.
+    receipt = {
+        **tx("BUY", 100, 25, trade_date=datetime(2024, 5, 1)),
+        "source": "manual_demerger",
+        "acquired_date": datetime(2022, 1, 1),
+    }
+    fake_db["transactions"].seed(
+        receipt,
+        tx("SELL", 100, 40, trade_date=datetime(2024, 9, 1)),
+    )
+    r = tax_service.compute_capital_gains("2024-25")
+    assert len(r["lots"]) == 1
+    lot = r["lots"][0]
+    assert lot["gain_type"] == "LTCG"
+    assert lot["buy_date"] == "2022-01-01"  # inherited, not the 2024 receipt date
+    assert lot["sell_date"] == "2024-09-01"
+    assert lot["buy_cost"] == Decimal("2500.00")  # cost basis unchanged
+    assert lot["gain"] == Decimal("1500.00")
+    assert lot["holding_period_days"] == (date(2024, 9, 1) - date(2022, 1, 1)).days
+    assert r["summary"]["ltcg"]["realized_gain"] == Decimal("1500.00")
+    assert r["summary"]["stcg"]["lot_count"] == 0
+
+
+def test_demerger_without_acquired_date_uses_receipt_date(fake_db):
+    # Regression guard: a manual_demerger BUY with NO acquired_date behaves exactly
+    # as before #53 — holding period measured from the receipt (trade) date. This
+    # is the exact scenario the existing #39 test covers; here we assert the
+    # short-hold receipt classifies STCG when no inheritance is present.
+    receipt = {
+        **tx("BUY", 100, 25, trade_date=datetime(2024, 5, 1)),
+        "source": "manual_demerger",
+    }
+    fake_db["transactions"].seed(
+        receipt,
+        tx("SELL", 100, 40, trade_date=datetime(2024, 9, 1)),
+    )
+    r = tax_service.compute_capital_gains("2024-25")
+    lot = r["lots"][0]
+    assert lot["gain_type"] == "STCG"
+    assert lot["buy_date"] == "2024-05-01"
+
+
 def test_no_transactions_returns_empty(fake_db):
     r = tax_service.compute_capital_gains("2024-25")
     assert r["fy"] == "2024-25"

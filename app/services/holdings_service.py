@@ -44,6 +44,13 @@ class _Lot:
     price: Decimal
     fees: Decimal
     trade_date: datetime
+    # #53: the date used for the STCG/LTCG holding-period test. For a normal BUY
+    # this equals trade_date. For a demerger receipt (which carries an explicit
+    # `acquired_date` = the parent's original acquisition date), this is that
+    # inherited date, so the holding period is measured from the parent's
+    # acquisition, per the IT Act. FIFO ordering still uses trade_date; cost basis
+    # still uses price. Only the buy_trade_date emitted into _realized_lots differs.
+    acquired_date: datetime
 
 
 def _to_decimal(value) -> Decimal:
@@ -140,6 +147,10 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
         if ttype == "BUY":
             if first_purchased_at is None:
                 first_purchased_at = trade_date
+            # #53: demerger receipts carry an explicit acquired_date (the parent's
+            # original acquisition date) for holding-period inheritance; a normal
+            # BUY has none, so the lot's acquired_date defaults to its trade_date.
+            acquired_date = tx.get("acquired_date") or trade_date
             lots.append(
                 _Lot(
                     transaction_id=tx["_id"],
@@ -147,6 +158,7 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                     price=price,
                     fees=fees,
                     trade_date=trade_date,
+                    acquired_date=acquired_date,
                 )
             )
         elif ttype == "SELL":
@@ -164,7 +176,11 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                 # take*(proceeds/sh - cost/sh) equals this lot's realized_pnl slice.
                 realized_lots.append(
                     {
-                        "buy_trade_date": lot.trade_date,
+                        # #53: buy_trade_date is the HOLDING-PERIOD date (lot.acquired_date),
+                        # which equals lot.trade_date for a normal BUY and the parent's
+                        # inherited acquisition date for a demerger receipt. tax_service
+                        # classifies STCG/LTCG off this date; cost basis is unaffected.
+                        "buy_trade_date": lot.acquired_date,
                         "sell_trade_date": trade_date,
                         "quantity": take,
                         "buy_cost_per_share": buy_cost_per_share,
