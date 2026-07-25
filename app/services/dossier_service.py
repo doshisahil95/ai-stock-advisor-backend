@@ -44,6 +44,10 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - key_risks: an array of EXACTLY 3 strings, each max 150 characters
 - valuation_verdict: a string, max 200 characters. Choose one label from these options and add a brief rationale: deep value, reasonable, fairly priced, premium, overpriced
 - portfolio_fit: a string, max 250 characters, commenting on sector overlap with current holdings
+- hold_horizon: a string, EXACTLY one of these three lowercase words: short, medium, long. This is the expected time the investment thesis needs to play out. Guidance: "short" = roughly 1 to 3 months (a tactical idea driven by momentum or a near-term news catalyst); "medium" = roughly 3 to 12 months (an earnings-cycle or re-rating thesis that should resolve within a year); "long" = 12 months or more (a structural / compounding thesis, which also aligns with India's 12-month long-term capital-gains boundary). Capital parked with no time frame is dead capital, so you MUST commit to one bucket even when the data is thin -- pick the bucket the signals lean toward and explain the uncertainty in the rationale.
+- hold_horizon_expected_move: a string, max 250 characters. State, in plain language, the approximate gain or outcome that would justify tying up capital for the chosen horizon, grounded ONLY in the input data (e.g. valuation gap to peers, earnings-growth trajectory, distance from 52-week high). This is a reasoned expectation, NOT a promise or a price target, and NOT a buy instruction. If the data does not support any quantified expectation, say so honestly (e.g. "Data too thin to frame an expected move; treat as a watch-and-learn position.").
+- hold_horizon_rationale: a string, max 250 characters, explaining WHY this horizon fits (what kind of thesis it is and what drives the timing).
+- hold_horizon_review_trigger: a string, max 200 characters, naming the concrete condition that should make the investor re-examine or exit EARLY, before the horizon is up (e.g. "if it closes below its 52-week support", "re-check after the next earnings print", "if debt-to-equity climbs further").
 
 If the input data is insufficient to produce a confident bull or bear case, use phrases like "Limited data available on..." rather than inventing reasons."""
 
@@ -369,6 +373,24 @@ def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
         parsed["concentration_note"] = str(parsed["concentration_note"])[:300]
     else:
         parsed["portfolio_fit"] = str(parsed["portfolio_fit"])[:300]
+        # #55: LLM-authored hold-horizon. Coerce-and-default rather than
+        # hard-require: a garbled/absent horizon must NOT nuke an otherwise
+        # good narrative (the horizon keys are intentionally absent from the
+        # `required` list above). An off-list bucket coerces to "medium";
+        # missing prose coerces to the standard "(insufficient data)" marker
+        # so the frontend's startsWith("(") availability guard hides it.
+        bucket = str(parsed.get("hold_horizon", "")).strip().lower()
+        parsed["hold_horizon"] = bucket if bucket in ("short", "medium", "long") else "medium"
+        for _hk in (
+            "hold_horizon_expected_move",
+            "hold_horizon_rationale",
+            "hold_horizon_review_trigger",
+        ):
+            val = parsed.get(_hk)
+            if val is None or not str(val).strip():
+                parsed[_hk] = "(insufficient data)"
+            else:
+                parsed[_hk] = str(val)[:300]
 
     return parsed
 
@@ -406,6 +428,13 @@ def _empty_dossier(reason: str, direction: str = "buy") -> dict:
         base["concentration_note"] = "(unavailable)"
     else:
         base["portfolio_fit"] = "(unavailable)"
+        # #55: keep the fallback buy-dossier shape aligned with a successful
+        # one. "medium" is the neutral default bucket; the prose markers start
+        # with "(" so the frontend availability guard hides them.
+        base["hold_horizon"] = "medium"
+        base["hold_horizon_expected_move"] = "(unavailable)"
+        base["hold_horizon_rationale"] = "(unavailable)"
+        base["hold_horizon_review_trigger"] = "(unavailable)"
     return base
 
 
