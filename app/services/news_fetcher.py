@@ -116,6 +116,123 @@ def _build_fallback_query(symbol: str, name: str) -> str:
     return f"{symbol} stock"
 
 
+# ── Entity relevance gate (master_todo #50) ──────────────────────────────────
+# Tavily's topic="news" ranking is imperfect: a query for company A can surface
+# an article actually about company B (the #27 HDFCBANK chat returned TCS /
+# Kenya's Family Bank articles). Pre-#50, _persist_results stamped the QUERY
+# isin onto entities_isins for EVERY result with no check, AND the dedup
+# $addToSet branch appended OTHER companies' ISINs onto a shared URL -- so
+# entities_isins meant "any query that surfaced this URL", not "companies this
+# article is about". That mis-tag flows straight into news_signals, the dossier
+# news block, the #27 chat, and (now) the #57 news-alert evaluator.
+#
+# The fix keeps entities_isins as list[str] (no downstream query-shape change)
+# but only stamps a company's ISIN when the article text actually references
+# that company. Provenance (fetched_for_isins/_symbols) is unaffected and stays
+# unconditional -- one URL is legitimately fetched under many queries. This is
+# deterministic (no LLM / no new dependency) and is the SINGLE source of truth
+# reused by the scripts/retag_news_entities.py backfill so the two never drift.
+
+# Corporate suffixes stripped before name-token matching (superset of the ones
+# _build_query strips, since here we also want to drop punctuation-y variants).
+_COMPANY_SUFFIXES = (
+    "limited",
+    "ltd",
+    "corporation",
+    "corp",
+    "company",
+    "co",
+    "industries",
+    "enterprises",
+)
+
+# Generic name tokens that must NOT alone qualify a match (too common; e.g.
+# "India", "Bank", "Finance" appear in unrelated companies' articles).
+_GENERIC_NAME_TOKENS = frozenset(
+    {
+        "the",
+        "and",
+        "of",
+        "india",
+        "indian",
+        "bank",
+        "finance",
+        "financial",
+        "services",
+        "motors",
+        "power",
+        "steel",
+        "energy",
+        "life",
+        "general",
+        "national",
+        "state",
+        "new",
+        "auto",
+        "tech",
+        "digital",
+        "global",
+        "international",
+    }
+)
+
+
+def _norm_tokens(text: str) -> set[str]:
+    """Lowercase + split on non-alphanumerics into a set of word tokens."""
+    if not text:
+        return set()
+    out: set[str] = set()
+    token: list[str] = []
+    for ch in text.lower():
+        if ch.isalnum():
+            token.append(ch)
+        else:
+            if token:
+                out.add("".join(token))
+                token = []
+    if token:
+        out.add("".join(token))
+    return out
+
+
+def _company_name_tokens(name: str) -> set[str]:
+    """Distinctive lowercase tokens from a company name.
+
+    Strips corporate suffixes and drops generic tokens (India, Bank, Finance,
+    ...) that would over-match unrelated companies. Returns the set of tokens
+    that, if present in an article, count as a name mention.
+    """
+    tokens = _norm_tokens(name)
+    tokens = {t for t in tokens if t not in _COMPANY_SUFFIXES}
+    distinctive = {t for t in tokens if len(t) >= 3 and t not in _GENERIC_NAME_TOKENS}
+    return distinctive
+
+
+def _article_mentions_company(
+    title: str, summary: str, symbol: str, name: str
+) -> bool:
+    """True if the article text plausibly refers to THIS company.
+
+    Match rule (deterministic, entity-relevance gate for #50):
+      1. The NSE symbol appears as a whole token in title/summary, OR
+      2. At least one distinctive company-name token appears in title/summary.
+
+    Provenance (which query fetched the article) is tracked separately and is
+    unaffected by this gate -- this only decides whether the company's ISIN is
+    written to entities_isins ("what the article is about").
+    """
+    article_tokens = _norm_tokens(f"{title} {summary}")
+    if not article_tokens:
+        return False
+
+    sym = (symbol or "").strip().lower()
+    if sym and sym in article_tokens:
+        return True
+
+    name_tokens = _company_name_tokens(name or "")
+    return bool(name_tokens & article_tokens)
+
+
 def _normalize_published_at(raw: Any) -> datetime | None:
     if raw is None:
         return None
@@ -147,9 +264,15 @@ def _persist_results(
     results: list[dict],
     isin: str,
     symbol: str,
+    name: str,
     stats: dict,
 ) -> None:
-    """Persist Tavily results into news_articles with dedup by URL."""
+    """Persist Tavily results into news_articles with dedup by URL.
+
+    `name` is the company name, used by the #50 entity-relevance gate
+    (_article_mentions_company) to decide whether this company's ISIN belongs
+    in entities_isins. Provenance (fetched_for_*) is recorded regardless.
+    """
     coll = Collections.news_articles()
     now = utcnow()
 
@@ -178,6 +301,14 @@ def _persist_results(
             r.get("published_date") or r.get("published_at")
         )
 
+        # #50 entity-relevance gate: only tag entities_isins/entities_symbols
+        # when the article actually references THIS company. Provenance
+        # (fetched_for_*) is always recorded so we never lose "which query
+        # surfaced this URL" -- but entities_* must mean "what it's about".
+        is_about = _article_mentions_company(title, summary, symbol, name)
+        if not is_about:
+            stats["skipped_off_topic_entity"] += 1
+
         try:
             doc = {
                 "url": url,
@@ -190,8 +321,8 @@ def _persist_results(
                 "fetched_at": now,
                 "fetched_for_isins": [isin],
                 "fetched_for_symbols": [symbol.upper()],
-                "entities_isins": [isin],
-                "entities_symbols": [symbol.upper()],
+                "entities_isins": [isin] if is_about else [],
+                "entities_symbols": [symbol.upper()] if is_about else [],
                 "classified": False,
                 "themes": [],
                 "_schema_version": 1,
@@ -201,15 +332,22 @@ def _persist_results(
             coll.insert_one(_convert_decimals_to_decimal128(doc))
             stats["new_inserted"] += 1
         except DuplicateKeyError:
+            # Provenance always accumulates (a URL is legitimately fetched under
+            # many queries). Entity tags accumulate ONLY when this company is
+            # actually referenced -- this is what stops the pre-#50 cross-company
+            # $addToSet from appending an unrelated company's ISIN to a shared
+            # aggregator URL.
+            add_to_set: dict = {
+                "fetched_for_isins": isin,
+                "fetched_for_symbols": symbol.upper(),
+            }
+            if is_about:
+                add_to_set["entities_isins"] = isin
+                add_to_set["entities_symbols"] = symbol.upper()
             coll.update_one(
                 {"url": url},
                 {
-                    "$addToSet": {
-                        "entities_isins": isin,
-                        "entities_symbols": symbol.upper(),
-                        "fetched_for_isins": isin,
-                        "fetched_for_symbols": symbol.upper(),
-                    },
+                    "$addToSet": add_to_set,
                     "$set": {"updated_at": now},
                 },
             )
@@ -237,6 +375,7 @@ def fetch_for_instrument(
         "merged_existing": 0,
         "skipped_excluded_domain": 0,
         "skipped_low_signal_url": 0,
+        "skipped_off_topic_entity": 0,  # #50: persisted but not entity-tagged
         "fallback_used": False,
         "error": None,
     }
@@ -261,7 +400,7 @@ def fetch_for_instrument(
 
     results = response.get("results", []) or []
     stats["fetched"] = len(results)
-    _persist_results(results, isin, symbol, stats)
+    _persist_results(results, isin, symbol, name, stats)
 
     # Fallback if we got nothing useful (zero results OR everything was filtered)
     inserted_or_merged = stats["new_inserted"] + stats["merged_existing"]
@@ -285,14 +424,15 @@ def fetch_for_instrument(
                 )
                 fb_results = response.get("results", []) or []
                 stats["fetched"] += len(fb_results)
-                _persist_results(fb_results, isin, symbol, stats)
+                _persist_results(fb_results, isin, symbol, name, stats)
             except TavilyQuotaExceeded:
                 raise
             except Exception as exc:
                 log.warning("Fallback fetch failed for %s: %s", symbol, exc)
 
     log.info(
-        "  News %s (%s): fetched=%d, new=%d, merged=%d, dom-excl=%d, url-excl=%d, fb=%s",
+        "  News %s (%s): fetched=%d, new=%d, merged=%d, dom-excl=%d, "
+        "url-excl=%d, off-topic=%d, fb=%s",
         symbol,
         isin,
         stats["fetched"],
@@ -300,6 +440,7 @@ def fetch_for_instrument(
         stats["merged_existing"],
         stats["skipped_excluded_domain"],
         stats["skipped_low_signal_url"],
+        stats["skipped_off_topic_entity"],
         stats["fallback_used"],
     )
     return stats
@@ -321,6 +462,7 @@ def fetch_for_universe(
         "total_merged": 0,
         "total_dom_excluded": 0,
         "total_url_excluded": 0,
+        "total_off_topic_entity": 0,
         "fallback_count": 0,
         "quota_exceeded": False,
         "stopped_early_at": None,
@@ -352,6 +494,7 @@ def fetch_for_universe(
             aggregate["total_merged"] += stats["merged_existing"]
             aggregate["total_dom_excluded"] += stats["skipped_excluded_domain"]
             aggregate["total_url_excluded"] += stats["skipped_low_signal_url"]
+            aggregate["total_off_topic_entity"] += stats["skipped_off_topic_entity"]
             if stats["fallback_used"]:
                 aggregate["fallback_count"] += 1
 
@@ -366,13 +509,15 @@ def fetch_for_universe(
 
     log.info(
         "News fetch complete: %d/%d succeeded, %d new, %d merged, "
-        "%d dom-excl, %d url-excl, %d fallbacks used",
+        "%d dom-excl, %d url-excl, %d off-topic (persisted, not entity-tagged), "
+        "%d fallbacks used",
         aggregate["succeeded"],
         aggregate["attempted"],
         aggregate["total_new_inserted"],
         aggregate["total_merged"],
         aggregate["total_dom_excluded"],
         aggregate["total_url_excluded"],
+        aggregate["total_off_topic_entity"],
         aggregate["fallback_count"],
     )
     return aggregate
