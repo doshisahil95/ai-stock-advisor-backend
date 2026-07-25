@@ -45,7 +45,7 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - valuation_verdict: a string, max 200 characters. Choose one label from these options and add a brief rationale: deep value, reasonable, fairly priced, premium, overpriced
 - portfolio_fit: a string, max 250 characters, commenting on sector overlap with current holdings
 - hold_horizon: a string, EXACTLY one of these three lowercase words: short, medium, long. This is the expected time the investment thesis needs to play out. Guidance: "short" = roughly 1 to 3 months (a tactical idea driven by momentum or a near-term news catalyst); "medium" = roughly 3 to 12 months (an earnings-cycle or re-rating thesis that should resolve within a year); "long" = 12 months or more (a structural / compounding thesis, which also aligns with India's 12-month long-term capital-gains boundary). Capital parked with no time frame is dead capital, so you MUST commit to one bucket even when the data is thin -- pick the bucket the signals lean toward and explain the uncertainty in the rationale.
-- hold_horizon_expected_move: a string, max 250 characters. State, in plain language, the approximate gain or outcome that would justify tying up capital for the chosen horizon, grounded ONLY in the input data (e.g. valuation gap to peers, earnings-growth trajectory, distance from 52-week high). This is a reasoned expectation, NOT a promise or a price target, and NOT a buy instruction. If the data does not support any quantified expectation, say so honestly (e.g. "Data too thin to frame an expected move; treat as a watch-and-learn position.").
+- hold_horizon_expected_move: a string of COMPLETE sentences, max 250 characters (finish your last sentence within the budget -- do NOT trail off mid-thought). State, in plain language, the approximate gain or outcome that would justify tying up capital for the chosen horizon, grounded ONLY in the input data (e.g. valuation gap to peers, earnings-growth trajectory, distance from 52-week high). This is a reasoned expectation, NOT a promise or a price target, and NOT a buy instruction. If the data does not support any quantified expectation, say so honestly (e.g. "Data too thin to frame an expected move; treat as a watch-and-learn position.").
 - hold_horizon_rationale: a string, max 250 characters, explaining WHY this horizon fits (what kind of thesis it is and what drives the timing).
 - hold_horizon_review_trigger: a string, max 200 characters, naming the concrete condition that should make the investor re-examine or exit EARLY, before the horizon is up (e.g. "if it closes below its 52-week support", "re-check after the next earnings print", "if debt-to-equity climbs further").
 
@@ -92,6 +92,32 @@ def _to_float(val: Any) -> float | None:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def _clamp_sentence(text: str, limit: int) -> str:
+    """Clamp to `limit` chars WITHOUT slicing mid-word.
+
+    A hard `text[:limit]` slice can cut a dossier field mid-word (e.g.
+    "...stretched valuation and a") which reads as a bug in the UI. Instead:
+    if the text is within budget, return it unchanged; otherwise cut back to
+    the last sentence end (. ! ?) inside the budget when there is a
+    substantial one, else the last word boundary, and append an ellipsis so
+    the truncation is visibly intentional. Applied to the #55 hold-horizon
+    prose fields, which run right up against their prompt char budget.
+    """
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    # Prefer a clean sentence boundary if it keeps most of the budget.
+    last_sentence = max(window.rfind(". "), window.rfind("! "), window.rfind("? "))
+    if last_sentence >= int(limit * 0.6):
+        return window[: last_sentence + 1]
+    # Else fall back to the last whole word + ellipsis.
+    last_space = window.rfind(" ")
+    if last_space > 0:
+        window = window[:last_space]
+    return window.rstrip(" ,;:-") + "…"
 
 
 def _format_news_summaries(news_articles: list[dict]) -> str:
@@ -390,7 +416,11 @@ def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
             if val is None or not str(val).strip():
                 parsed[_hk] = "(insufficient data)"
             else:
-                parsed[_hk] = str(val)[:300]
+                # Clamp on a sentence/word boundary (not a hard mid-word slice)
+                # so the horizon prose never renders as a cut-off fragment. The
+                # 400-char budget comfortably clears the prompt's ~250-char ask,
+                # so a well-formed answer passes through unchanged.
+                parsed[_hk] = _clamp_sentence(str(val), 400)
 
     return parsed
 

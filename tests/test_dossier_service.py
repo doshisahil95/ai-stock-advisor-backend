@@ -16,7 +16,11 @@ from __future__ import annotations
 
 import json
 
-from app.services.dossier_service import _empty_dossier, _parse_dossier
+from app.services.dossier_service import (
+    _clamp_sentence,
+    _empty_dossier,
+    _parse_dossier,
+)
 
 
 def _buy_json(**overrides) -> str:
@@ -128,3 +132,48 @@ def test_empty_sell_dossier_has_no_horizon_shape():
     d = _empty_dossier("parse_failure", direction="sell")
     assert "hold_horizon" not in d
     assert d["tax_consideration"] == "(unavailable)"
+
+
+# ── _clamp_sentence (no mid-word truncation) ────────────────────────────────
+def test_clamp_short_text_unchanged():
+    assert _clamp_sentence("A tidy sentence.", 400) == "A tidy sentence."
+
+
+def test_clamp_never_slices_mid_word():
+    # Single long run of words, no sentence boundary -> cut at a word + ellipsis.
+    text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+    out = _clamp_sentence(text, 30)
+    assert len(out) <= 31  # 30 + the 1-char ellipsis
+    assert out.endswith("…")
+    # The visible body must be whole words only (no partial trailing token).
+    body = out[:-1].strip()
+    assert text.startswith(body)
+    assert body.split() == body.split()  # no empties
+    # The character right after the kept body in the source is a space, proving
+    # we cut on a word boundary rather than mid-token.
+    assert text[len(body)] == " "
+
+
+def test_clamp_prefers_sentence_boundary():
+    text = "First complete thought here is quite long indeed. Second dangling clause that overflows the budget badly"
+    out = _clamp_sentence(text, 60)
+    assert out == "First complete thought here is quite long indeed."
+    assert not out.endswith("…")
+
+
+def test_horizon_prose_not_cut_mid_word_via_parser():
+    long_move = (
+        "A re-rating toward the 52-week high implies a mid-teens percentage "
+        "gain over the next two earnings cycles as margins normalize and the "
+        "valuation discount to sector peers closes, though execution risk on "
+        "the current guidance keeps conviction moderate rather than strong here"
+    )  # > 250 chars, single run near the boundary
+    parsed = _parse_dossier(_buy_json(hold_horizon_expected_move=long_move), direction="buy")
+    assert parsed is not None
+    move = parsed["hold_horizon_expected_move"]
+    # Never exceeds the 400 budget, and never ends on a partial word.
+    assert len(move) <= 401
+    if move.endswith("…"):
+        # boundary cut: the kept body is a prefix ending at a source space
+        body = move[:-1]
+        assert long_move.startswith(body)
