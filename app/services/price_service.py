@@ -811,3 +811,190 @@ def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
         fired += 1
 
     return fired
+
+
+#  Target-price intraday alerts (master_todo #56)
+
+
+def evaluate_target_price_alerts(rows: list[dict]) -> int:
+    """Fire a rising-edge target-price alert per holding whose latest intraday
+    price has just crossed ABOVE its configured target_price.
+
+    Direct mirror of evaluate_stop_loss_alerts (#41) on the SAME intraday write
+    path -- called by scripts/refresh_prices_intraday.py right after
+    insert_intraday_quotes on the SAME rows already fetched (NO parallel price
+    fetch; the cron stays a thin caller). Every axis is the stop-loss logic
+    inverted:
+
+      - Only holdings with target_price set AND "target" in alert_on are checked
+        (the Holding model default alert_on is ["stop_loss", "target", ...], so
+        the token is "target", not "target_price").
+      - Rising edge: fire once when price crosses ABOVE target_price, stay quiet
+        while it remains above, and re-arm when a later intraday tick shows
+        price back at/below target_price.
+      - Dedup is success-gated: only a previously DELIVERED target_hit alert
+        (delivery_status == "sent") suppresses re-fires. A prior send that
+        FAILED does not suppress, so a transient ntfy outage can't silently
+        swallow a real breach -- the next 15-min tick retries.
+      - #67 Guard B analog: a first-ever fire must PROVE the target was armed --
+        some intraday tick for this ISIN was at/below target_price at some point,
+        i.e. the price genuinely crossed UP through the target. A target_price
+        set at/below every price the stock has ever traded at (garbage/seed
+        pollution) was never armed and would otherwise fire on the very first
+        tick. Suppress it.
+      - Transport is ntfy-only via push_public("price", ...); every attempt is
+        persisted to alerts_log as the durable audit row (Alert
+        alert_type="target_hit"), whether the push succeeded or not.
+
+    Returns the number of alerts fired (attempted) this run.
+    """
+    if not rows:
+        return 0
+
+    # isin -> latest intraday price (Decimal; rows are pre-Decimal128).
+    price_by_isin: dict[str, Decimal] = {}
+    for r in rows:
+        p = r.get("price")
+        if p is None:
+            continue
+        price_by_isin[r["isin"]] = p if isinstance(p, Decimal) else Decimal(str(p))
+
+    if not price_by_isin:
+        return 0
+
+    isins = list(price_by_isin.keys())
+    holdings = list(
+        Collections.holdings().find(
+            {
+                "deleted_at": None,
+                "isin": {"$in": isins},
+                "target_price": {"$ne": None},
+                "alert_on": "target",  # array-membership match
+            },
+            {"isin": 1, "symbol": 1, "target_price": 1, "avg_cost": 1, "quantity": 1},
+        )
+    )
+    if not holdings:
+        return 0
+
+    alerts_log = Collections.alerts_log()
+    intraday = Collections.prices_intraday()
+    fired = 0
+
+    def _to_dec(v) -> Decimal:
+        if isinstance(v, Decimal128):
+            return v.to_decimal()
+        if isinstance(v, Decimal):
+            return v
+        return Decimal(str(v))
+
+    for h in holdings:
+        isin = h["isin"]
+        symbol = h.get("symbol", isin)
+        ltp = price_by_isin.get(isin)
+        if ltp is None:
+            continue
+        target_price = _to_dec(h["target_price"])
+
+        # Only a strictly-above tick is a target breach.
+        if ltp <= target_price:
+            continue
+
+        # Success-gated rising-edge dedup: most recent DELIVERED target_hit
+        # alert for this ISIN. If one exists, stay quiet unless a later intraday
+        # tick has since re-armed (price back at/below target_price).
+        last_sent = alerts_log.find_one(
+            {
+                "isin": isin,
+                "alert_type": "target_hit",
+                "delivery_status": "sent",
+            },
+            sort=[("sent_at", DESCENDING)],
+        )
+        if last_sent is not None:
+            rearmed = (
+                intraday.find_one(
+                    {
+                        "isin": isin,
+                        "captured_at": {"$gt": last_sent["sent_at"]},
+                        "price": {"$lte": Decimal128(target_price)},
+                    }
+                )
+                is not None
+            )
+            if not rearmed:
+                continue  # still above since the last delivered alert -- suppress
+        else:
+            # #67 Guard B analog: a first-ever fire must PROVE the target was
+            # armed -- some intraday tick for this ISIN was at/below target_price
+            # at some point, i.e. the price genuinely crossed UP through the
+            # target. A target_price set at/below every price the stock has ever
+            # traded at (garbage/seed pollution) was never armed and would
+            # otherwise fire on the very first tick. Suppress it.
+            armed = (
+                intraday.find_one(
+                    {
+                        "isin": isin,
+                        "price": {"$lte": Decimal128(target_price)},
+                    }
+                )
+                is not None
+            )
+            if not armed:
+                continue  # target_price <= every observed price -- never armed
+
+        # Rising edge (or re-armed): fire.
+        ltp_str = f"{ltp:.2f}"
+        tp_str = f"{target_price:.2f}"
+        title = f"{symbol} target hit"
+        body = f"{symbol} \u20b9{ltp_str} crossed above target \u20b9{tp_str}"
+
+        pct_change = (
+            float((ltp / target_price - 1) * 100) if target_price > 0 else None
+        )
+
+        delivery_status = "sent"
+        delivery_error = ""
+        ntfy_message_id = ""
+        try:
+            resp = push_public(
+                channel="price",
+                title=title,
+                message=body,
+                priority="high",
+                tags=["dart"],
+            )
+            if isinstance(resp, dict):
+                ntfy_message_id = str(resp.get("id", "") or "")
+        except Exception as exc:  # push_public raises on transport failure
+            log.exception("Target-price ntfy push failed for %s", isin)
+            delivery_status = "failed"
+            delivery_error = str(exc)
+
+        alert = Alert(
+            alert_type="target_hit",
+            severity="high",
+            channel="ntfy_public_price",
+            isin=isin,
+            symbol=symbol,
+            title=title,
+            body=body,
+            trigger_data=TriggerData(
+                current_price=ltp,
+                target_price=target_price,
+                avg_cost=_to_dec(h["avg_cost"])
+                if h.get("avg_cost") is not None
+                else None,
+                quantity=_to_dec(h["quantity"])
+                if h.get("quantity") is not None
+                else None,
+                pct_change=pct_change,
+            ),
+            ntfy_message_id=ntfy_message_id,
+            delivery_status=delivery_status,
+            delivery_error=delivery_error,
+        )
+        alerts_log.insert_one(alert.to_mongo())
+        fired += 1
+
+    return fired

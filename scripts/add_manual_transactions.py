@@ -91,13 +91,17 @@ MANUAL_TRANSACTIONS = [
         "quantity": Decimal("100"),
         "price": Decimal("253.3647"),  # 31.15% of ₹813.37
         "trade_date": datetime(2025, 10, 1, tzinfo=timezone.utc),
-        # #53: demerger receipts INHERIT the parent's original acquisition date for
-        # the STCG/LTCG holding-period test (IT Act). This is the earliest TMPV
-        # (INE155A01022) BUY date. Cost basis stays the apportioned §49(2C) price
-        # above; only the holding period is measured from this date.
-        # TODO(sahil): replace with your actual earliest TMPV purchase date before
-        # the GO-LIVE (#42) import — the ICICI order book has the exact date.
-        "acquired_date": datetime(2022, 1, 1, tzinfo=timezone.utc),  # PLACEHOLDER
+        # #53/#70: demerger receipts INHERIT the parent's original acquisition
+        # date for the STCG/LTCG holding-period test (IT Act). This is the
+        # earliest TMPV (INE155A01022) BUY date, from the ICICI order book:
+        # 18-Oct-2023 (5 sh @ ₹661.95). NOTE (#70): the 100 TMPV parent block
+        # was bought across THREE lots (5 sh 18-Oct-2023 + 22 sh 05-Jun-2024 +
+        # 73 sh 02-Dec-2024); the single acquired_date carries the EARLIEST
+        # (LTCG-favourable) date onto the whole 100-sh TMCV receipt — an
+        # accepted approximation for the multi-lot block (exact per-lot
+        # inheritance is the deferred Option B). Cost basis stays the
+        # apportioned §49(2C) price above; only the holding period moves.
+        "acquired_date": datetime(2023, 10, 18, tzinfo=timezone.utc),
         "total_fees": Decimal("0"),
         "source": "manual_demerger",
         "source_ref": "DEMERGER_TATAMOTORS_2025:31.15pct_to_TMCV",
@@ -170,13 +174,15 @@ MANUAL_TRANSACTIONS = [
         "trade_date": datetime(
             2023, 7, 20, tzinfo=timezone.utc
         ),  # Jio Financial demerger record date
-        # #53: JIOFIN inherits the parent RELIANCE (INE002A01018) original
+        # #53/#70: JIOFIN inherits the parent RELIANCE (INE002A01018) original
         # acquisition date for the holding-period test. This is the earliest
-        # RELIANCE BUY date. Cost basis stays ₹113.43 (ICICI demat allocation);
-        # only the holding period is measured from this date.
-        # TODO(sahil): replace with your actual earliest RELIANCE purchase date
-        # before the GO-LIVE (#42) import — the ICICI order book has the exact date.
-        "acquired_date": datetime(2022, 1, 1, tzinfo=timezone.utc),  # PLACEHOLDER
+        # RELIANCE BUY date, from the ICICI order book: 25-Jul-2022 (5 sh @
+        # ₹2423.70). Single-block parent (all 5 JIOFIN came from that one 5-sh
+        # RELIANCE buy; the 01-Nov-2024 1:1 bonus post-dates the 20-Jul-2023
+        # demerger and is NOT the parent), so this inherited date is EXACT.
+        # Cost basis stays ₹113.43 (ICICI demat allocation); only the holding
+        # period is measured from this date.
+        "acquired_date": datetime(2022, 7, 25, tzinfo=timezone.utc),
         "total_fees": Decimal("0"),
         "source": "manual_demerger",
         "source_ref": "DEMERGER_JIOFIN_2023:1to1_from_RELIANCE",
