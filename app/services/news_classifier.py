@@ -1,9 +1,13 @@
 """Claude Haiku classifier for news articles.
 
-Two-phase classification:
-  1. Main pass: large batches (BATCH_SIZE=25)
-  2. Retry pass: anything still unclassified gets re-tried in tiny batches
-     (RETRY_PASS_BATCH_SIZE=3), so a single bad article cannot block others.
+Three-phase classification (as of #50):
+  1. Main pass: large batches (BATCH_SIZE=25) — sentiment/severity/themes.
+  2. Retry pass: stragglers in tiny batches (RETRY_PASS_BATCH_SIZE=3).
+  3. Entity-confirmation pass (confirm_entities_llm): for articles where the
+     rule-gate (_article_mentions_company in news_fetcher) was uncertain or
+     left ISINs unconfirmed, ask Haiku per (article, company) pair whether the
+     article is actually about that company. Additive: only adds ISINs back into
+     entities_isins (never removes); runs after phases 1+2.
 """
 
 from __future__ import annotations
@@ -362,5 +366,245 @@ def classify_unclassified(
         stats["retry_pass_classified"],
         stats["failed_batches"],
         stats["still_unclassified"],
+    )
+    return stats
+
+
+# ── Entity-confirmation pass (master_todo #50, phase 3) ─────────────────────
+
+# A separate, lightweight Haiku pass that runs AFTER the main classify pass.
+# It covers ISINs that the rule-gate (_article_mentions_company) was uncertain
+# about: articles that were fetched for a company but not yet entity-tagged
+# (i.e. fetched_for_isins ⊃ entities_isins). For each such (article, company)
+# pair, Haiku answers a binary "is this article actually about this company?"
+# question. Confirmed pairs get $addToSet'd back into entities_isins.
+#
+# Pairs are batched to keep Haiku calls cheap. Output is additive: the pass
+# can only ADD ISINs back; it never strips ones the rule-gate already accepted.
+# (Rule-gate false-positives from known-good matches are trusted; the LLM
+# handles the cases the rule-gate had to reject conservatively.)
+
+_ENTITY_CONFIRM_SYSTEM_PROMPT = """You are a relevance checker for a financial news system.
+
+For each item, decide whether the news article is actually ABOUT the named company.
+"About" means the company is a primary or significant subject of the story -- not just a passing mention in a list or an unrelated context.
+
+Output a single JSON array, one object per item, in input order:
+[{"id": "<the id field echoed back>", "is_about": true or false}, ...]
+
+No prose outside the array.
+
+Guidelines:
+- true: the article discusses the company's earnings, products, management, stock, deals, regulatory actions, or is clearly focused on that company.
+- false: the company is mentioned only incidentally (e.g. as one of many stocks in a market recap), the article is about a similarly-named company in a different sector/country, or the company is not meaningfully relevant to the story.
+"""
+
+_ENTITY_CONFIRM_BATCH_SIZE = 20  # pairs per Haiku call
+
+
+def _build_entity_confirm_prompt(pairs: list[dict]) -> str:
+    """Build the user prompt for the entity-confirmation batch."""
+    lines = [
+        "Decide whether each article is about the named company.\n"
+    ]
+    for p in pairs:
+        lines.append(
+            "---\n"
+            f"id: {p['pair_id']}\n"
+            f"company: {p['name']} ({p['symbol']})\n"
+            f"title: {p['title']}\n"
+            f"summary: {p['summary'][:400]}\n"
+        )
+    return "\n".join(lines)
+
+
+def _call_entity_confirm_batch(pairs: list[dict]) -> dict[str, bool]:
+    """Call Haiku on a batch of (article, company) pairs. Returns {pair_id: is_about}."""
+    if not pairs:
+        return {}
+    from anthropic import Anthropic
+
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    prompt = _build_entity_confirm_prompt(pairs)
+
+    for attempt in range(2):
+        try:
+            message = client.messages.create(
+                model=settings.ANTHROPIC_MODEL_FAST,
+                max_tokens=1024,
+                system=_ENTITY_CONFIRM_SYSTEM_PROMPT
+                + (
+                    "\n\nIMPORTANT: Output ONLY the JSON array. No prose, no markdown."
+                    if attempt > 0
+                    else ""
+                ),
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            log.error("Entity-confirm Haiku call failed (attempt %d): %s", attempt + 1, exc)
+            return {}
+
+        raw = "".join(
+            block.text for block in message.content if hasattr(block, "text")
+        )
+        parsed = _parse_response(raw)  # reuse existing JSON-array parser
+        if parsed is None:
+            if attempt == 0:
+                log.warning("Entity-confirm: unparseable response, retrying")
+                continue
+            log.error("Entity-confirm: unparseable after retry")
+            return {}
+
+        pair_ids_in_batch = {p["pair_id"] for p in pairs}
+        results: dict[str, bool] = {}
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("id", ""))
+            if pid not in pair_ids_in_batch:
+                continue
+            is_about = item.get("is_about")
+            if isinstance(is_about, bool):
+                results[pid] = is_about
+        return results
+
+    return {}
+
+
+def confirm_entities_llm(only_recent_days: int | None = 35) -> dict:
+    """LLM entity-confirmation pass (master_todo #50, additive).
+
+    Finds classified articles where some fetched_for_isins entries are absent
+    from entities_isins (rule-gate conservatively rejected them), asks Haiku
+    per (article, company) pair, and $addToSet confirmed ISINs back.
+
+    Returns stats dict.
+    """
+    from datetime import timedelta
+
+    coll = Collections.news_articles()
+    query: dict = {"classified": True, "fetched_for_isins": {"$exists": True}}
+    if only_recent_days is not None:
+        cutoff = utcnow() - timedelta(days=only_recent_days)
+        query["fetched_at"] = {"$gte": cutoff}
+
+    # Fetch docs that have at least one fetched_for_isin -- we'll filter for
+    # unconfirmed pairs in Python (simpler than a $expr $setDifference query).
+    cursor = coll.find(
+        query,
+        {
+            "_id": 1,
+            "title": 1,
+            "summary": 1,
+            "fetched_for_isins": 1,
+            "fetched_for_symbols": 1,
+            "entities_isins": 1,
+        },
+    )
+    articles = list(cursor)
+
+    # Load instrument name index for all ISINs seen in fetched_for_isins.
+    all_fetched_isins: set[str] = set()
+    for art in articles:
+        for isin in art.get("fetched_for_isins", []) or []:
+            all_fetched_isins.add(isin)
+
+    instr_idx: dict[str, dict] = {}
+    if all_fetched_isins:
+        for inst in Collections.instruments().find(
+            {"isin": {"$in": list(all_fetched_isins)}},
+            {"_id": 0, "isin": 1, "symbol": 1, "name": 1},
+        ):
+            isin = inst.get("isin")
+            if isin:
+                instr_idx[isin] = {
+                    "symbol": (inst.get("symbol") or "").upper(),
+                    "name": inst.get("name") or "",
+                }
+
+    # Build (article, company) pairs where the ISIN is NOT yet in entities_isins.
+    pairs: list[dict] = []
+    for art in articles:
+        confirmed = set(art.get("entities_isins", []) or [])
+        title = (art.get("title") or "").strip()
+        summary = (art.get("summary") or "").strip()
+        for isin in art.get("fetched_for_isins", []) or []:
+            if isin in confirmed:
+                continue  # rule-gate already accepted this one -- skip
+            meta = instr_idx.get(isin)
+            if meta is None:
+                continue  # unknown instrument -- cannot ask LLM
+            pairs.append(
+                {
+                    "pair_id": f"{art['_id']}|{isin}",
+                    "article_id": art["_id"],
+                    "isin": isin,
+                    "symbol": meta["symbol"],
+                    "name": meta["name"],
+                    "title": title,
+                    "summary": summary,
+                }
+            )
+
+    stats = {
+        "articles_scanned": len(articles),
+        "pairs_checked": len(pairs),
+        "pairs_confirmed": 0,
+        "pairs_rejected": 0,
+        "batches": 0,
+        "failed_batches": 0,
+        "model": settings.ANTHROPIC_MODEL_FAST,
+    }
+
+    if not pairs:
+        log.info("Entity-confirm: no unconfirmed pairs to check")
+        return stats
+
+    log.info(
+        "Entity-confirm: checking %d (article, company) pairs in batches of %d",
+        len(pairs),
+        _ENTITY_CONFIRM_BATCH_SIZE,
+    )
+    now = utcnow()
+
+    for i in range(0, len(pairs), _ENTITY_CONFIRM_BATCH_SIZE):
+        batch = pairs[i : i + _ENTITY_CONFIRM_BATCH_SIZE]
+        stats["batches"] += 1
+        results = _call_entity_confirm_batch(batch)
+        if not results:
+            stats["failed_batches"] += 1
+            log.warning(
+                "Entity-confirm batch %d returned no results", stats["batches"]
+            )
+            continue
+
+        for p in batch:
+            pid = p["pair_id"]
+            is_about = results.get(pid)
+            if is_about is None:
+                continue  # LLM didn't return a verdict for this pair -- skip
+            if is_about:
+                stats["pairs_confirmed"] += 1
+                coll.update_one(
+                    {"_id": p["article_id"]},
+                    {
+                        "$addToSet": {
+                            "entities_isins": p["isin"],
+                            "entities_symbols": p["symbol"],
+                        },
+                        "$set": {"updated_at": now},
+                    },
+                )
+            else:
+                stats["pairs_rejected"] += 1
+
+    log.info(
+        "Entity-confirm complete: %d pairs checked, %d confirmed, %d rejected, "
+        "%d batches (%d failed)",
+        stats["pairs_checked"],
+        stats["pairs_confirmed"],
+        stats["pairs_rejected"],
+        stats["batches"],
+        stats["failed_batches"],
     )
     return stats

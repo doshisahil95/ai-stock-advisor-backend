@@ -4,9 +4,14 @@ Designed to run daily via cron, separately from the weekly suggestions run.
 The suggestions run consumes whatever's already classified, so we want news
 fresh BEFORE Sunday morning.
 
-Two-phase:
-  1. fetch_for_universe: Tavily calls, persist to news_articles
+Three-phase (as of #50 + #57):
+  1. fetch_for_universe: Tavily calls, persist to news_articles (rule-gate on
+     entities_isins via _article_mentions_company in news_fetcher)
   2. classify_unclassified: Anthropic Haiku classifies anything new
+  2b. confirm_entities_llm: Haiku entity-confirmation for (article, company)
+     pairs the rule-gate was uncertain about (additive: only adds ISINs)
+  3. evaluate_news_alerts: fire ntfy alerts for held+watchlist names on
+     high-severity fresh news (depends on #50 entity accuracy)
 
 Usage:
   # Production daily run
@@ -30,7 +35,8 @@ import sys
 
 from app.db.client import Collections
 from app.services.cron_heartbeat_service import cron_run
-from app.services.news_classifier import classify_unclassified
+from app.services.news_alerts import evaluate_news_alerts
+from app.services.news_classifier import classify_unclassified, confirm_entities_llm
 from app.services.news_fetcher import fetch_for_universe
 from app.services.suggestion_engine import get_watchlist_isins
 from app.services.tavily_client import get_today_quota
@@ -194,6 +200,41 @@ def main() -> int:
                 f"  Batches:            {cls_stats['batches']} ({cls_stats['failed_batches']} failed)"
             )
             print(f"  Model:              {cls_stats['model']}")
+
+            # master_todo #50 Phase 2b: LLM entity-confirmation for (article,
+            # company) pairs the rule-gate rejected conservatively. Additive --
+            # only adds ISINs back into entities_isins, never strips them.
+            # Guarded so a Haiku failure here can't fail the classify step.
+            try:
+                ec_stats = confirm_entities_llm(only_recent_days=35)
+                hb.metadata["entity_confirm_pairs_checked"] = ec_stats["pairs_checked"]
+                hb.metadata["entity_confirm_pairs_confirmed"] = ec_stats["pairs_confirmed"]
+                if ec_stats["pairs_checked"]:
+                    print(
+                        f"\nPhase 2b: Entity confirmation"
+                        f"\n  Pairs checked:  {ec_stats['pairs_checked']}"
+                        f"\n  Confirmed:      {ec_stats['pairs_confirmed']}"
+                        f"\n  Rejected:       {ec_stats['pairs_rejected']}"
+                        f"\n  Batches:        {ec_stats['batches']}"
+                        f" ({ec_stats['failed_batches']} failed)"
+                    )
+            except Exception:
+                log.exception("confirm_entities_llm failed after classification")
+                hb.metadata["entity_confirm_error"] = True
+
+            # master_todo #57: fire news alerts for names the user cares about
+            # (held with "news" in alert_on UNION watchlist) on the freshly
+            # classified, entity-correct (#50) articles. Runs only when we
+            # classified this pass. Guarded so an alerting failure can never
+            # fail the cron's primary job (fetch + classify) -- mirrors the
+            # #41/#56 guarded caller in refresh_prices_intraday.py.
+            try:
+                alerts_fired = evaluate_news_alerts()
+                hb.metadata["news_alerts_fired"] = alerts_fired
+                print(f"  News alerts fired:  {alerts_fired}")
+            except Exception:
+                log.exception("evaluate_news_alerts failed after classification")
+                hb.metadata["news_alerts_error"] = True
         else:
             print("\nPhase 2: SKIPPED (--skip-classify)")
 
