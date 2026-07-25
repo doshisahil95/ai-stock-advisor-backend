@@ -23,7 +23,8 @@ from typing import Any, Literal
 
 from bson import Decimal128, ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Path, Query, status
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.client import Collections
@@ -215,6 +216,115 @@ def get_performance(
     'higher is better' framing is preserved.
     """
     return compute_system_performance(direction=direction)
+
+
+# ─── Manual run trigger (#55-followup) ───────────────────────────────────────
+# A "run now" button on the suggestions page. A full run is ~5 min (yfinance +
+# Tavily + 10 Sonnet dossiers), and the app is single-worker with sync handlers,
+# so we MUST NOT run it inline (the browser request would block/timeout and one
+# threadpool worker would be pinned). Instead we:
+#   1. Atomically claim a per-direction advisory lock (fail-fast 409 if a run —
+#      manual OR the Sunday cron overlapping — is already in flight).
+#   2. Enqueue the pipeline on FastAPI BackgroundTasks (runs AFTER the 202
+#      response is sent, on the same server) and return 202 immediately.
+#   3. Release the lock in the worker's finally block; a TTL index reclaims it
+#      if the process crashes mid-run.
+# notify=False: a manual "show me fresh data" run must not send the digest
+# email/ntfy or create outcome-tracking rows (mirrors the script's --no-notify
+# manual-rerun default). It persists a normal suggestion_runs doc so the UI
+# picks up fresh dossiers + #55 hold-horizons via /suggestions/latest.
+
+
+def _run_suggestions_background(direction: str) -> None:
+    """Background worker: run one direction, then release the advisory lock.
+
+    Delegates to suggestion_engine.run_suggestions — the SAME entry point the
+    weekly cron uses (no parallel pipeline). Always releases the lock; never
+    raises (BackgroundTasks failures are otherwise swallowed silently).
+    """
+    from app.services.suggestion_engine import run_suggestions
+
+    try:
+        run = run_suggestions(
+            run_type="manual",
+            notify=False,
+            direction=direction,  # type: ignore[arg-type]
+        )
+        log.info(
+            "Manual %s run finished: status=%s top=%d",
+            direction,
+            run.status,
+            len(run.top_candidates),
+        )
+    except Exception:
+        log.exception("Manual %s suggestions run failed", direction)
+    finally:
+        Collections.suggestion_run_locks().delete_one({"_id": direction})
+
+
+@router.post("/run", status_code=status.HTTP_202_ACCEPTED)
+def trigger_manual_run(
+    background_tasks: BackgroundTasks,
+    direction: str = Query("buy", pattern="^(buy|sell)$"),
+) -> dict:
+    """Kick off a MANUAL suggestions run for `direction` (fire-and-forget).
+
+    Returns 202 immediately; the pipeline runs in the background (~5 min).
+    Poll GET /suggestions/run/status?direction=... to know when it finishes,
+    or watch GET /suggestions/latest for a newer run_date. notify=False, so no
+    digest and no outcome rows are created.
+
+    409 if a run for this direction is already in flight (a prior manual run or
+    an overlapping Sunday cron). The lock is per-direction, so a buy run and a
+    sell run can proceed concurrently.
+    """
+    now = utcnow()
+    try:
+        # Atomic claim: the unique _id index makes the insert the lock.
+        Collections.suggestion_run_locks().insert_one(
+            {"_id": direction, "started_at": now}
+        )
+    except DuplicateKeyError:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A {direction} suggestions run is already in progress. "
+                "Wait for it to finish before starting another."
+            ),
+        )
+
+    background_tasks.add_task(_run_suggestions_background, direction)
+    log.info("Manual %s suggestions run started (notify=False)", direction)
+    return {
+        "status": "started",
+        "direction": direction,
+        "run_started_at": now.isoformat(),
+        "message": (
+            "Run started in the background (~5 min). Poll "
+            "/suggestions/run/status or refresh /suggestions/latest."
+        ),
+    }
+
+
+@router.get("/run/status")
+def get_manual_run_status(
+    direction: str = Query("buy", pattern="^(buy|sell)$"),
+) -> dict:
+    """Whether a manual (or overlapping cron) run for `direction` is in flight.
+
+    `running` is True while the advisory lock doc exists. The frontend polls
+    this after POST /suggestions/run and stops when it flips to False.
+    """
+    lock = Collections.suggestion_run_locks().find_one({"_id": direction})
+    return {
+        "direction": direction,
+        "running": lock is not None,
+        "started_at": (
+            lock["started_at"].isoformat()
+            if lock and lock.get("started_at")
+            else None
+        ),
+    }
 
 
 # F10: static-path audit endpoint declared BEFORE /{isin}/audit so the

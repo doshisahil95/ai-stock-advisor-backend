@@ -71,6 +71,19 @@ class Collections:
         return get_db()["recompute_locks"]
 
     @staticmethod
+    def suggestion_run_locks() -> Collection:
+        """#55-followup: advisory locks serializing MANUAL suggestion runs.
+
+        One doc per in-flight manual run, _id == direction ("buy"/"sell").
+        Inserted (fail-fast) to claim, deleted to release; a TTL index
+        (indexes.py) reclaims the lock if the background task's process
+        crashes mid-run. Prevents a double-click or an overlapping Sunday
+        cron from stacking multiple ~5-min pipelines. Mirrors the TD20
+        recompute_locks primitive but keyed by direction, not ISIN.
+        """
+        return get_db()["suggestion_run_locks"]
+
+    @staticmethod
     def monitored_stocks() -> Collection:
         return get_db()["monitored_stocks"]
 

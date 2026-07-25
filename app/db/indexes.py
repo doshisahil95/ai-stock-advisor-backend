@@ -393,4 +393,23 @@ def ensure_all_indexes() -> dict[str, list[str]]:
             ),
         ]
     )
+
+    # ─── suggestion_run_locks (#55-followup: manual-run guard) ────────
+    # One doc per in-flight MANUAL suggestions run, _id == direction
+    # ("buy"/"sell"). Inserted fail-fast to claim, deleted to release; the
+    # TTL reclaims the lock if the background task's process crashes
+    # mid-run. 900s (15 min) is comfortably longer than a worst-case
+    # ~10-min both-sides run yet short enough that a crashed run frees the
+    # button the same session. Mirrors recompute_locks (TD20).
+    results["suggestion_run_locks"] = (
+        Collections.suggestion_run_locks().create_indexes(
+            [
+                IndexModel(
+                    [("started_at", ASCENDING)],
+                    name="started_at_ttl",
+                    expireAfterSeconds=900,
+                ),
+            ]
+        )
+    )
     return results
