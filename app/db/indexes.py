@@ -378,6 +378,27 @@ def ensure_all_indexes() -> dict[str, list[str]]:
         ]
     )
 
+    # ─── dividend_announcements (#65) ────────────────────────────────
+    # Announced cash dividends per (isin, ex_date) from yfinance. Unique on
+    # (isin, ex_date) so the weekly replace-window upsert is idempotent;
+    # ex_date_desc for the drift-matrix scan; isin for per-name lookups.
+    results["dividend_announcements"] = (
+        Collections.dividend_announcements().create_indexes(
+            [
+                IndexModel(
+                    [("isin", ASCENDING), ("ex_date", ASCENDING)],
+                    name="isin_ex_date_unique",
+                    unique=True,
+                ),
+                IndexModel(
+                    [("ex_date", DESCENDING)],
+                    name="ex_date_desc",
+                ),
+                IndexModel([("isin", ASCENDING)], name="isin"),
+            ]
+        )
+    )
+
     # ─── recompute_locks (TD20) ──────────────────────────────────────
     # Per-ISIN advisory locks serializing recompute_holding (one doc per
     # in-flight recompute, _id == isin). The TTL index reclaims a lock if a

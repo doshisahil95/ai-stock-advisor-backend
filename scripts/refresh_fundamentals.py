@@ -25,6 +25,7 @@ import sys
 
 from app.db.client import Collections
 from app.services.fundamentals_service import (
+    refresh_dividends_universe,
     refresh_earnings_universe,
     refresh_universe,
 )
@@ -191,7 +192,35 @@ def main() -> int:
         print(f"  Failed ISINs (first 10): {earnings_stats['failed_isins'][:10]}")
     print("=" * 60)
 
-    # Exit non-zero only if BOTH steps mostly failed.
+    # #65: dividend-announcement capture for the SAME universe. Guarded so a
+    # yfinance dividends hiccup can never fail the fundamentals/earnings run
+    # (mirrors the guarded-caller pattern used for the alert evaluators). This
+    # is the "announced" leg of the dividend-drift matrix; a dividend is a real
+    # gain (feeds total_dividends_* via #63/#64) so a missed payout understates
+    # realised gain — the reconciliation matrix flags that.
+    dividend_stats = None
+    try:
+        print()
+        print(f"Dividend announcements refresh  target: same {len(targets)} instruments")
+        print()
+        dividend_stats = refresh_dividends_universe(targets, throttle_sec=args.throttle)
+
+        print()
+        print("=" * 60)
+        print("Dividend announcements refresh:")
+        print(f"  Attempted:                  {dividend_stats['attempted']}")
+        print(f"  Succeeded with dividends:   {dividend_stats['succeeded_with_dividends']}")
+        print(f"  Succeeded with NO dividends:{dividend_stats['succeeded_no_dividends']}")
+        print(f"  Failed:                     {dividend_stats['failed']}")
+        print(f"  Total announcements stored: {dividend_stats['total_announcements_inserted']}")
+        if dividend_stats["failed_isins"]:
+            print(f"  Failed ISINs (first 10): {dividend_stats['failed_isins'][:10]}")
+        print("=" * 60)
+    except Exception:
+        log.exception("Dividend-announcement refresh failed (non-fatal)")
+
+    # Exit non-zero only if BOTH primary steps mostly failed. The dividend leg
+    # is best-effort and never affects the exit code.
     fundamentals_ok = stats["failed"] < stats["attempted"]
     earnings_ok = earnings_stats["failed"] < earnings_stats["attempted"]
     return 0 if (fundamentals_ok or earnings_ok) else 1

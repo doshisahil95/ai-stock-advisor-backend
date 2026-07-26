@@ -191,6 +191,19 @@ class Collections:
         return get_db()["earnings_calendar"]
 
     @staticmethod
+    def dividend_announcements() -> Collection:
+        """Announced cash dividends per (isin, ex_date), from yfinance (#65).
+
+        Source = yfinance Ticker.dividends, refreshed weekly alongside
+        fundamentals + earnings (same universe, same cron). The "announced"
+        leg of the dividend-drift matrix (announced vs received vs booked);
+        the reconciliation service joins it against recorded DIVIDEND
+        transactions to flag a payout that was never booked (which would
+        silently understate realised gain). NOT a tax artifact.
+        """
+        return get_db()["dividend_announcements"]
+
+    @staticmethod
     def cron_heartbeats() -> Collection:
         """One doc per cron run with start/finish/status/error/metadata.
 

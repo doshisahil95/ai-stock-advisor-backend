@@ -542,6 +542,206 @@ def refresh_earnings_universe(
     return stats
 
 
+# ─────────────────────────────────────────────────────────────────────
+# #65: Dividend-announcement capture (yfinance corporate actions)
+#
+# The "announced" leg of the dividend-drift matrix. Mirrors the earnings
+# refresh above: same yfinance provider, same weekly universe, same
+# replace-recent-window-then-upsert idempotency. A dividend is a real gain
+# (feeds total_dividends_* via #63/#64) even though it is not a taxable
+# capital gain — so a payout that is announced but never recorded silently
+# understates realised gain. reconciliation.compute_dividend_drift compares
+# these announcements against the recorded DIVIDEND transactions.
+# ─────────────────────────────────────────────────────────────────────
+
+# How far back the weekly refresh replaces announcements for an ISIN. We keep
+# older history untouched (audit) but re-pull the recent window so a corrected
+# or withdrawn dividend does not linger. 400 days > 1 year covers a full annual
+# + interim dividend cycle with margin.
+_DIVIDEND_REPLACE_WINDOW_DAYS = 400
+
+
+def fetch_dividends_yfinance(
+    symbol: str, exchange: str = "NSE", since: datetime | None = None
+) -> list[dict]:
+    """Fetch announced cash dividends from yfinance Ticker.dividends.
+
+    Returns a list of {ex_date: naive datetime, amount_per_share: Decimal},
+    ex_date >= `since` when provided. Empty list on failure or no dividends
+    (logged, not raised) — mirrors fetch_earnings_calendar_yfinance.
+
+    yfinance Ticker.dividends is a pandas Series indexed by ex-date (Timestamp)
+    with per-share cash amounts. We coerce the index to naive datetime and the
+    value to Decimal via str() to avoid IEEE-754 drift on a money field.
+    """
+    yt = to_yahoo_ticker(symbol, exchange)
+    try:
+        ticker = yf.Ticker(yt)
+        series = ticker.dividends  # pandas Series: index=ex-date, value=per-share
+        if series is None or len(series) == 0:
+            return []
+
+        out: list[dict] = []
+        for raw_date, raw_amount in series.items():
+            ex_date = _coerce_naive_datetime(raw_date)
+            if ex_date is None:
+                continue
+            if since is not None and ex_date < since:
+                continue
+            try:
+                amount = Decimal(str(raw_amount))
+            except Exception:
+                continue
+            if amount <= 0:
+                continue
+            out.append({"ex_date": ex_date, "amount_per_share": amount})
+        return out
+    except Exception as exc:
+        log.warning("yfinance dividends fetch failed for %s: %s", yt, exc)
+        return []
+
+
+def refresh_dividends_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
+    """Refresh dividend announcements for one ISIN.
+
+    Replace-recent-window semantics: delete announcements with ex_date within
+    the last _DIVIDEND_REPLACE_WINDOW_DAYS for this ISIN, then upsert the fresh
+    list. Older history is kept. Returns stats:
+    {announcements_fetched, announcements_inserted, window_deleted}.
+    """
+    floor = utcnow().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=_DIVIDEND_REPLACE_WINDOW_DAYS)
+    dividends = fetch_dividends_yfinance(symbol, exchange, since=floor)
+
+    delete_result = Collections.dividend_announcements().delete_many(
+        {"isin": isin, "ex_date": {"$gte": floor}}
+    )
+
+    inserted = 0
+    if dividends:
+        ops = []
+        for d in dividends:
+            doc = {
+                "isin": isin,
+                "symbol": symbol.upper(),
+                "exchange": exchange.upper(),
+                "ex_date": d["ex_date"],
+                "amount_per_share": d["amount_per_share"],
+                "source": "yfinance",
+                "fetched_at": utcnow(),
+                "created_at": utcnow(),
+            }
+            ops.append(
+                UpdateOne(
+                    {"isin": doc["isin"], "ex_date": doc["ex_date"]},
+                    {"$set": _convert_decimals_to_decimal128(doc)},
+                    upsert=True,
+                )
+            )
+        result = Collections.dividend_announcements().bulk_write(ops, ordered=False)
+        inserted = (result.upserted_count or 0) + (result.modified_count or 0)
+
+    return {
+        "announcements_fetched": len(dividends),
+        "announcements_inserted": inserted,
+        "window_deleted": delete_result.deleted_count,
+    }
+
+
+def refresh_dividends_universe(
+    instruments: list[dict], throttle_sec: float = 0.3
+) -> dict:
+    """Refresh dividend announcements for a list of instruments.
+
+    Args:
+        instruments: list of dicts with at least {isin, symbol, exchange}.
+        throttle_sec: sleep between fetches.
+
+    Returns stats dict. Mirrors refresh_earnings_universe.
+    """
+    stats = {
+        "attempted": len(instruments),
+        "succeeded_with_dividends": 0,
+        "succeeded_no_dividends": 0,
+        "failed": 0,
+        "failed_isins": [],
+        "total_announcements_inserted": 0,
+    }
+
+    log.info("Refreshing dividend announcements for %d instruments", len(instruments))
+    for i, inst in enumerate(instruments):
+        isin = inst["isin"]
+        symbol = inst["symbol"]
+        exchange = inst.get("exchange", "NSE")
+
+        try:
+            r = refresh_dividends_for(isin, symbol, exchange)
+            if r["announcements_fetched"] > 0:
+                stats["succeeded_with_dividends"] += 1
+                stats["total_announcements_inserted"] += r["announcements_inserted"]
+                log.info(
+                    "  [%d/%d] OK   %s (%s)  %d dividends",
+                    i + 1,
+                    len(instruments),
+                    symbol,
+                    isin,
+                    r["announcements_fetched"],
+                )
+            else:
+                stats["succeeded_no_dividends"] += 1
+                log.info(
+                    "  [%d/%d] OK   %s (%s)  no dividends in window",
+                    i + 1,
+                    len(instruments),
+                    symbol,
+                    isin,
+                )
+        except Exception as exc:
+            stats["failed"] += 1
+            stats["failed_isins"].append(isin)
+            log.warning(
+                "  [%d/%d] FAIL %s (%s): %s",
+                i + 1,
+                len(instruments),
+                symbol,
+                isin,
+                exc,
+            )
+
+        if throttle_sec > 0 and i < len(instruments) - 1:
+            time.sleep(throttle_sec)
+
+    log.info(
+        "Dividend refresh complete: %d with dividends, %d without, %d failed",
+        stats["succeeded_with_dividends"],
+        stats["succeeded_no_dividends"],
+        stats["failed"],
+    )
+    return stats
+
+
+def get_dividend_announcements_for_isin(
+    isin: str, since: datetime | None = None
+) -> list[dict]:
+    """Return announced dividends for one ISIN, ex_date ascending.
+
+    Consumer helper for reconciliation.compute_dividend_drift. `since` filters
+    to ex_date >= that floor (naive). No projection stripping of money fields —
+    the caller serializes.
+    """
+    query: dict = {"isin": isin}
+    if since is not None:
+        if since.tzinfo is not None:
+            since = since.replace(tzinfo=None)
+        query["ex_date"] = {"$gte": since}
+    return list(
+        Collections.dividend_announcements()
+        .find(query)
+        .sort("ex_date", 1)
+    )
+
+
 def get_next_earnings_for_isin(
     isin: str, as_of: datetime | None = None
 ) -> datetime | None:
