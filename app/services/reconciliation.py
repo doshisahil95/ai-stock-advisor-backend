@@ -15,11 +15,12 @@ baseline.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 from app.db.client import Collections
+from app.services.fundamentals_service import get_dividend_announcements_for_isin
 from app.services.notify import push_public, email
 from app.services.portfolio_service import compute_summary
 from app.services.price_service import bulk_get_latest_prices
@@ -402,3 +403,292 @@ def get_snapshot_history(limit: int = 30) -> list[dict]:
         .sort("taken_at", -1)
         .limit(limit)
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# #65: Dividend-drift matrix (announced vs received vs booked)
+#
+# A dividend is a real gain (feeds total_dividends_* via #63/#64) even though
+# it is not a taxable capital gain. If a payout is announced (captured from
+# yfinance into dividend_announcements by refresh_fundamentals) and its ex-date
+# passes while we hold the stock, but no DIVIDEND transaction is ever recorded,
+# our realised-gain figure is silently understated. This matrix flags that so
+# the user can record the missing DIVIDEND row.
+#
+# Design (mirrors take_auto_snapshot's compute/alert split):
+#   - compute_dividend_drift() is a PURE read (no writes, no alerts) so it is
+#     hermetically testable and safe to call from the endpoint on every render.
+#   - evaluate_dividend_drift_alerts() is the separate ntfy-only nudge, rising-
+#     edge deduped via a marker doc in reconciliation_snapshots (mirrors
+#     _send_auto_drift_alert: ntfy-only on the price channel, no alerts_log
+#     Alert, no new AlertType).
+#
+# "Held on ex-date" heuristic: currently held (holdings deleted_at=None,
+# quantity>0) AND first_purchased_at <= ex_date. Precise point-in-time FIFO
+# reconstruction is deliberately out of scope for round 1 — the case that
+# matters is a missed dividend on a stock we still own. Fully-exited positions
+# are historical and not a live decision.
+#
+# NOT a tax artifact: dividends stay out of /tax capital-gains (compliance).
+# ─────────────────────────────────────────────────────────────────────
+
+# A recorded DIVIDEND transaction is matched to an announced ex-date if its
+# trade_date falls within this many days of the ex_date. In India a dividend is
+# typically credited 2-6 weeks after the ex-date and the user records it on the
+# credit/record date, not the ex-date — so we match on a generous date window,
+# not an exact timestamp.
+_DIVIDEND_MATCH_WINDOW_DAYS = 21
+
+# An announced ex-date must be older than this before a missing receipt is
+# treated as "you likely received a payout you haven't booked" (rather than
+# "announced, too soon to expect the credit"). Covers the settle/credit lag.
+_DIVIDEND_SETTLE_MARGIN_DAYS = 21
+
+
+def _naive_date_floor(dt: datetime) -> datetime:
+    """Strip tz + time-of-day → midnight naive datetime (Mongo compare-safe)."""
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _held_names() -> list[dict]:
+    """Currently-held names with the fields the drift matrix needs."""
+    return list(
+        Collections.holdings().find(
+            {"deleted_at": None},
+            {
+                "_id": 0,
+                "isin": 1,
+                "symbol": 1,
+                "quantity": 1,
+                "first_purchased_at": 1,
+            },
+        )
+    )
+
+
+def _dividend_txns_for_isin(isin: str) -> list[dict]:
+    """Recorded DIVIDEND transactions for one ISIN (trade_date ascending).
+
+    price = per-share payout (see holdings_service._fifo_replay DIVIDEND branch).
+    """
+    return list(
+        Collections.transactions()
+        .find(
+            {"isin": isin, "type": "DIVIDEND", "deleted_at": None},
+            {"_id": 0, "trade_date": 1, "price": 1},
+        )
+        .sort("trade_date", 1)
+    )
+
+
+def _has_corporate_action_news(isin: str, window_days: int = 120) -> bool:
+    """True if a classified corporate_action-themed article exists for the ISIN.
+
+    Corroboration signal only (mirrors the news_signals query shape). Reads the
+    entity-accurate (#50) entities_isins tag so it never corroborates on
+    wrong-company news.
+    """
+    cutoff = utcnow() - timedelta(days=window_days)
+    return (
+        Collections.news_articles().find_one(
+            {
+                "entities_isins": isin,
+                "classified": True,
+                "themes": "corporate_action",  # membership on the multikey list
+                "fetched_at": {"$gte": cutoff},
+            },
+            {"_id": 1},
+        )
+        is not None
+    )
+
+
+def compute_dividend_drift() -> list[dict]:
+    """Announced vs received vs booked per held name (PURE read).
+
+    For each currently-held ISIN, join the captured yfinance announcements
+    (dividend_announcements) against the recorded DIVIDEND transactions and the
+    booked total_dividends_received, and classify each announced ex-date:
+
+      - "matched":         a DIVIDEND row exists within the match window.
+      - "missing_receipt": ex-date passed by >= the settle margin, we held the
+                           stock across it, and NO DIVIDEND row was recorded ->
+                           realised gain is likely understated.
+      - "pending":         ex-date is in the future or within the settle margin
+                           (announced, too soon to expect the credit).
+
+    Returns one row per held name:
+      {isin, symbol, quantity, booked_dividends, has_corporate_action_news,
+       announcements: [{ex_date, amount_per_share, expected_amount, status,
+                        matched_trade_date}], missing_count}
+    Names with no announcements are still returned (announcements=[], so the UI
+    can show "no announcements captured") — the caller can filter.
+    """
+    today = _naive_date_floor(utcnow())
+    settle_cutoff = today - timedelta(days=_DIVIDEND_SETTLE_MARGIN_DAYS)
+
+    rows: list[dict] = []
+    for h in _held_names():
+        isin = h.get("isin")
+        if not isin:
+            continue
+        symbol = h.get("symbol") or isin
+        quantity = _to_dec(h.get("quantity"))
+        first_purchased_at = h.get("first_purchased_at")
+        first_floor = (
+            _naive_date_floor(first_purchased_at) if first_purchased_at else None
+        )
+
+        announcements = get_dividend_announcements_for_isin(isin)
+        div_txns = _dividend_txns_for_isin(isin)
+
+        # Booked lifetime dividends live on the holding doc; re-read the field
+        # here (not on the _held_names projection above to keep that read lean).
+        booked_doc = Collections.holdings().find_one(
+            {"isin": isin, "deleted_at": None},
+            {"_id": 0, "total_dividends_received": 1},
+        )
+        booked = _to_dec((booked_doc or {}).get("total_dividends_received"))
+
+        matrix: list[dict] = []
+        missing_count = 0
+        for a in announcements:
+            ex_date = a.get("ex_date")
+            if ex_date is None:
+                continue
+            ex_floor = _naive_date_floor(ex_date)
+            amount_per_share = _to_dec(a.get("amount_per_share"))
+
+            # Held across this ex-date? (round-1 heuristic)
+            held_then = first_floor is not None and first_floor <= ex_floor
+
+            # Look for a recorded DIVIDEND within the match window of the ex-date.
+            matched_trade_date = None
+            for t in div_txns:
+                td = t.get("trade_date")
+                if td is None:
+                    continue
+                td_floor = _naive_date_floor(td)
+                if abs((td_floor - ex_floor).days) <= _DIVIDEND_MATCH_WINDOW_DAYS:
+                    matched_trade_date = td_floor
+                    break
+
+            if matched_trade_date is not None:
+                status = "matched"
+            elif ex_floor > settle_cutoff:
+                # Future ex-date, or passed but still within the credit lag.
+                status = "pending"
+            elif held_then:
+                status = "missing_receipt"
+                missing_count += 1
+            else:
+                # Ex-date passed but we were not holding across it (bought later);
+                # no receipt is expected. Surface as pending (informational).
+                status = "pending"
+
+            matrix.append(
+                {
+                    "ex_date": ex_floor,
+                    "amount_per_share": amount_per_share,
+                    "expected_amount": (amount_per_share * quantity)
+                    if quantity > 0
+                    else Decimal("0"),
+                    "status": status,
+                    "matched_trade_date": matched_trade_date,
+                }
+            )
+
+        rows.append(
+            {
+                "isin": isin,
+                "symbol": symbol,
+                "quantity": quantity,
+                "booked_dividends": booked,
+                "has_corporate_action_news": _has_corporate_action_news(isin),
+                "announcements": matrix,
+                "missing_count": missing_count,
+            }
+        )
+
+    return rows
+
+
+def _dividend_drift_marker_id(isin: str, ex_floor: datetime) -> str:
+    """Stable rising-edge dedup key for a missing-receipt nudge."""
+    return f"dividend_missing:{isin}:{ex_floor.date().isoformat()}"
+
+
+def evaluate_dividend_drift_alerts() -> int:
+    """Fire an ntfy nudge for each NEW missing_receipt (rising-edge deduped).
+
+    Mirrors _send_auto_drift_alert: ntfy-only on the price channel, best-effort
+    (push_public raises on transport failure -> guarded, logged, not
+    propagated). Dedup is a marker doc in reconciliation_snapshots keyed by
+    (isin, ex_date) so each missed dividend nudges at most once. A marker is
+    written ONLY after a successful push, so a transient ntfy outage retries on
+    the next run (success-gated, mirrors #41/#56/#57).
+
+    Returns the number of nudges fired (attempted-and-delivered).
+    """
+    drift = compute_dividend_drift()
+    snapshots = Collections.reconciliation_snapshots()
+    fired = 0
+
+    for row in drift:
+        isin = row["isin"]
+        symbol = row["symbol"]
+        for a in row["announcements"]:
+            if a["status"] != "missing_receipt":
+                continue
+            ex_floor = a["ex_date"]
+            marker_id = _dividend_drift_marker_id(isin, ex_floor)
+
+            # Rising-edge dedup: already nudged for this (isin, ex_date)?
+            if snapshots.find_one({"type": "dividend_drift_marker", "marker_id": marker_id}):
+                continue
+
+            amount_per_share = a["amount_per_share"]
+            expected = a["expected_amount"]
+            body_text = (
+                f"{symbol}: a dividend of ₹{amount_per_share}/share went ex on "
+                f"{ex_floor.date().isoformat()} but no payout is recorded. "
+                f"You likely received ~₹{expected} — record it so your realised "
+                f"gain is not understated. Reconciliation page → Dividend drift."
+            )
+
+            delivered = False
+            try:
+                push_public(
+                    channel="price",  # portfolio-impact = price channel (mirrors auto-drift)
+                    title="Unrecorded dividend",
+                    message=body_text,
+                    priority="default",
+                    tags=["money_with_wings"],
+                )
+                delivered = True
+            except Exception as exc:
+                log.error("dividend-drift ntfy nudge failed for %s: %s", isin, exc)
+
+            if delivered:
+                snapshots.insert_one(
+                    _convert_decimals_to_decimal128(
+                        {
+                            "taken_at": utcnow(),
+                            "type": "dividend_drift_marker",
+                            "marker_id": marker_id,
+                            "isin": isin,
+                            "symbol": symbol,
+                            "ex_date": ex_floor,
+                            "amount_per_share": amount_per_share,
+                            "expected_amount": expected,
+                            "_schema_version": 1,
+                        }
+                    )
+                )
+                fired += 1
+
+    if fired:
+        log.info("Dividend-drift nudges fired: %d", fired)
+    return fired

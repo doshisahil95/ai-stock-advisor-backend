@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.services.reconciliation import (
+    compute_dividend_drift,
     get_latest_snapshot,
     get_snapshot_history,
     take_auto_snapshot,
@@ -55,6 +56,18 @@ def get_history(limit: int = 30) -> list[dict]:
     limit = max(1, min(limit, 365))
     snapshots = get_snapshot_history(limit=limit)
     return _serialize(snapshots)
+
+
+@router.get(
+    "/dividend-drift",
+    summary="Dividend-drift matrix: announced vs received vs booked (#65)",
+)
+def get_dividend_drift() -> list[dict]:
+    """Per held name, announced dividends (yfinance) vs recorded DIVIDEND rows
+    vs booked total. Flags a missing_receipt where a payout went ex while held
+    but was never recorded (which understates realised gain). Read-only; NOT a
+    tax view (dividends are income, not capital gains)."""
+    return _serialize(compute_dividend_drift())
 
 
 @router.post("/snapshot", summary="Record a manual snapshot with ICICI numbers")
