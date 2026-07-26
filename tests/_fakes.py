@@ -1,11 +1,16 @@
 """In-memory Mongo doubles for the #33 pytest harness.
 
 Zero external dependency: a minimal FakeCollection implementing only the
-operators the services under test actually use (equality, None, $ne, $in,
-$exists, $or, $and), plus sort/limit/skip on find() and an upsert-aware
-update_one. Decimal values are stored as-is (or as Decimal128 when the
-service wraps them via _convert_decimals_to_decimal128); the model Money
-validator accepts both on read.
+operators the services under test actually use (equality incl. array-multikey
+membership, None, $ne, $in, $nin, $exists, $gte/$gt/$lte/$lt, $or, $and), plus
+sort/limit/skip on find() and an upsert-aware update_one. Decimal values are
+stored as-is (or as Decimal128 when the service wraps them via
+_convert_decimals_to_decimal128); the model Money validator accepts both on
+read.
+
+($gte/$gt/$lte/$lt + array-multikey equality added for #65's
+compute_dividend_drift: date-window/news-recency ranges and the
+{themes: "corporate_action"} / {entities_isins: isin} multikey matches.)
 """
 
 from __future__ import annotations
@@ -20,6 +25,16 @@ _MISSING = object()
 
 def oid() -> ObjectId:
     return ObjectId()
+
+
+def _eq_or_member(actual, val) -> bool:
+    """Mongo equality: on a scalar field it's ==, on an array field (multikey)
+    it matches if the value is a MEMBER of the array. Mirrors how a query like
+    {themes: "corporate_action"} or {entities_isins: isin} matches a list field.
+    """
+    if isinstance(actual, (list, tuple)):
+        return val in actual
+    return actual == val
 
 
 def _match_value(actual, present: bool, cond) -> bool:
@@ -37,10 +52,22 @@ def _match_value(actual, present: bool, cond) -> bool:
             elif op == "$exists":
                 if bool(val) != present:
                     return False
+            elif op == "$gte":
+                if actual is None or not (actual >= val):
+                    return False
+            elif op == "$gt":
+                if actual is None or not (actual > val):
+                    return False
+            elif op == "$lte":
+                if actual is None or not (actual <= val):
+                    return False
+            elif op == "$lt":
+                if actual is None or not (actual < val):
+                    return False
             else:
                 raise NotImplementedError(f"FakeCollection: operator {op} unsupported")
         return True
-    return actual == cond
+    return _eq_or_member(actual, cond)
 
 
 def _matches(doc: dict, filt: dict) -> bool:

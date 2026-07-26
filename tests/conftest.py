@@ -26,6 +26,9 @@ _COLLECTION_NAMES = [
     "monitored_stocks_audit",
     "suggestion_outcomes",
     "suggestion_runs",
+    # #65: compute_dividend_drift reads these two as well.
+    "dividend_announcements",
+    "news_articles",
 ]
 
 
