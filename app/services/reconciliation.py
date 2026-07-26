@@ -620,22 +620,63 @@ def _dividend_drift_marker_id(isin: str, ex_floor: datetime) -> str:
     return f"dividend_missing:{isin}:{ex_floor.date().isoformat()}"
 
 
+# Cap individual per-dividend nudges per run; beyond this, roll the rest into
+# one summary push. Prevents a first-run flood (a fresh install legitimately has
+# a large backlog of never-recorded historical dividends) from firing dozens of
+# separate notifications while still surfacing the full count and never hiding a
+# real unbooked payout. Kin to #67's "don't blast on a pre-existing backlog".
+_DIVIDEND_NUDGE_INDIVIDUAL_CAP = 3
+
+
+def _write_dividend_drift_marker(snapshots, item: dict) -> None:
+    """Persist the rising-edge dedup marker for one missing receipt.
+
+    Written only after the corresponding push succeeded (success-gated), so a
+    transient ntfy outage retries the whole batch on the next run.
+    """
+    snapshots.insert_one(
+        _convert_decimals_to_decimal128(
+            {
+                "taken_at": utcnow(),
+                "type": "dividend_drift_marker",
+                "marker_id": item["marker_id"],
+                "isin": item["isin"],
+                "symbol": item["symbol"],
+                "ex_date": item["ex_floor"],
+                "amount_per_share": item["amount_per_share"],
+                "expected_amount": item["expected"],
+                "_schema_version": 1,
+            }
+        )
+    )
+
+
 def evaluate_dividend_drift_alerts() -> int:
-    """Fire an ntfy nudge for each NEW missing_receipt (rising-edge deduped).
+    """Nudge on NEW missing dividend receipts (rising-edge deduped, flood-capped).
 
     Mirrors _send_auto_drift_alert: ntfy-only on the price channel, best-effort
     (push_public raises on transport failure -> guarded, logged, not
     propagated). Dedup is a marker doc in reconciliation_snapshots keyed by
-    (isin, ex_date) so each missed dividend nudges at most once. A marker is
-    written ONLY after a successful push, so a transient ntfy outage retries on
-    the next run (success-gated, mirrors #41/#56/#57).
+    (isin, ex_date) so each missed dividend nudges at most once; a marker is
+    written ONLY after a successful push (success-gated -> a transient ntfy
+    outage retries the batch next run; mirrors #41/#56/#57).
 
-    Returns the number of nudges fired (attempted-and-delivered).
+    Flood control: at most _DIVIDEND_NUDGE_INDIVIDUAL_CAP dividends are pushed
+    as individual nudges per run. If more are newly missing, the first few are
+    pushed individually and the remainder are rolled into ONE summary push (a
+    fresh install has a legitimate backlog of never-recorded historical
+    dividends). Markers are written for every newly-missing dividend either way,
+    so the count stays exact and it never re-floods.
+
+    Returns the number of newly-missing dividends handled (individual + rolled
+    into the summary) that were durably marked this run.
     """
     drift = compute_dividend_drift()
     snapshots = Collections.reconciliation_snapshots()
-    fired = 0
 
+    # Collect every NEW missing receipt (no existing marker), newest ex-date
+    # first so the individual nudges surface the most recent (most actionable).
+    new_missing: list[dict] = []
     for row in drift:
         isin = row["isin"]
         symbol = row["symbol"]
@@ -644,51 +685,84 @@ def evaluate_dividend_drift_alerts() -> int:
                 continue
             ex_floor = a["ex_date"]
             marker_id = _dividend_drift_marker_id(isin, ex_floor)
-
-            # Rising-edge dedup: already nudged for this (isin, ex_date)?
-            if snapshots.find_one({"type": "dividend_drift_marker", "marker_id": marker_id}):
-                continue
-
-            amount_per_share = a["amount_per_share"]
-            expected = a["expected_amount"]
-            body_text = (
-                f"{symbol}: a dividend of ₹{amount_per_share}/share went ex on "
-                f"{ex_floor.date().isoformat()} but no payout is recorded. "
-                f"You likely received ~₹{expected} — record it so your realised "
-                f"gain is not understated. Reconciliation page → Dividend drift."
+            if snapshots.find_one(
+                {"type": "dividend_drift_marker", "marker_id": marker_id}
+            ):
+                continue  # already nudged for this (isin, ex_date)
+            new_missing.append(
+                {
+                    "isin": isin,
+                    "symbol": symbol,
+                    "ex_floor": ex_floor,
+                    "marker_id": marker_id,
+                    "amount_per_share": a["amount_per_share"],
+                    "expected": a["expected_amount"],
+                }
             )
 
-            delivered = False
-            try:
-                push_public(
-                    channel="price",  # portfolio-impact = price channel (mirrors auto-drift)
-                    title="Unrecorded dividend",
-                    message=body_text,
-                    priority="default",
-                    tags=["money_with_wings"],
-                )
-                delivered = True
-            except Exception as exc:
-                log.error("dividend-drift ntfy nudge failed for %s: %s", isin, exc)
+    if not new_missing:
+        return 0
 
-            if delivered:
-                snapshots.insert_one(
-                    _convert_decimals_to_decimal128(
-                        {
-                            "taken_at": utcnow(),
-                            "type": "dividend_drift_marker",
-                            "marker_id": marker_id,
-                            "isin": isin,
-                            "symbol": symbol,
-                            "ex_date": ex_floor,
-                            "amount_per_share": amount_per_share,
-                            "expected_amount": expected,
-                            "_schema_version": 1,
-                        }
-                    )
-                )
-                fired += 1
+    new_missing.sort(key=lambda x: x["ex_floor"], reverse=True)
 
-    if fired:
-        log.info("Dividend-drift nudges fired: %d", fired)
-    return fired
+    individual = new_missing[:_DIVIDEND_NUDGE_INDIVIDUAL_CAP]
+    overflow = new_missing[_DIVIDEND_NUDGE_INDIVIDUAL_CAP:]
+    handled = 0
+
+    # Individual nudges — each success-gates its own marker.
+    for item in individual:
+        body_text = (
+            f"{item['symbol']}: a dividend of ₹{item['amount_per_share']}/share "
+            f"went ex on {item['ex_floor'].date().isoformat()} but no payout is "
+            f"recorded. You likely received ~₹{item['expected']} — record it so "
+            f"your realised gain is not understated. "
+            f"Reconciliation page → Dividend drift."
+        )
+        try:
+            push_public(
+                channel="price",  # portfolio-impact = price channel (mirrors auto-drift)
+                title="Unrecorded dividend",
+                message=body_text,
+                priority="default",
+                tags=["money_with_wings"],
+            )
+        except Exception as exc:
+            log.error(
+                "dividend-drift ntfy nudge failed for %s: %s", item["isin"], exc
+            )
+            continue  # no marker -> retries next run
+        _write_dividend_drift_marker(snapshots, item)
+        handled += 1
+
+    # Overflow — ONE summary push gates ALL rolled-in markers together.
+    if overflow:
+        names = sorted({o["symbol"] for o in overflow})
+        preview = ", ".join(names[:6]) + ("…" if len(names) > 6 else "")
+        body_text = (
+            f"{len(overflow)} more unrecorded dividends across {len(names)} "
+            f"holdings ({preview}). Record them so your realised gain is not "
+            f"understated. Reconciliation page → Dividend drift."
+        )
+        try:
+            push_public(
+                channel="price",
+                title=f"{len(overflow)} more unrecorded dividends",
+                message=body_text,
+                priority="default",
+                tags=["money_with_wings"],
+            )
+        except Exception as exc:
+            log.error("dividend-drift summary ntfy nudge failed: %s", exc)
+        else:
+            for item in overflow:
+                _write_dividend_drift_marker(snapshots, item)
+                handled += 1
+
+    if handled:
+        log.info(
+            "Dividend-drift: %d newly-missing handled (%d individual, %d summarised)",
+            handled,
+            len(individual),
+            len(overflow),
+        )
+    return handled
