@@ -50,11 +50,24 @@ def main() -> int:
         # market-hours failure. Push an immediate alert (master_todo #35):
         # this cron runs every 15 min but the F4 health check only sweeps at
         # 21:00 IST, so without this a mid-session insert outage stays
-        # invisible for hours. cron_run still records the failure heartbeat
-        # because we re-raise.
+        # invisible for hours.
+        #
+        # #73 U2-e: a single bad row must NOT suppress the stop-loss / target
+        # evaluators. insert_intraday_quotes uses insert_many(ordered=False), so
+        # the VALID rows still land even when one row is bad. Previously the cron
+        # re-raised on any insert error, skipping BOTH evaluators for the tick —
+        # a genuine breach could go un-alerted because of one malformed row. We
+        # now capture the insert failure, alert on it, remember it, and STILL run
+        # the evaluators on the fetched rows; the heartbeat is marked failed at
+        # the end so F4 still sees the problem.
+        insert_failed = False
+        insert_error = ""
         try:
             inserted = insert_intraday_quotes(rows)
         except Exception as exc:
+            insert_failed = True
+            insert_error = str(exc)
+            inserted = 0
             log.exception("insert_intraday_quotes failed during market hours")
             # push_public raises on transport failure — guard it so a failed
             # alert can't mask the original insert error (mirrors #24/TD39).
@@ -71,15 +84,16 @@ def main() -> int:
                 )
             except Exception:
                 log.exception("Failed to send intraday-insert failure ntfy")
-            raise
 
         hb.metadata["rows_fetched"] = len(rows)
         hb.metadata["rows_inserted"] = inserted
+        if insert_failed:
+            hb.metadata["insert_failed"] = True
 
         # master_todo #41 (TD6): evaluate stop-loss rising-edge alerts on the
-        # SAME rows we just fetched + persisted -- no parallel price-fetch loop.
-        # Guarded so an alerting failure can never mask a successful price
-        # insert (the insert is this cron's primary job).
+        # SAME rows we just fetched -- no parallel price-fetch loop. Guarded so
+        # an alerting failure can never mask the insert outcome. Runs even after
+        # a partial insert failure (#73 U2-e) so a real breach still alerts.
         try:
             alerts_fired = evaluate_stop_loss_alerts(rows)
             hb.metadata["stop_loss_alerts_fired"] = alerts_fired
@@ -91,7 +105,7 @@ def main() -> int:
 
         # master_todo #56: evaluate target-price rising-edge alerts on the SAME
         # rows (mirror of #41; no parallel price-fetch loop). Guarded so an
-        # alerting failure can never mask the successful price insert.
+        # alerting failure can never mask the insert outcome.
         try:
             target_alerts_fired = evaluate_target_price_alerts(rows)
             hb.metadata["target_alerts_fired"] = target_alerts_fired
@@ -100,6 +114,14 @@ def main() -> int:
         except Exception:
             log.exception("evaluate_target_price_alerts failed after intraday insert")
             hb.metadata["target_alerts_error"] = True
+
+        # #73 U2-e: surface the insert failure to F4 AFTER the evaluators ran, so
+        # cron_run records this tick as failed (mid-session outage stays visible)
+        # without having suppressed the alert evaluation.
+        if insert_failed:
+            raise RuntimeError(
+                f"insert_intraday_quotes failed during market hours: {insert_error}"
+            )
 
         log.info("Intraday refresh complete: %d inserted", inserted)
         return 0

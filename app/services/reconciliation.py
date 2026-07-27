@@ -628,27 +628,44 @@ def _dividend_drift_marker_id(isin: str, ex_floor: datetime) -> str:
 _DIVIDEND_NUDGE_INDIVIDUAL_CAP = 3
 
 
-def _write_dividend_drift_marker(snapshots, item: dict) -> None:
+def _write_dividend_drift_marker(snapshots, item: dict) -> bool:
     """Persist the rising-edge dedup marker for one missing receipt.
 
     Written only after the corresponding push succeeded (success-gated), so a
     transient ntfy outage retries the whole batch on the next run.
+
+    #73 U2-d: guarded. A bare insert_one here used to be able to abort the whole
+    nudge cron mid-batch if it threw (and the already-pushed dividend would then
+    have no marker AND the remaining nudges never ran). We now swallow+log a
+    marker-write failure and return False; the dividend simply re-nudges next
+    run (the safe direction — we never silently drop a real unbooked payout).
+    Returns True if the marker landed.
     """
-    snapshots.insert_one(
-        _convert_decimals_to_decimal128(
-            {
-                "taken_at": utcnow(),
-                "type": "dividend_drift_marker",
-                "marker_id": item["marker_id"],
-                "isin": item["isin"],
-                "symbol": item["symbol"],
-                "ex_date": item["ex_floor"],
-                "amount_per_share": item["amount_per_share"],
-                "expected_amount": item["expected"],
-                "_schema_version": 1,
-            }
+    try:
+        snapshots.insert_one(
+            _convert_decimals_to_decimal128(
+                {
+                    "taken_at": utcnow(),
+                    "type": "dividend_drift_marker",
+                    "marker_id": item["marker_id"],
+                    "isin": item["isin"],
+                    "symbol": item["symbol"],
+                    "ex_date": item["ex_floor"],
+                    "amount_per_share": item["amount_per_share"],
+                    "expected_amount": item["expected"],
+                    "_schema_version": 1,
+                }
+            )
         )
-    )
+        return True
+    except Exception as exc:
+        log.error(
+            "dividend-drift marker write failed for %s (%s): %s — will re-nudge next run",
+            item.get("isin"),
+            item.get("marker_id"),
+            exc,
+        )
+        return False
 
 
 def evaluate_dividend_drift_alerts() -> int:
@@ -731,8 +748,8 @@ def evaluate_dividend_drift_alerts() -> int:
                 "dividend-drift ntfy nudge failed for %s: %s", item["isin"], exc
             )
             continue  # no marker -> retries next run
-        _write_dividend_drift_marker(snapshots, item)
-        handled += 1
+        if _write_dividend_drift_marker(snapshots, item):
+            handled += 1
 
     # Overflow — ONE summary push gates ALL rolled-in markers together.
     if overflow:
@@ -755,8 +772,8 @@ def evaluate_dividend_drift_alerts() -> int:
             log.error("dividend-drift summary ntfy nudge failed: %s", exc)
         else:
             for item in overflow:
-                _write_dividend_drift_marker(snapshots, item)
-                handled += 1
+                if _write_dividend_drift_marker(snapshots, item):
+                    handled += 1
 
     if handled:
         log.info(

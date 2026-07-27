@@ -639,6 +639,17 @@ def bulk_get_latest_intraday(isins: list[str]) -> dict[str, dict]:
 
 #  Stop-loss intraday alerts (master_todo #41 / TD6)
 
+# #73 U2-c: bound the Guard-B "was this stop/target ever armed?" probe to a
+# recent window. prices_intraday has a 90-day TTL, so an unbounded all-time
+# scan (a) lets a single ancient tick permanently arm a garbage stop/target and
+# (b) silently changes arm state as old ticks age out. 30 days is a stable
+# "recently crossed through" horizon comfortably inside the TTL.
+_ARM_WINDOW_DAYS = 30
+
+
+def _ARM_WINDOW_FLOOR() -> datetime:
+    return utcnow() - timedelta(days=_ARM_WINDOW_DAYS)
+
 
 def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
     """Fire a rising-edge stop-loss alert per holding whose latest intraday
@@ -746,10 +757,16 @@ def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
             # stop_loss set at/above every price the stock has ever traded at
             # (test/seed pollution like GAEL 1000 or OLAELEC 212312) was never
             # armed and would otherwise fire on the very first tick. Suppress it.
+            # #73 U2-c: bound the arm probe to a recent window. An unbounded
+            # all-time scan lets a single ancient tick permanently "arm" a
+            # garbage stop, and because prices_intraday has a 90-day TTL the
+            # arm state would silently change as old ticks age out. A bounded
+            # window makes "recently crossed through" deterministic.
             armed = (
                 intraday.find_one(
                     {
                         "isin": isin,
+                        "captured_at": {"$gte": _ARM_WINDOW_FLOOR()},
                         "price": {"$gte": Decimal128(stop_loss)},
                     }
                 )
@@ -765,6 +782,39 @@ def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
         body = f"{symbol} \u20b9{ltp_str} crossed below stop-loss \u20b9{sl_str}"
 
         pct_change = float((ltp / stop_loss - 1) * 100) if stop_loss > 0 else None
+
+        # #73 U2-a: BUILD the Alert (and its TriggerData) BEFORE the push, so any
+        # model-validation error surfaces before we send — a post-push
+        # validation/insert failure would leave a delivered push with no
+        # delivery_status:"sent" audit row, and the success-gated dedup would
+        # re-fire the SAME push every 15-min tick (duplicate real pushes).
+        def _mk_alert(delivery_status: str, delivery_error: str, ntfy_message_id: str):
+            return Alert(
+                alert_type="stop_loss_hit",
+                severity="high",
+                channel="ntfy_public_price",
+                isin=isin,
+                symbol=symbol,
+                title=title,
+                body=body,
+                trigger_data=TriggerData(
+                    current_price=ltp,
+                    stop_loss=stop_loss,
+                    avg_cost=_to_dec(h["avg_cost"])
+                    if h.get("avg_cost") is not None
+                    else None,
+                    quantity=_to_dec(h["quantity"])
+                    if h.get("quantity") is not None
+                    else None,
+                    pct_change=pct_change,
+                ),
+                ntfy_message_id=ntfy_message_id,
+                delivery_status=delivery_status,
+                delivery_error=delivery_error,
+            )
+
+        # Validate the Alert shape now (raises here, before any push).
+        _mk_alert("sent", "", "")
 
         delivery_status = "sent"
         delivery_error = ""
@@ -784,30 +834,19 @@ def evaluate_stop_loss_alerts(rows: list[dict]) -> int:
             delivery_status = "failed"
             delivery_error = str(exc)
 
-        alert = Alert(
-            alert_type="stop_loss_hit",
-            severity="high",
-            channel="ntfy_public_price",
-            isin=isin,
-            symbol=symbol,
-            title=title,
-            body=body,
-            trigger_data=TriggerData(
-                current_price=ltp,
-                stop_loss=stop_loss,
-                avg_cost=_to_dec(h["avg_cost"])
-                if h.get("avg_cost") is not None
-                else None,
-                quantity=_to_dec(h["quantity"])
-                if h.get("quantity") is not None
-                else None,
-                pct_change=pct_change,
-            ),
-            ntfy_message_id=ntfy_message_id,
-            delivery_status=delivery_status,
-            delivery_error=delivery_error,
-        )
-        alerts_log.insert_one(alert.to_mongo())
+        try:
+            alerts_log.insert_one(
+                _mk_alert(delivery_status, delivery_error, ntfy_message_id).to_mongo()
+            )
+        except Exception:
+            # A rare post-push insert failure means dedup may re-fire next tick
+            # (a duplicate push) rather than silently swallow a real breach —
+            # the safe direction. Log loudly.
+            log.exception(
+                "Stop-loss audit insert failed for %s after delivery_status=%s",
+                isin,
+                delivery_status,
+            )
         fired += 1
 
     return fired
@@ -931,10 +970,12 @@ def evaluate_target_price_alerts(rows: list[dict]) -> int:
             # target. A target_price set at/below every price the stock has ever
             # traded at (garbage/seed pollution) was never armed and would
             # otherwise fire on the very first tick. Suppress it.
+            # #73 U2-c: bounded to a recent window (see _ARM_WINDOW_FLOOR).
             armed = (
                 intraday.find_one(
                     {
                         "isin": isin,
+                        "captured_at": {"$gte": _ARM_WINDOW_FLOOR()},
                         "price": {"$lte": Decimal128(target_price)},
                     }
                 )
@@ -952,6 +993,35 @@ def evaluate_target_price_alerts(rows: list[dict]) -> int:
         pct_change = (
             float((ltp / target_price - 1) * 100) if target_price > 0 else None
         )
+
+        # #73 U2-a: build + validate the Alert BEFORE the push (see the
+        # stop-loss evaluator for the rationale).
+        def _mk_alert(delivery_status: str, delivery_error: str, ntfy_message_id: str):
+            return Alert(
+                alert_type="target_hit",
+                severity="high",
+                channel="ntfy_public_price",
+                isin=isin,
+                symbol=symbol,
+                title=title,
+                body=body,
+                trigger_data=TriggerData(
+                    current_price=ltp,
+                    target_price=target_price,
+                    avg_cost=_to_dec(h["avg_cost"])
+                    if h.get("avg_cost") is not None
+                    else None,
+                    quantity=_to_dec(h["quantity"])
+                    if h.get("quantity") is not None
+                    else None,
+                    pct_change=pct_change,
+                ),
+                ntfy_message_id=ntfy_message_id,
+                delivery_status=delivery_status,
+                delivery_error=delivery_error,
+            )
+
+        _mk_alert("sent", "", "")  # validate before any push
 
         delivery_status = "sent"
         delivery_error = ""
@@ -971,30 +1041,16 @@ def evaluate_target_price_alerts(rows: list[dict]) -> int:
             delivery_status = "failed"
             delivery_error = str(exc)
 
-        alert = Alert(
-            alert_type="target_hit",
-            severity="high",
-            channel="ntfy_public_price",
-            isin=isin,
-            symbol=symbol,
-            title=title,
-            body=body,
-            trigger_data=TriggerData(
-                current_price=ltp,
-                target_price=target_price,
-                avg_cost=_to_dec(h["avg_cost"])
-                if h.get("avg_cost") is not None
-                else None,
-                quantity=_to_dec(h["quantity"])
-                if h.get("quantity") is not None
-                else None,
-                pct_change=pct_change,
-            ),
-            ntfy_message_id=ntfy_message_id,
-            delivery_status=delivery_status,
-            delivery_error=delivery_error,
-        )
-        alerts_log.insert_one(alert.to_mongo())
+        try:
+            alerts_log.insert_one(
+                _mk_alert(delivery_status, delivery_error, ntfy_message_id).to_mongo()
+            )
+        except Exception:
+            log.exception(
+                "Target-price audit insert failed for %s after delivery_status=%s",
+                isin,
+                delivery_status,
+            )
         fired += 1
 
     return fired

@@ -536,7 +536,9 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
             Collections.transactions().insert_one(tx.to_mongo())
         except DuplicateKeyError:
             return _already_recorded_response(isin, source_ref)
-        return _finish_corp_action(isin, symbol, "SPLIT recorded")
+        result = _finish_corp_action(isin, symbol, "SPLIT recorded")
+        result["source_ref"] = source_ref
+        return result
 
     # ── BONUS ──────────────────────────────────────────────────────────────
     if req.action_type == "bonus":
@@ -577,6 +579,7 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
             return _already_recorded_response(isin, source_ref)
         result = _finish_corp_action(isin, symbol, "BONUS recorded")
         result["bonus_quantity"] = str(bonus_qty)
+        result["source_ref"] = source_ref
         return result
 
     # ── DEMERGER ─────────────────────────────────────────────────────────────

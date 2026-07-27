@@ -76,8 +76,9 @@ def _increment_quota(use_case: str, credits: int) -> int:
     """
     today = _today_utc_str()
     now = utcnow()
-    try:
-        result = Collections.tavily_quota().find_one_and_update(
+
+    def _claim():
+        return Collections.tavily_quota().find_one_and_update(
             {
                 "date_utc": today,
                 "calls_today": {"$lt": settings.TAVILY_DAILY_CALL_LIMIT},
@@ -100,18 +101,33 @@ def _increment_quota(use_case: str, credits: int) -> int:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-    except DuplicateKeyError as exc:
-        # A same-day doc already exists at/above the ceiling, so it did not
-        # match the {$lt: limit} filter; upsert then tried to insert a duplicate
-        # date_utc and the unique index rejected it. No credit was consumed.
-        raise TavilyQuotaExceeded(
-            f"Daily Tavily call ceiling hit: >= {settings.TAVILY_DAILY_CALL_LIMIT}. "
-            f"Resets at 00:00 UTC."
-        ) from exc
+
+    try:
+        result = _claim()
+    except DuplicateKeyError:
+        # #73 U2-b: a DuplicateKeyError here is AMBIGUOUS. It means the upsert
+        # tried to INSERT a second doc for date_utc==today because the filter
+        # didn't match an existing same-day doc. Two distinct causes:
+        #   (1) at/over the cap  -> the existing doc fails {$lt: limit}  (real quota)
+        #   (2) first-call race  -> two concurrent first-calls-of-day both saw NO
+        #       doc, both tried to insert; the loser collides even though
+        #       calls_today would be 1, far below the cap (FALSE quota-exceeded
+        #       that used to abort the whole Sunday news run).
+        # Disambiguate by retrying ONCE: the winner's doc now exists, so the
+        # retry's {$lt: limit} filter matches when under the cap and increments
+        # normally; only a genuine at-cap doc still fails to match.
+        try:
+            result = _claim()
+        except DuplicateKeyError as exc:
+            raise TavilyQuotaExceeded(
+                f"Daily Tavily call ceiling hit: >= {settings.TAVILY_DAILY_CALL_LIMIT}. "
+                f"Resets at 00:00 UTC."
+            ) from exc
 
     # Defensive: with upsert=True a match or insert should always return a doc.
-    # If a future schema/index change ever makes this None, treat it as the cap
-    # being hit rather than silently returning a bad value.
+    # A None here (after the retry) means the same-day doc exists but is at/over
+    # the cap so {$lt: limit} matched nothing and upsert was suppressed by the
+    # duplicate — genuine quota exhaustion.
     if result is None:
         raise TavilyQuotaExceeded(
             f"Daily Tavily call ceiling hit: >= {settings.TAVILY_DAILY_CALL_LIMIT}. "
