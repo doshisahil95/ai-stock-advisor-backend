@@ -14,6 +14,7 @@ from typing import Any, Literal
 from bson import Decimal128, ObjectId
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from pymongo.errors import DuplicateKeyError
 import re
 
 from app.db.client import Collections
@@ -420,16 +421,52 @@ class RecordCorporateActionRequest(BaseModel):
     it_act_section: str = Field(default="Section 49(2C) of the Income Tax Act, 1961")
 
 
+def _resolve_source_ref(req: RecordCorporateActionRequest) -> str:
+    """#72 U1-a: derive a stable, non-empty idempotency key.
+
+    The dialog's source_ref is optional and defaulted to "". A blank key used to
+    short-circuit the idempotency check (every blank call inserted a new row), so
+    a double-click duplicated the ledger — and a duplicated SPLIT double-scales
+    every lot via _fifo_replay. We now ALWAYS carry a non-empty source_ref: if
+    the caller supplies one we use it verbatim; otherwise we synthesize a
+    deterministic one from the action's identity so the same corp action recorded
+    twice collides on the same key (and on the partial-unique index).
+    """
+    explicit = (req.source_ref or "").strip()
+    if explicit:
+        return explicit
+    day = req.trade_date.date().isoformat()
+    at = req.action_type.upper()
+    if req.action_type == "demerger":
+        child = (req.child_isin or "").strip().upper()
+        return f"CA:{at}:{req.isin.strip().upper()}:{child}:{day}"
+    ratio = f"{req.ratio_from}to{req.ratio_to}"
+    return f"CA:{at}:{req.isin.strip().upper()}:{ratio}:{day}"
+
+
 def _corp_action_exists(source_ref: str) -> bool:
-    """Idempotency: has a non-deleted ledger row with this source_ref landed?"""
+    """Idempotency: has a non-deleted ledger row with this source_ref landed?
+
+    #72 U1-a: source_ref is now always non-empty (see _resolve_source_ref), so a
+    blank key can no longer bypass the check. The find_one is a fast pre-check;
+    the partial-unique index on source_ref (indexes.py) is the atomic backstop
+    for the check-then-insert TOCTOU (#72 U1-b).
+    """
     if not source_ref:
         return False
     return (
-        Collections.transactions().find_one(
-            {"source_ref": source_ref, "deleted_at": None}
-        )
+        Collections.transactions().find_one({"source_ref": source_ref})
         is not None
     )
+
+
+def _already_recorded_response(isin: str, source_ref: str) -> dict:
+    return {
+        "status": "already_recorded",
+        "isin": isin,
+        "source_ref": source_ref,
+        "message": "A transaction with this source_ref already exists.",
+    }
 
 
 @router.post(
@@ -455,11 +492,14 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
     symbol = req.symbol.strip().upper()
     exchange = req.exchange.strip().upper()
 
-    if _corp_action_exists(req.source_ref):
+    # #72 U1-a: resolve a non-empty idempotency key (caller-supplied or derived).
+    source_ref = _resolve_source_ref(req)
+
+    if _corp_action_exists(source_ref):
         return {
             "status": "already_recorded",
             "isin": isin,
-            "source_ref": req.source_ref,
+            "source_ref": source_ref,
             "message": "A transaction with this source_ref already exists.",
         }
 
@@ -478,7 +518,7 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
             ratio_to=req.ratio_to,
             trade_date=req.trade_date,
             notes=req.notes,
-            source_ref=req.source_ref,
+            source_ref=source_ref,
         )
         # Guard: a SPLIT before any BUY (or otherwise impossible) is rejected,
         # mirroring the validate_replay guard on the sell/edit/delete paths.
@@ -489,7 +529,13 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
         if not ok:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
         tx = Transaction(**row)
-        Collections.transactions().insert_one(tx.to_mongo())
+        # #72 U1-b: the partial-unique index on source_ref is the atomic backstop
+        # for the check-then-insert TOCTOU. A concurrent duplicate loses the race
+        # and is reported as already_recorded instead of double-scaling lots.
+        try:
+            Collections.transactions().insert_one(tx.to_mongo())
+        except DuplicateKeyError:
+            return _already_recorded_response(isin, source_ref)
         return _finish_corp_action(isin, symbol, "SPLIT recorded")
 
     # ── BONUS ──────────────────────────────────────────────────────────────
@@ -522,10 +568,13 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
             bonus_quantity=bonus_qty,
             trade_date=req.trade_date,
             notes=req.notes,
-            source_ref=req.source_ref,
+            source_ref=source_ref,
         )
         tx = Transaction(**row)
-        Collections.transactions().insert_one(tx.to_mongo())
+        try:
+            Collections.transactions().insert_one(tx.to_mongo())
+        except DuplicateKeyError:  # #72 U1-b
+            return _already_recorded_response(isin, source_ref)
         result = _finish_corp_action(isin, symbol, "BONUS recorded")
         result["bonus_quantity"] = str(bonus_qty)
         return result
@@ -551,9 +600,13 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
     child_isin = req.child_isin.strip().upper()
     child_symbol = req.child_symbol.strip().upper()
 
+    # #72 U1-d: the number apportioned across is the CHILD receipt quantity (the
+    # §49(2C) per-share cost = child_total_cost / child_quantity). The param is
+    # named child_quantity now; feeding parent qty here would only be correct for
+    # a 1:1 receipt and would mislabel the audit strings for any other ratio.
     split_math = corporate_action_service.compute_demerger_cost_split(
         parent_total_cost=req.parent_total_cost,
-        parent_quantity=req.child_quantity,  # 1:1 receipt: child qty == parent qty apportioned
+        child_quantity=req.child_quantity,
         child_cost_pct=req.child_cost_pct,
     )
 
@@ -566,10 +619,13 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
         trade_date=req.trade_date,
         acquired_date=req.acquired_date,
         notes=req.notes,
-        source_ref=req.source_ref,
+        source_ref=source_ref,
     )
     child_tx = Transaction(**child_row)
-    Collections.transactions().insert_one(child_tx.to_mongo())
+    try:
+        Collections.transactions().insert_one(child_tx.to_mongo())
+    except DuplicateKeyError:  # #72 U1-b
+        return _already_recorded_response(child_isin, source_ref)
 
     # Auto-create the §49(2C) cost_basis_adjustments doc (the row said this
     # endpoint should). Mirrors seed_cost_basis_adjustments.py's shape.
@@ -616,7 +672,11 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
     )
 
     # Recompute the CHILD holding so it appears immediately.
-    _finish_corp_action(child_isin, child_symbol, "demerger child recorded")
+    # #72 U1-c: do NOT discard the recompute result. If the child recompute
+    # fails, _finish_corp_action returns recorded_with_warning (the TD19
+    # contract) — the ledger row + §49(2C) doc DID persist, so we surface the
+    # warning rather than falsely reporting a clean success.
+    finish = _finish_corp_action(child_isin, child_symbol, "demerger child recorded")
 
     # Compute (do NOT apply) the parent BUY-row reprice. The caller applies it
     # via PATCH /transactions/{id} so every parent-cost change is audited.
@@ -627,10 +687,12 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
         parent_rows, split_math["parent_retained_factor"]
     )
 
-    return {
-        "status": "recorded",
+    response = {
+        "status": finish["status"],
         "isin": isin,
         "child_isin": child_isin,
+        "child_symbol": child_symbol,
+        "source_ref": source_ref,
         "child_cost_per_share": str(split_math["child_cost_per_share"]),
         "adjustment_amount": str(split_math["adjustment_amount"]),
         "parent_retained_factor": str(split_math["parent_retained_factor"]),
@@ -642,6 +704,9 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
             "reduce the parent's cost basis."
         ),
     }
+    if finish["status"] == "recorded_with_warning":
+        response["warning"] = finish.get("warning")
+    return response
 
 
 def _finish_corp_action(isin: str, symbol: str, what: str) -> dict:

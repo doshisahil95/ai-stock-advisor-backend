@@ -151,7 +151,7 @@ def build_demerger_child_row(
 def compute_demerger_cost_split(
     *,
     parent_total_cost: Decimal,
-    parent_quantity: Decimal,
+    child_quantity: Decimal,
     child_cost_pct: Decimal,
 ) -> dict:
     """Split a parent block's total cost per §49(2C).
@@ -164,16 +164,22 @@ def compute_demerger_cost_split(
     seed_cost_basis_adjustments.py.
 
     child_cost_pct is a fraction in (0, 1), e.g. Decimal("0.3115") for 31.15%.
+
+    #72 U1-d: `child_quantity` is the number of CHILD shares received. The
+    apportioned child slice (parent_total_cost × child_cost_pct) is spread over
+    the child receipt to get the per-share cost. Feeding parent quantity here is
+    only equivalent for a 1:1 receipt; the param is named for the child so the
+    per-share math and the §49(2C) audit strings are correct for any ratio.
     """
-    if parent_quantity <= 0:
-        raise ValueError("parent_quantity must be positive")
+    if child_quantity <= 0:
+        raise ValueError("child_quantity must be positive")
     if not (Decimal("0") < child_cost_pct < Decimal("1")):
         raise ValueError("child_cost_pct must be a fraction strictly in (0, 1)")
 
     child_total = (parent_total_cost * child_cost_pct).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
-    child_cost_per_share = (child_total / parent_quantity).quantize(
+    child_cost_per_share = (child_total / child_quantity).quantize(
         Decimal("0.0001"), rounding=ROUND_HALF_UP
     )
     parent_retained_factor = (Decimal("1") - child_cost_pct).quantize(

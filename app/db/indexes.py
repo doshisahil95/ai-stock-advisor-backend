@@ -32,6 +32,22 @@ def ensure_all_indexes() -> dict[str, list[str]]:
                 name="type_isin_trade_date_asc",  # used for FIFO depletion
             ),
             IndexModel([("source_ref", ASCENDING)], name="source_ref"),
+            # master_todo #72 U1-a/b: corporate-action idempotency. Every
+            # corp-action ledger row carries a non-empty source_ref (the
+            # endpoint auto-generates a deterministic one when the caller omits
+            # it). A partial UNIQUE index on non-empty string source_ref makes a
+            # double-click / retry insert fail with DuplicateKeyError instead of
+            # duplicating the row (a duplicated SPLIT would double-scale every
+            # lot via _fifo_replay). Partial so the many BUY/SELL/import rows
+            # with no source_ref (absent field or "") never collide. `$gt: ""`
+            # matches only string values strictly greater than empty string,
+            # i.e. present non-empty strings, and excludes null/missing/"".
+            IndexModel(
+                [("source_ref", ASCENDING)],
+                name="source_ref_unique_nonempty",
+                unique=True,
+                partialFilterExpression={"source_ref": {"$gt": ""}},
+            ),
         ]
     )
 

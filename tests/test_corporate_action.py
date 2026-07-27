@@ -123,7 +123,7 @@ def test_compute_demerger_cost_split_tmpv_tmcv():
     """TMPV 100 sh @ ₹813.37 total ₹81,337; 31.15% to TMCV."""
     res = ca.compute_demerger_cost_split(
         parent_total_cost=Decimal("81337.00"),
-        parent_quantity=Decimal("100"),
+        child_quantity=Decimal("100"),
         child_cost_pct=Decimal("0.3115"),
     )
     assert res["child_total_cost"] == Decimal("25336.48")
@@ -133,11 +133,26 @@ def test_compute_demerger_cost_split_tmpv_tmcv():
     assert res["adjustment_amount"] == Decimal("-25336.48")
 
 
+def test_compute_demerger_cost_split_non_1to1_uses_child_quantity():
+    """#72 U1-d: per-share cost divides by the CHILD receipt quantity, not the
+    parent block. A 2:1 receipt (50 child sh for a 100-sh parent block) must
+    give twice the per-share cost of a 1:1 receipt of the same slice."""
+    res = ca.compute_demerger_cost_split(
+        parent_total_cost=Decimal("81337.00"),
+        child_quantity=Decimal("50"),  # non-1:1: 50 child sh received
+        child_cost_pct=Decimal("0.3115"),
+    )
+    # child_total 25336.48 spread over 50 sh, not 100
+    assert res["child_total_cost"] == Decimal("25336.48")
+    assert res["child_cost_per_share"] == Decimal("506.7296")
+    assert res["parent_retained_factor"] == Decimal("0.6885")
+
+
 def test_compute_demerger_cost_split_rejects_bad_pct():
     with pytest.raises(ValueError):
         ca.compute_demerger_cost_split(
             parent_total_cost=Decimal("100"),
-            parent_quantity=Decimal("1"),
+            child_quantity=Decimal("1"),
             child_cost_pct=Decimal("1.5"),
         )
 
@@ -231,6 +246,36 @@ def test_endpoint_split_idempotent(fake_db, stub_metadata):
     assert resp2["status"] == "already_recorded"
     splits = [r for r in fake_db["transactions"].find({"isin": isin}) if r["type"] == "SPLIT"]
     assert len(splits) == 1
+
+
+def test_endpoint_split_idempotent_without_source_ref(fake_db, stub_metadata):
+    """#72 U1-a: with NO caller source_ref, the endpoint derives a deterministic
+    one so a double-click is still a no-op (pre-fix a blank ref bypassed the
+    check and duplicated the SPLIT, double-scaling every lot)."""
+    from app.routers.transactions import RecordCorporateActionRequest, record_corporate_action
+
+    isin = "INE081A01020"
+    fake_db["transactions"].seed(
+        tx("BUY", quantity=Decimal("10"), price=Decimal("1170.27"),
+           trade_date=datetime(2021, 1, 1), isin=isin, symbol="TATASTEEL")
+    )
+    _seed_holding(fake_db, isin, "TATASTEEL", Decimal("10"), Decimal("1170.27"))
+
+    def _fresh_req():
+        return RecordCorporateActionRequest(
+            action_type="split", isin=isin, symbol="TATASTEEL",
+            ratio_from=1, ratio_to=10, trade_date=datetime(2022, 7, 28),
+            # no source_ref supplied
+        )
+
+    resp1 = record_corporate_action(_fresh_req())
+    assert resp1["status"] == "recorded"
+    resp2 = record_corporate_action(_fresh_req())
+    assert resp2["status"] == "already_recorded"
+    splits = [r for r in fake_db["transactions"].find({"isin": isin}) if r["type"] == "SPLIT"]
+    assert len(splits) == 1
+    # the derived source_ref is non-empty and stamped on the row
+    assert splits[0]["source_ref"]
 
 
 def test_endpoint_bonus_computes_qty_from_holding(fake_db, stub_metadata):
