@@ -1,6 +1,6 @@
 # Portfolio Advisor — Data Flow Reference
 
-> Last updated: 2026-05-24 (post-Chat-5.5 small TD cleanup).  This is a "future-self" doc — open it when you need
+> Last updated: 2026-07-28 (#69 round-2 review sync — corrected the `run_weekly_suggestions` crontab line to the LIVE `--direction=both` (argparse does NOT accept `--notify`/`--run-type`), the CRON_REGISTRY count to 11, added the shipped collections/alerts, and closed the stale Q3. Earlier baseline: 2026-05-24 post-Chat-5.5 TD cleanup.)  This is a "future-self" doc — open it when you need
 > to remember why something works the way it does.
 
 The system is split into two phases:
@@ -44,6 +44,10 @@ All access is via Tailscale (no public ingress). Backend FastAPI runs on EC2 t3.
 | `cron_heartbeats` | Per-`cron_name` last-success metadata + last-error blob | `cron_run()` decorator wrapping every cron script | Daily 21:00 IST `cron_health_check.py` (F4); `/cron/health` |
 | `digest_deliveries` | Per-digest send audit (email id, ntfy id, candidate counts, direction) | `digest_delivery.send_weekly_digest` / `send_combined_digest` | Debugging stuck/dropped digests |
 | `tavily_quota` | Daily Tavily call counter (per UTC day) | `news_fetcher` before every Tavily call | Throttling — refuses to issue searches once daily cap hit (resets 00:00 UTC) |
+| `alerts_log` | Durable audit row per alert attempt (`stop_loss_hit` #41, `target_hit` #56, `news_event` #57) with `delivery_status`, `cited_news_ids`, `trigger_data` | `price_service` stop-loss/target evaluators, `news_alerts.evaluate_news_alerts` | Success-gated dedup (only a `delivery_status:"sent"` row suppresses a re-fire); index `isin_type_sent_desc` |
+| `dividend_announcements` | yfinance "announced" dividends, one doc per `(isin, ex_date)`, `amount_per_share` (#65) | `fundamentals_service.refresh_dividends_*` (Sunday, guarded leg of `refresh_fundamentals.py`) | `reconciliation.compute_dividend_drift` (announced × recorded × booked matrix) + `/reconciliation/dividend-drift` (read-only, NOT a tax view) |
+| `suggestion_run_locks` | Per-direction advisory lock for the manual "Run now" (#71), `_id==direction`, 900s TTL | `POST /suggestions/run` | Fail-fast 409 on an overlapping manual run |
+| `recompute_locks` | Per-ISIN advisory lock (TD20), `acquired_at` 60s TTL | `holdings_service.recompute_holding` | Serializes recompute across the sync threadpool |
 
 ---
 
@@ -112,11 +116,11 @@ Both must hold; relying on either alone leaks stale state into the UI.
 
 ### Weekly digest delivery (F2 / F2b)
 
-`scripts/run_weekly_suggestions.py` runs Sundays at 07:00 IST with `--direction=both --notify --run-type scheduled`. It dispatches to both buy and sell pipelines and calls `digest_delivery.send_combined_digest(buy_run, sell_run)` — ONE Resend email (top 10 per direction + did-you-get-the-push banner) + ONE public ntfy.sh push covering both sides. `_send_email` delegates to `notify.email(subject=..., html=..., text=...)` which (post-A2 part 1) returns `{ok, id, error}` and never raises. Each delivery writes one `digest_deliveries` audit doc. The standalone `--direction=sell` reach inside `_run_sell_pipeline` (used by manual reruns / ad-hoc testing) is documented as such after A17 (commit 5) refreshed the stale chunk-6 NOTE.
+`scripts/run_weekly_suggestions.py` runs Sundays at 07:00 IST with `--direction=both` (the LIVE crontab line; the script's argparse accepts only `--direction`/`--no-notify`/`--skip-dossiers` — it does NOT accept `--notify` or `--run-type`, so `notify` defaults True and `run_type` is hardcoded `scheduled`). It dispatches to both buy and sell pipelines and calls `digest_delivery.send_combined_digest(buy_run, sell_run)` — ONE Resend email (top 10 per direction + did-you-get-the-push banner) + ONE public ntfy.sh push covering both sides. `_send_email` delegates to `notify.email(subject=..., html=..., text=...)` which (post-A2 part 1) returns `{ok, id, error}` and never raises. Each delivery writes one `digest_deliveries` audit doc. The standalone `--direction=sell` reach inside `_run_sell_pipeline` (used by manual reruns / ad-hoc testing) is documented as such after A17 (commit 5) refreshed the stale chunk-6 NOTE.
 
 ### Cron health observability (F4)
 
-Every cron script wraps its main entry in the `cron_run()` decorator which upserts a `cron_heartbeats` doc on success (with `last_success_at`, `last_success_summary`) or appends a `last_error_at`/`last_error_message` on failure. `CRON_REGISTRY` in `app/services/cron_heartbeat_service.py` enumerates the 10 expected crons with their `schedule_human` + `expected_weekdays` (A6 + A6.5 + A7 cleanups shipped in commit 3). `scripts/cron_health_check.py` runs daily at 21:00 IST IST, compares heartbeats to the registry, and `push_public(channel="errors", ...)` if any cron is missing or last-failed.
+Every cron script wraps its main entry in the `cron_run()` decorator which upserts a `cron_heartbeats` doc on success (with `last_success_at`, `last_success_summary`) or appends a `last_error_at`/`last_error_message` on failure. `CRON_REGISTRY` in `app/services/cron_heartbeat_service.py` enumerates 11 crons (the 10 live crontab lines + the idle `weekly_suggestions_sell` spec whose `expected_weekdays=set()` so it never false-alarms; #49/TD40) with their `schedule_human` + `expected_weekdays` (A6 + A6.5 + A7 cleanups shipped in commit 3). **#69 review note:** `scripts/refresh_fundamentals.py`'s `with cron_run(...)` block currently closes before the actual refresh work runs, so a Sunday fundamentals/earnings/dividends failure is not reflected in its heartbeat — tracked as master_todo #75 (U4-a). `scripts/cron_health_check.py` runs daily at 21:00 IST IST, compares heartbeats to the registry, and `push_public(channel="errors", ...)` if any cron is missing or last-failed.
 
 ---
 
@@ -170,7 +174,8 @@ These MUST hold or computed P&L / suggestions / feedback are wrong:
 | `45 19 * * 1-5` | `track_suggestion_outcomes.py` | Per-candidate outcome tracking (weekdays 19:45 IST, after EOD prices land) |
 | `0 6 * * 0` | `refresh_fundamentals.py` | Weekly fundamentals refresh for universe (Sun 06:00 IST) |
 | `30 6 * * 0` | `fetch_news_for_universe.py --include-held` | Weekly news fetch + classification for universe ∪ held ∪ watchlist (Sun 06:30 IST) |
-| `0 7 * * 0` | `run_weekly_suggestions.py --direction=both --notify --run-type scheduled` | Weekly buy + sell suggestion runs + combined digest (Sun 07:00 IST) |
+| `0 7 * * 0` | `run_weekly_suggestions.py --direction=both` | Weekly buy + sell suggestion runs + combined digest (Sun 07:00 IST). `notify` defaults True; `run_type` hardcoded `scheduled`. Do NOT add `--notify`/`--run-type` (argparse rejects them). |
+| `30 2 * * *` | `purge_news_bodies.py` | Daily 02:30 IST news-body storage purge (P2-4 / #13 / TD27) |
 | `0 21 * * *` | `cron_health_check.py` | F4 daily cron-health alerter |
 | `0 0 * * 0` | log truncation (legacy) | **Superseded by logrotate** at `/etc/logrotate.d/portfolio-advisor` (weekly, rotate 4, compress). Safe to remove via `crontab -e` |
 
@@ -204,7 +209,7 @@ This happens only via transaction edit/delete. The audit log is the source of tr
 1. Check `digest_deliveries` for the most recent doc — confirms whether `send_combined_digest` was called and which channels were attempted.
 2. If `delivery.email.ok = false`, look at `delivery.email.error` for the Resend message.
 3. If ntfy is missing, check that the topic in `settings.NTFY_PUBLIC_TOPIC_DIGESTS` still matches the iPhone subscription (a topic rotation breaks the subscription silently).
-4. Re-trigger manually via `scripts/run_weekly_suggestions.py --direction=both --notify --run-type manual` (the `--run-type` tag prevents the cron-health alerter from double-counting).
+4. Re-trigger manually via `scripts/run_weekly_suggestions.py --direction=both` (sends email + ntfy; add `--no-notify` for a silent rerun). NOTE: `--notify`/`--run-type` are NOT valid flags — argparse accepts only `--direction`/`--no-notify`/`--skip-dossiers`, and `run_type` is hardcoded `scheduled`.
 5. To inspect a specific past run end-to-end, query `suggestion_runs` by `run_date_ist` + `direction`; the full candidate list with signals + gates + dossiers is embedded.
 
 ---
@@ -248,6 +253,6 @@ Two-mechanism exclusion (F5b) means a bug can hide in either layer. Diagnostic o
 
 ## Open questions (carried forward)
 
-- **Q3 (deferred from Chat 5)** — `holdings.stop_loss` field exists on the model but is never read or written by any code path. Two options: (a) wire to a new intraday-alerts surface, (b) remove. Punted out of Chat 5 to keep the audit pass focused.
+- **Q3 (CLOSED — SHIPPED 2026-07-03 via #41, option (a)).** `holdings.stop_loss` is now READ + written and wired to an intraday-alerts surface: `price_service.evaluate_stop_loss_alerts(rows)` runs on the intraday write path (rising-edge fire-once on a cross BELOW stop_loss, success-gated dedup via `alerts_log`, #67 Guard-B requires a prior arm tick), and the holding drill-down shows a read-only stop-loss strip. The sibling `target_price` field is wired the same way via `evaluate_target_price_alerts` (#56, cross ABOVE). No longer an open question.
 - **TD9 (SHIPPED Chat 5.5 2026-05-24)** — `settings.NTFY_URL` / `NTFY_USER` / `NTFY_PASS` removed from `settings.py` + `/etc/portfolio-advisor/secrets.env` in one atomic commit.
 - **TD11 (SHIPPED Chat 5.5 2026-05-24)** — `_build_signal_meta` now falls back to `sig["raw_value"]` for `fundamentals_field=None` signals (momentum + news) and renders via `meta["formatter_kind"]`.  Added `score_signed` + `count` formatters; reassigned `news_net_sentiment` / `news_story_velocity` / `news_story_count` / `high_severity_negative_count` away from `score_only`.  `is_ltcg_eligible` kept on `score_only` (binary semantic).

@@ -2,8 +2,15 @@
 
 Personal AI Stock Advisor — backend. FastAPI + Pydantic v2 + MongoDB Atlas. Single-user portfolio + research tool for NSE equities. **Strictly advisory; the system never trades.**
 
-> Last updated: 2026-05-24 (post-Chat-5.5 small TD cleanup).
+> Last updated: 2026-07-28 (#69 round-2 review pass — synced this README with the shipped code: corrected the `run_weekly_suggestions` crontab line to the LIVE `--direction=both` (the `--notify`/`--run-type` flags do NOT exist on the script's argparse and would break the Sunday cron if pasted), corrected the CRON_REGISTRY count to 11, added the `purge_news_bodies` cron + the endpoints/collections/alerts shipped since Chat 5.5. Earlier baseline: 2026-05-24 post-Chat-5.5 TD cleanup).
 > Companion docs: [`docs/data_flow.md`](docs/data_flow.md) for the per-collection / per-pipeline mental model; `docs/Project_State.md` for the full architectural spec, audit log, and open questions.
+
+> **Shipped since the 2026-05-24 baseline (surfaces this README's older reference tables predate — added here so there's no doc-drift; `docs/Project_State.md` §8/§9 is the exhaustive source):**
+> - **Endpoints:** `GET /portfolio/risk-summary` (#28 F12), `GET /portfolio/by-tag?tag=` (#28 F15), `GET /tax/capital-gains?fy=YYYY-YY` (#39 F11, STCG/LTCG per-lot for the Indian FY), `GET/PUT/DELETE /watchlist[/{isin}]` (#29 F13), `POST/GET /chat/*` (#27 F1/F3 ad-hoc chat), `GET /instruments/search/{prefix}` (#27, declared BEFORE the dynamic `/{exchange}/{symbol}` route), `POST /admin/recompute/{isin}` (#36, Tailscale-only), `GET /reconciliation/dividend-drift` (#65, read-only, NOT a tax view), `POST /transactions/corporate-action` (#68, records SPLIT/BONUS/demerger + auto-creates the §49(2C) adjustment), `POST /suggestions/run?direction=` + `GET /suggestions/run/status?direction=` (#71 manual "Run now").
+> - **Collections:** `alerts_log` (#41, durable alert audit — `stop_loss_hit`/`target_hit`/`news_event`), `dividend_announcements` (#65, one doc per `(isin, ex_date)`), `suggestion_run_locks` (#71, 900s TTL) + `recompute_locks` (TD20, 60s TTL).
+> - **Alerts/pushes:** intraday stop-loss breach (#41, +#67 Guard-B), target-price breach (#56), news alerts (#57), dividend-drift nudge (#65, flood-capped), and a POSITIVE daily "all crons healthy" heartbeat (#66) in addition to the anomaly-only F4 path.
+> - **Crons:** `purge_news_bodies.py` (02:30 IST daily, TD27) is live; CRON_REGISTRY has 11 entries (10 live + idle `weekly_suggestions_sell`).
+> - **#69 review note (OPEN):** `#51` — some yfinance `dividend_yield` values are stored already-as-percent while `dossier_service._fmt_pct`/`conversation_service._fmt_pct` multiply by 100 (`f"{v*100:.2f}%"`), so a dossier/chat can show e.g. "46%" instead of "0.46%". Backend-only (no frontend surface renders it). Fix at the `fundamentals_service` ingest and/or both `_fmt_pct` consistently.
 
 ---
 
@@ -166,7 +173,7 @@ Never commit secrets. Never paste them in chat. Never include them in error repo
 
 ## 7. Cron reference
 
-Crontab lives on EC2 — `ssh ubuntu@100.112.20.41 'crontab -l'`. Source-of-truth registry is `app/services/cron_heartbeat_service.py::CRON_REGISTRY` (10 entries). The daily F4 health check at 21:00 IST compares heartbeats against this registry and pushes to `errors` channel if anything is missing or last-failed.
+Crontab lives on EC2 — `ssh ubuntu@100.112.20.41 'crontab -l'`. Source-of-truth registry is `app/services/cron_heartbeat_service.py::CRON_REGISTRY` (11 entries — the 10 live crontab lines below PLUS the idle `weekly_suggestions_sell` spec, which carries `expected_weekdays=set()` so it never false-alarms; #49/TD40). The daily F4 health check at 21:00 IST compares heartbeats against this registry and pushes to `errors` channel if anything is missing or last-failed. **NOTE (do not drift):** the live `run_weekly_suggestions` line takes ONLY `--direction=both`. The script's argparse defines `--direction` / `--no-notify` / `--skip-dossiers` — it does NOT accept `--notify` or `--run-type`; pasting those (as older docs showed) makes argparse exit non-zero and silently kills the Sunday digest. `notify` defaults True and `run_type` is hardcoded `"scheduled"` internally.
 
 | Schedule (IST) | Crontab line | Heartbeat name | Purpose |
 |---|---|---|---|
@@ -177,7 +184,8 @@ Crontab lives on EC2 — `ssh ubuntu@100.112.20.41 'crontab -l'`. Source-of-trut
 | `45 19 * * 1-5` | `track_suggestion_outcomes.py` | `track_suggestion_outcomes` | Per-candidate outcome tracking; writes to `suggestion_outcomes` for `/suggestions/performance` |
 | `0 6 * * 0` | `refresh_fundamentals.py` | `refresh_fundamentals` | Weekly fundamentals + earnings for NIFTY 100 ∪ active holdings ∪ watchlist (#29) into `instruments_fundamentals` |
 | `30 6 * * 0` | `fetch_news_for_universe.py --include-held` | `fetch_news_universe` | Weekly Tavily + Haiku classified news for universe ∪ held ∪ watchlist into `news_articles` (A16 — `--include-held` is mandatory) |
-| `0 7 * * 0` | `run_weekly_suggestions.py --direction=both --notify --run-type scheduled` | `weekly_suggestions` | Buy + sell pipelines + combined digest (one email + one ntfy push for both sides) |
+| `0 7 * * 0` | `run_weekly_suggestions.py --direction=both` | `weekly_suggestions` | Buy + sell pipelines + combined digest (one email + one ntfy push for both sides). `notify` defaults True; `run_type` is hardcoded `scheduled`. Do NOT add `--notify`/`--run-type` (argparse rejects them). |
+| `30 2 * * *` | `purge_news_bodies.py` | `purge_news_bodies` | Daily 02:30 IST news-body storage purge (P2-4 / #13 / TD27) — drops `body_text` on classified articles past the retention window; keeps the classified metadata/signals |
 | `0 21 * * *` | `cron_health_check.py` | `cron_health_check` | F4 daily comparator; pushes on BOTH transports (`errors` ntfy channel + Resend email; commit 8 added email) if heartbeats lag. Also writes its own heartbeat via `cron_run("cron_health_check")` and skips itself when comparing registry vs heartbeats |
 | `0 0 * * 0` | log truncation (legacy) | (none) | **Superseded by `logrotate`** at `/etc/logrotate.d/portfolio-advisor` (weekly, rotate 4, compress). Safe to remove via `crontab -e` |
 
@@ -230,7 +238,7 @@ Weekly news fetch + classification for universe ∪ held ∪ watchlist. **Must b
 
 #### `run_weekly_suggestions.py` (220 lines)
 
-The orchestrator. Sunday 07:00 IST in production with `--direction=both --notify --run-type scheduled`.
+The orchestrator. Sunday 07:00 IST in production with `--direction=both` (the LIVE crontab line — argparse does NOT accept `--notify`/`--run-type`; `notify` defaults True and `run_type` is hardcoded `scheduled`).
 
 Flags:
 - `--direction={buy,sell,both}` — which pipeline(s) to run. Production uses `both`.
@@ -412,7 +420,9 @@ mongosh "$MONGODB_URI" --eval 'db.digest_deliveries.find().sort({_id: -1}).limit
 ssh ubuntu@100.112.20.41
 cd /home/ubuntu/ai-stock-advisor-backend
 PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py \
-  --direction=both --notify --run-type manual
+  --direction=both            # sends email + ntfy (notify defaults True); add --no-notify for a silent rerun
+# NOTE: --notify / --run-type are NOT valid flags — argparse only accepts
+#       --direction, --no-notify, --skip-dossiers. run_type is hardcoded "scheduled".
 ```
 
 ### A feedback action (passed/rejected/watchlist) didn't take effect
