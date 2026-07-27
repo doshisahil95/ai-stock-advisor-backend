@@ -29,6 +29,8 @@ _COLLECTION_NAMES = [
     # #65: compute_dividend_drift reads these two as well.
     "dividend_announcements",
     "news_articles",
+    # #68: record_corporate_action writes the §49(2C) demerger adjustment here.
+    "cost_basis_adjustments",
 ]
 
 

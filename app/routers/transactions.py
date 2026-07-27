@@ -18,6 +18,9 @@ import re
 
 from app.db.client import Collections
 from app.models._common import _convert_decimals_to_decimal128, utcnow
+from app.models.cost_basis_adjustment import CostBasisAdjustment
+from app.models.transaction import Transaction
+from app.services import corporate_action_service
 from app.services.holdings_service import recompute_holding
 from app.services.transactions_audit_service import log_change
 from app.services.holdings_service import recompute_holding, validate_replay
@@ -343,3 +346,318 @@ def get_transaction_audit(tx_id: str) -> list[dict]:
             status.HTTP_400_BAD_REQUEST, f"Invalid transaction id: {tx_id}"
         )
     return _serialize(get_audit_for_transaction(tx_id))
+
+
+# ── #68: corporate-action data-entry front-end ──────────────────────────────
+
+
+def _to_dec(value: Any) -> Decimal:
+    """Coerce a Mongo-stored numeric (Decimal128/Decimal/str/int) to Decimal."""
+    if isinstance(value, Decimal128):
+        return value.to_decimal()
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+class RecordCorporateActionRequest(BaseModel):
+    """Record a SPLIT / BONUS / demerger in one shot (#68).
+
+    The FIFO cost math is already correct at the single source of truth
+    (`_fifo_replay`); this is the data-entry front-end that produces the same
+    ledger row(s) the manual `add_manual_transactions.py` script produces, then
+    recomputes. Fields are validated per `action_type` in the handler (kept as
+    explicit HTTPExceptions to match this router's style rather than a nest of
+    per-branch models).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action_type: Literal["split", "bonus", "demerger"]
+    # Affected (parent) instrument. For split/bonus this IS the security whose
+    # lots change; for demerger it's the parent that spun off the child.
+    isin: str = Field(..., min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$")
+    symbol: str = Field(..., min_length=1)
+    exchange: str = Field(default="NSE", pattern=r"^(NSE|BSE)$")
+    trade_date: datetime
+    notes: str = ""
+    source_ref: str = Field(
+        default="",
+        description="Stable idempotency key, e.g. 'SPLIT_TATASTEEL_2022:1to10'. "
+        "A repeat call with the same source_ref is a no-op.",
+    )
+
+    # SPLIT / BONUS ratios (ratio_to per ratio_from held).
+    ratio_from: int | None = Field(default=None, gt=0)
+    ratio_to: int | None = Field(default=None, gt=0)
+    # BONUS: optional explicit share count when the broker's allotment doesn't
+    # equal ratio*held (e.g. CONCOR showed 1 bonus for 6 held). Overrides the
+    # computed ratio*held quantity when supplied.
+    bonus_quantity: Money | None = Field(default=None, gt=0)
+
+    # DEMERGER child (new) instrument + §49(2C) cost apportionment.
+    child_isin: str | None = Field(
+        default=None, min_length=12, max_length=12, pattern=r"^[A-Z0-9]{12}$"
+    )
+    child_symbol: str | None = Field(default=None, min_length=1)
+    child_quantity: Money | None = Field(default=None, gt=0)
+    child_cost_pct: Money | None = Field(
+        default=None,
+        gt=0,
+        lt=1,
+        description="Fraction of the parent's original cost apportioned to the "
+        "child, e.g. 0.3115 for 31.15% (§49(2C) net-book-value proportion).",
+    )
+    parent_total_cost: Money | None = Field(
+        default=None,
+        gt=0,
+        description="The parent block's total original cost being apportioned "
+        "(e.g. ₹81,337 for 100 TMPV @ ₹813.37).",
+    )
+    # Holding-period inheritance date for the child receipt (#53). Parent's
+    # earliest acquisition date; absent -> receipt date is used downstream.
+    acquired_date: datetime | None = None
+    it_act_section: str = Field(default="Section 49(2C) of the Income Tax Act, 1961")
+
+
+def _corp_action_exists(source_ref: str) -> bool:
+    """Idempotency: has a non-deleted ledger row with this source_ref landed?"""
+    if not source_ref:
+        return False
+    return (
+        Collections.transactions().find_one(
+            {"source_ref": source_ref, "deleted_at": None}
+        )
+        is not None
+    )
+
+
+@router.post(
+    "/corporate-action",
+    summary="Record a SPLIT / BONUS / demerger and auto-map it onto holdings (#68)",
+    status_code=201,
+)
+def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
+    """Record a corporate action ONCE; the ledger row(s) + recompute do the rest.
+
+    SPLIT  -> one type="SPLIT" row (ratios drive _fifo_replay lot scaling).
+    BONUS  -> one zero-cost type="BUY" price=0 row (the real-ledger pattern;
+              _fifo_replay dilutes avg cost, holding period runs from allotment).
+    DEMERGER -> a source="manual_demerger" child BUY carrying the apportioned
+                §49(2C) cost + inherited acquired_date, PLUS an auto-created
+                cost_basis_adjustments doc. The parent-cost reduction is
+                returned as an AUDITED follow-up (apply via PATCH /transactions/
+                {id}) — we never silently bulk-mutate immutable BUY rows.
+
+    Idempotent on source_ref: a repeat call returns {"status": "already_recorded"}.
+    """
+    isin = req.isin.strip().upper()
+    symbol = req.symbol.strip().upper()
+    exchange = req.exchange.strip().upper()
+
+    if _corp_action_exists(req.source_ref):
+        return {
+            "status": "already_recorded",
+            "isin": isin,
+            "source_ref": req.source_ref,
+            "message": "A transaction with this source_ref already exists.",
+        }
+
+    # ── SPLIT ────────────────────────────────────────────────────────────────
+    if req.action_type == "split":
+        if req.ratio_from is None or req.ratio_to is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "split requires ratio_from and ratio_to",
+            )
+        row = corporate_action_service.build_split_row(
+            isin=isin,
+            symbol=symbol,
+            exchange=exchange,
+            ratio_from=req.ratio_from,
+            ratio_to=req.ratio_to,
+            trade_date=req.trade_date,
+            notes=req.notes,
+            source_ref=req.source_ref,
+        )
+        # Guard: a SPLIT before any BUY (or otherwise impossible) is rejected,
+        # mirroring the validate_replay guard on the sell/edit/delete paths.
+        existing_txs = list(
+            Collections.transactions().find({"isin": isin, "deleted_at": None})
+        )
+        ok, reason = validate_replay(existing_txs + [row])
+        if not ok:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+        tx = Transaction(**row)
+        Collections.transactions().insert_one(tx.to_mongo())
+        return _finish_corp_action(isin, symbol, "SPLIT recorded")
+
+    # ── BONUS ──────────────────────────────────────────────────────────────
+    if req.action_type == "bonus":
+        if req.ratio_from is None or req.ratio_to is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "bonus requires ratio_from and ratio_to",
+            )
+        if req.bonus_quantity is not None:
+            bonus_qty = req.bonus_quantity
+        else:
+            holding = Collections.holdings().find_one(
+                {"isin": isin, "deleted_at": None}
+            )
+            if not holding:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"No active holding for {isin}; supply bonus_quantity "
+                    f"explicitly to record a bonus on a non-held/closed position.",
+                )
+            held_qty = _to_dec(holding.get("quantity"))
+            bonus_qty = corporate_action_service.compute_bonus_quantity(
+                held_qty, req.ratio_from, req.ratio_to
+            )
+        row = corporate_action_service.build_bonus_row(
+            isin=isin,
+            symbol=symbol,
+            exchange=exchange,
+            bonus_quantity=bonus_qty,
+            trade_date=req.trade_date,
+            notes=req.notes,
+            source_ref=req.source_ref,
+        )
+        tx = Transaction(**row)
+        Collections.transactions().insert_one(tx.to_mongo())
+        result = _finish_corp_action(isin, symbol, "BONUS recorded")
+        result["bonus_quantity"] = str(bonus_qty)
+        return result
+
+    # ── DEMERGER ─────────────────────────────────────────────────────────────
+    # req.action_type == "demerger"
+    missing = [
+        name
+        for name, val in (
+            ("child_isin", req.child_isin),
+            ("child_symbol", req.child_symbol),
+            ("child_quantity", req.child_quantity),
+            ("child_cost_pct", req.child_cost_pct),
+            ("parent_total_cost", req.parent_total_cost),
+        )
+        if val is None
+    ]
+    if missing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"demerger requires: {', '.join(missing)}",
+        )
+    child_isin = req.child_isin.strip().upper()
+    child_symbol = req.child_symbol.strip().upper()
+
+    split_math = corporate_action_service.compute_demerger_cost_split(
+        parent_total_cost=req.parent_total_cost,
+        parent_quantity=req.child_quantity,  # 1:1 receipt: child qty == parent qty apportioned
+        child_cost_pct=req.child_cost_pct,
+    )
+
+    child_row = corporate_action_service.build_demerger_child_row(
+        child_isin=child_isin,
+        child_symbol=child_symbol,
+        exchange=exchange,
+        quantity=req.child_quantity,
+        cost_per_share=split_math["child_cost_per_share"],
+        trade_date=req.trade_date,
+        acquired_date=req.acquired_date,
+        notes=req.notes,
+        source_ref=req.source_ref,
+    )
+    child_tx = Transaction(**child_row)
+    Collections.transactions().insert_one(child_tx.to_mongo())
+
+    # Auto-create the §49(2C) cost_basis_adjustments doc (the row said this
+    # endpoint should). Mirrors seed_cost_basis_adjustments.py's shape.
+    adj = CostBasisAdjustment(
+        name=f"{symbol} demerger — {symbol}/{child_symbol} cost split",
+        isin=child_isin,
+        related_isins=[isin],
+        amount=split_math["adjustment_amount"],
+        it_act_section=req.it_act_section,
+        effective_date=req.trade_date,
+        calculation=(
+            f"Parent {symbol}: {req.child_quantity} sh, total cost "
+            f"₹{req.parent_total_cost}. §49(2C) apportions "
+            f"{req.child_cost_pct} to {child_symbol}: "
+            f"child total ₹{split_math['child_total_cost']} "
+            f"(₹{split_math['child_cost_per_share']}/sh); parent retains "
+            f"×{split_math['parent_retained_factor']}."
+        ),
+        broker_treatment=(
+            f"Broker keeps the full ₹{req.parent_total_cost} on {symbol} and "
+            f"₹0 on {child_symbol}, over-counting parent 'invested'."
+        ),
+        our_treatment=(
+            f"{child_symbol} BUY created at "
+            f"₹{split_math['child_cost_per_share']}/sh; {symbol} BUY rows to be "
+            f"repriced ×{split_math['parent_retained_factor']} via the audited "
+            f"edit path (see parent_reprice in this response)."
+        ),
+        rationale=(
+            "§49(2C) requires the original cost to be apportioned between the "
+            "resulting and demerged companies in proportion to their net book "
+            "values at the date of demerger."
+        ),
+        source_documents=[req.it_act_section],
+    )
+    # CostBasisAdjustment is a plain BaseModel (no BaseDoc.to_mongo); persist it
+    # the same way seed_cost_basis_adjustments.py does — by_alias dump + audit
+    # timestamps + Decimal->Decimal128.
+    adj_doc = adj.model_dump(by_alias=True, exclude_none=True)
+    adj_doc["created_at"] = utcnow()
+    adj_doc["updated_at"] = utcnow()
+    Collections.cost_basis_adjustments().insert_one(
+        _convert_decimals_to_decimal128(adj_doc)
+    )
+
+    # Recompute the CHILD holding so it appears immediately.
+    _finish_corp_action(child_isin, child_symbol, "demerger child recorded")
+
+    # Compute (do NOT apply) the parent BUY-row reprice. The caller applies it
+    # via PATCH /transactions/{id} so every parent-cost change is audited.
+    parent_rows = list(
+        Collections.transactions().find({"isin": isin, "deleted_at": None})
+    )
+    reprice = corporate_action_service.compute_parent_reprice(
+        parent_rows, split_math["parent_retained_factor"]
+    )
+
+    return {
+        "status": "recorded",
+        "isin": isin,
+        "child_isin": child_isin,
+        "child_cost_per_share": str(split_math["child_cost_per_share"]),
+        "adjustment_amount": str(split_math["adjustment_amount"]),
+        "parent_retained_factor": str(split_math["parent_retained_factor"]),
+        "cost_basis_adjustment_created": True,
+        "parent_reprice": _serialize(reprice),
+        "message": (
+            "Demerger child recorded + §49(2C) adjustment created. Apply the "
+            "parent_reprice entries via PATCH /transactions/{id} (audited) to "
+            "reduce the parent's cost basis."
+        ),
+    }
+
+
+def _finish_corp_action(isin: str, symbol: str, what: str) -> dict:
+    """Recompute the affected holding after a corp-action insert, mirroring the
+    add_buy/sell TD19 recorded_with_warning contract (a persisted ledger row +
+    a recompute that may fail independently must not 500)."""
+    try:
+        recompute_holding(isin)
+    except Exception:  # pragma: no cover - defensive, mirrors add_buy
+        return {
+            "status": "recorded_with_warning",
+            "isin": isin,
+            "symbol": symbol,
+            "warning": (
+                f"{what}, but the holding aggregate could not be recomputed and "
+                f"may be stale. Re-run recompute for this ISIN to refresh."
+            ),
+        }
+    return {"status": "recorded", "isin": isin, "symbol": symbol, "message": what}
