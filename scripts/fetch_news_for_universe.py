@@ -1,8 +1,9 @@
 """Fetch + classify news for the suggestion universe.
 
-Designed to run daily via cron, separately from the weekly suggestions run.
-The suggestions run consumes whatever's already classified, so we want news
-fresh BEFORE Sunday morning.
+#75 U4-d: the LIVE crontab runs this WEEKLY on Sunday 06:30 IST
+(`30 6 * * 0 ... --include-held`), 30 min before the 07:00 suggestions run, so
+news is fresh BEFORE the Sunday morning digest. (An earlier docstring said
+"daily"; that never matched the crontab.)
 
 Three-phase (as of #50 + #57):
   1. fetch_for_universe: Tavily calls, persist to news_articles (rule-gate on
@@ -14,8 +15,8 @@ Three-phase (as of #50 + #57):
      high-severity fresh news (depends on #50 entity accuracy)
 
 Usage:
-  # Production daily run
-  PYTHONPATH=. uv run python scripts/fetch_news_for_universe.py
+  # Production weekly run (Sunday 06:30 IST via cron)
+  PYTHONPATH=. uv run python scripts/fetch_news_for_universe.py --include-held
 
   # Smoke test on 5 stocks
   PYTHONPATH=. uv run python scripts/fetch_news_for_universe.py --limit 5

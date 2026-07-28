@@ -96,7 +96,11 @@ def main() -> int:
             return meta
 
         with cron_run(job_name) as ctx:
-            ctx.meta = _do_buy()
+            # #75 U4-b: assign into ctx.metadata (the persisted dict), not
+            # ctx.meta — the latter was a throwaway attribute _persist never
+            # read, so every weekly_suggestions heartbeat stored empty metadata
+            # (buy/sell status + counts lost for forensics).
+            ctx.metadata.update(_do_buy())
         return 0
 
     if args.direction == "sell":
@@ -111,7 +115,7 @@ def main() -> int:
             return meta
 
         with cron_run(job_name) as ctx:
-            ctx.meta = _do_sell()
+            ctx.metadata.update(_do_sell())  # #75 U4-b: was ctx.meta (throwaway)
         return 0
 
     # direction == "both": one heartbeat, sequential runs, combined digest.
@@ -201,7 +205,7 @@ def main() -> int:
         return meta
 
     with cron_run(job_name) as ctx:
-        ctx.meta = _do_both()
+        ctx.metadata.update(_do_both())  # #75 U4-b: was ctx.meta (throwaway)
     return 0
 
 

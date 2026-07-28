@@ -1,7 +1,9 @@
 """Cron entry: refresh intraday quotes for active holdings.
 
-Runs every 15 min during NSE market hours (Mon-Fri 09:15-15:45 IST).
-Inserts new docs into prices_intraday — no upsert (we want history).
+Runs every 15 min during NSE market hours. #75 U4-d: the live crontab field is
+`*/15 9-15 * * 1-5`, i.e. Mon-Fri 09:00-15:45 IST (the :00/:15/:30/:45 ticks of
+hours 09-15). Inserts new docs into prices_intraday — no upsert (we want
+history).
 """
 
 from __future__ import annotations
