@@ -44,10 +44,19 @@ def _match_value(actual, present: bool, cond) -> bool:
                 if actual == val:
                     return False
             elif op == "$in":
-                if actual not in val:
+                # Mongo: on a scalar field, match if actual ∈ val; on an array
+                # (multikey) field, match if the array INTERSECTS val. #74 U3-e
+                # queries {entities_isins: {$in: [...]}} against a list field.
+                if isinstance(actual, (list, tuple)):
+                    if not any(a in val for a in actual):
+                        return False
+                elif actual not in val:
                     return False
             elif op == "$nin":
-                if actual in val:
+                if isinstance(actual, (list, tuple)):
+                    if any(a in val for a in actual):
+                        return False
+                elif actual in val:
                     return False
             elif op == "$exists":
                 if bool(val) != present:

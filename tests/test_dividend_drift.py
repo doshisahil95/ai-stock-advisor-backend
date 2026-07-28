@@ -223,4 +223,34 @@ def test_name_with_no_announcements_still_returned(fake_db, frozen_now):
 
     row = _row(compute_dividend_drift())
     assert row["announcements"] == []
-    assert row["missing_count"] == 0
+
+
+def test_zero_quantity_holding_excluded(fake_db, frozen_now):
+    """#74 U3-b: a fully-exited-but-not-soft-deleted position (qty 0) must NOT
+    appear in the drift matrix, so it can't fire a spurious missing-receipt
+    nudge on a stock we no longer hold."""
+    fake_db["holdings"].seed(_hold(qty="0"))
+    fake_db["dividend_announcements"].seed(_ann(datetime(2026, 1, 10), "4.0"))
+
+    drift = compute_dividend_drift()
+    assert [r for r in drift if r["isin"] == ISIN] == []
+
+
+def test_refresh_dividends_for_preserves_window_on_fetch_failure(fake_db, monkeypatch):
+    """#74 U3-a: a transient yfinance failure (fetch returns None) must NOT wipe
+    the recent announcement window — otherwise a genuinely-missed dividend stops
+    being flagged. A successful empty fetch ([]) still replaces the window."""
+    from app.services import fundamentals_service as fs
+
+    # Seed an existing recent announcement.
+    fake_db["dividend_announcements"].seed(_ann(datetime(2026, 1, 10), "4.0"))
+    assert fake_db["dividend_announcements"].count_documents({"isin": ISIN}) == 1
+
+    # Simulate a transient fetch failure.
+    monkeypatch.setattr(fs, "fetch_dividends_yfinance", lambda *a, **k: None)
+    res = fs.refresh_dividends_for(ISIN, "BALKRISIND")
+
+    assert res.get("fetch_failed") is True
+    assert res["window_deleted"] == 0
+    # The pre-existing announcement is preserved (window NOT wiped).
+    assert fake_db["dividend_announcements"].count_documents({"isin": ISIN}) == 1

@@ -453,16 +453,26 @@ def _naive_date_floor(dt: datetime) -> datetime:
 
 
 def _held_names() -> list[dict]:
-    """Currently-held names with the fields the drift matrix needs."""
+    """Currently-held names with the fields the drift matrix needs.
+
+    #74 U3-b: filter quantity > 0 (not just deleted_at=None). A position that
+    is fully exited but not yet soft-deleted (qty 0) with first_purchased_at <=
+    an ex-date would otherwise classify as missing_receipt and fire a spurious
+    "unrecorded dividend" nudge — the docstring claimed quantity>0 but the query
+    didn't enforce it.
+    """
     return list(
         Collections.holdings().find(
-            {"deleted_at": None},
+            {"deleted_at": None, "quantity": {"$gt": 0}},
             {
                 "_id": 0,
                 "isin": 1,
                 "symbol": 1,
                 "quantity": 1,
                 "first_purchased_at": 1,
+                # #74 U3-e: project booked dividends here so the matrix loop
+                # doesn't issue a redundant per-name find_one for it (N+1).
+                "total_dividends_received": 1,
             },
         )
     )
@@ -483,26 +493,33 @@ def _dividend_txns_for_isin(isin: str) -> list[dict]:
     )
 
 
-def _has_corporate_action_news(isin: str, window_days: int = 120) -> bool:
-    """True if a classified corporate_action-themed article exists for the ISIN.
+def _corporate_action_news_isins(
+    isins: list[str], window_days: int = 120
+) -> set[str]:
+    """#74 U3-e: corporate-action-news corroboration for many ISINs at once.
 
-    Corroboration signal only (mirrors the news_signals query shape). Reads the
-    entity-accurate (#50) entities_isins tag so it never corroborates on
-    wrong-company news.
+    ONE query returns the set of ISINs (from `isins`) that have a classified
+    corporate_action-themed article within the window, instead of a per-name
+    find_one (N queries -> 1). Reads the entity-accurate (#50) entities_isins
+    tag so it never corroborates on wrong-company news.
     """
+    if not isins:
+        return set()
     cutoff = utcnow() - timedelta(days=window_days)
-    return (
-        Collections.news_articles().find_one(
-            {
-                "entities_isins": isin,
-                "classified": True,
-                "themes": "corporate_action",  # membership on the multikey list
-                "fetched_at": {"$gte": cutoff},
-            },
-            {"_id": 1},
-        )
-        is not None
-    )
+    found: set[str] = set()
+    for art in Collections.news_articles().find(
+        {
+            "entities_isins": {"$in": isins},
+            "classified": True,
+            "themes": "corporate_action",  # membership on the multikey list
+            "fetched_at": {"$gte": cutoff},
+        },
+        {"_id": 0, "entities_isins": 1},
+    ):
+        for i in art.get("entities_isins", []) or []:
+            if i in isins:
+                found.add(i)
+    return found
 
 
 def compute_dividend_drift() -> list[dict]:
@@ -529,8 +546,15 @@ def compute_dividend_drift() -> list[dict]:
     today = _naive_date_floor(utcnow())
     settle_cutoff = today - timedelta(days=_DIVIDEND_SETTLE_MARGIN_DAYS)
 
+    held = _held_names()
+    # #74 U3-e: resolve corporate-action-news corroboration for ALL held names
+    # in ONE query instead of a per-name find_one inside the loop.
+    ca_news_isins = _corporate_action_news_isins(
+        [h["isin"] for h in held if h.get("isin")]
+    )
+
     rows: list[dict] = []
-    for h in _held_names():
+    for h in held:
         isin = h.get("isin")
         if not isin:
             continue
@@ -544,13 +568,9 @@ def compute_dividend_drift() -> list[dict]:
         announcements = get_dividend_announcements_for_isin(isin)
         div_txns = _dividend_txns_for_isin(isin)
 
-        # Booked lifetime dividends live on the holding doc; re-read the field
-        # here (not on the _held_names projection above to keep that read lean).
-        booked_doc = Collections.holdings().find_one(
-            {"isin": isin, "deleted_at": None},
-            {"_id": 0, "total_dividends_received": 1},
-        )
-        booked = _to_dec((booked_doc or {}).get("total_dividends_received"))
+        # #74 U3-e: booked lifetime dividends come from the _held_names
+        # projection now (no redundant per-name find_one).
+        booked = _to_dec(h.get("total_dividends_received"))
 
         matrix: list[dict] = []
         missing_count = 0
@@ -592,9 +612,17 @@ def compute_dividend_drift() -> list[dict]:
                 {
                     "ex_date": ex_floor,
                     "amount_per_share": amount_per_share,
+                    # #74 U3-c: this is an ESTIMATE from the CURRENT quantity, not
+                    # the ex-date quantity (precise point-in-time FIFO
+                    # reconstruction is deliberately out of scope for round 1 —
+                    # see the module note). It is exact only if the position size
+                    # is unchanged since the ex-date; flagged so the UI/nudge can
+                    # present it as an estimate rather than an authoritative
+                    # figure.
                     "expected_amount": (amount_per_share * quantity)
                     if quantity > 0
                     else Decimal("0"),
+                    "expected_basis": "current_quantity",
                     "status": status,
                     "matched_trade_date": matched_trade_date,
                 }
@@ -606,7 +634,7 @@ def compute_dividend_drift() -> list[dict]:
                 "symbol": symbol,
                 "quantity": quantity,
                 "booked_dividends": booked,
-                "has_corporate_action_news": _has_corporate_action_news(isin),
+                "has_corporate_action_news": isin in ca_news_isins,
                 "announcements": matrix,
                 "missing_count": missing_count,
             }

@@ -563,12 +563,22 @@ _DIVIDEND_REPLACE_WINDOW_DAYS = 400
 
 def fetch_dividends_yfinance(
     symbol: str, exchange: str = "NSE", since: datetime | None = None
-) -> list[dict]:
+) -> list[dict] | None:
     """Fetch announced cash dividends from yfinance Ticker.dividends.
 
     Returns a list of {ex_date: naive datetime, amount_per_share: Decimal},
-    ex_date >= `since` when provided. Empty list on failure or no dividends
-    (logged, not raised) — mirrors fetch_earnings_calendar_yfinance.
+    ex_date >= `since` when provided.
+
+    #74 U3-a: the return DISTINGUISHES a transient fetch failure from a genuine
+    "no dividends" result — the previous version returned `[]` for BOTH, so a
+    flaky yfinance call looked identical to a name that simply pays no dividend.
+    Combined with the unconditional delete_many in refresh_dividends_for, that
+    ERASED the recent announcement window on a transient error and a
+    genuinely-missed dividend then went unflagged (the exact thing #65 exists to
+    catch). Now:
+        - None  -> fetch FAILED (exception). Caller must NOT wipe the window.
+        - []    -> fetch SUCCEEDED with no dividends in scope (safe to replace).
+        - [...] -> dividends.
 
     yfinance Ticker.dividends is a pandas Series indexed by ex-date (Timestamp)
     with per-share cash amounts. We coerce the index to naive datetime and the
@@ -598,7 +608,7 @@ def fetch_dividends_yfinance(
         return out
     except Exception as exc:
         log.warning("yfinance dividends fetch failed for %s: %s", yt, exc)
-        return []
+        return None  # #74 U3-a: signal FAILURE, not "no dividends"
 
 
 def refresh_dividends_for(isin: str, symbol: str, exchange: str = "NSE") -> dict:
@@ -614,20 +624,42 @@ def refresh_dividends_for(isin: str, symbol: str, exchange: str = "NSE") -> dict
     ) - timedelta(days=_DIVIDEND_REPLACE_WINDOW_DAYS)
     dividends = fetch_dividends_yfinance(symbol, exchange, since=floor)
 
+    # #74 U3-a: a FAILED fetch (None) must NOT wipe the window. Bail before the
+    # delete so a transient yfinance error preserves the last-known announcements
+    # (a genuinely-missed dividend stays flagged). Only a SUCCESSFUL fetch
+    # ([] or [...]) proceeds to the replace-window write.
+    if dividends is None:
+        return {
+            "announcements_fetched": 0,
+            "announcements_inserted": 0,
+            "window_deleted": 0,
+            "fetch_failed": True,
+        }
+
+    # #74 U3-d: two payouts sharing one ex_date (special+ordinary, or a
+    # correction) both key to (isin, ex_date). The old per-row upsert let the
+    # second overwrite the first, understating the announced amount. Sum amounts
+    # per ex_date so the stored figure is the total that went ex that day.
+    by_ex_date: dict[datetime, Decimal] = {}
+    for d in dividends:
+        by_ex_date[d["ex_date"]] = by_ex_date.get(d["ex_date"], Decimal("0")) + d[
+            "amount_per_share"
+        ]
+
     delete_result = Collections.dividend_announcements().delete_many(
         {"isin": isin, "ex_date": {"$gte": floor}}
     )
 
     inserted = 0
-    if dividends:
+    if by_ex_date:
         ops = []
-        for d in dividends:
+        for ex_date, amount in by_ex_date.items():
             doc = {
                 "isin": isin,
                 "symbol": symbol.upper(),
                 "exchange": exchange.upper(),
-                "ex_date": d["ex_date"],
-                "amount_per_share": d["amount_per_share"],
+                "ex_date": ex_date,
+                "amount_per_share": amount,
                 "source": "yfinance",
                 "fetched_at": utcnow(),
                 "created_at": utcnow(),
@@ -677,7 +709,20 @@ def refresh_dividends_universe(
 
         try:
             r = refresh_dividends_for(isin, symbol, exchange)
-            if r["announcements_fetched"] > 0:
+            if r.get("fetch_failed"):
+                # #74 U3-a: a transient yfinance failure is a FAILURE, not a
+                # "no dividends" success (and the window was preserved, not
+                # wiped). Count it so F4/forensics see the real outcome.
+                stats["failed"] += 1
+                stats["failed_isins"].append(isin)
+                log.warning(
+                    "  [%d/%d] FAIL %s (%s): dividend fetch failed (window preserved)",
+                    i + 1,
+                    len(instruments),
+                    symbol,
+                    isin,
+                )
+            elif r["announcements_fetched"] > 0:
                 stats["succeeded_with_dividends"] += 1
                 stats["total_announcements_inserted"] += r["announcements_inserted"]
                 log.info(
