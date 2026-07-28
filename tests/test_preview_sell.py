@@ -77,3 +77,18 @@ def test_split_aware_preview(monkeypatch):
     assert r["valid"] is True
     assert r["realized_pnl"] == Decimal("150.00")
     assert r["remaining_qty"] == Decimal("150")
+
+
+def test_remaining_invested_includes_residual_fees(monkeypatch):
+    """#77 U6-b: remaining_invested must include residual per-lot fees (mirrors
+    _fifo_replay invested = Σqty*price + Σfees). BUY 100 @ ₹10 + ₹50 fees;
+    sell 40 -> 60 remain; residual fees = 50 * 60/100 = 30, so
+    remaining_invested = 600 + 30 = 630 (was 600 pre-fix)."""
+    _install_txns(
+        monkeypatch,
+        [tx("BUY", 100, 10, fees=50, trade_date=datetime(2024, 1, 1), isin=ISIN)],
+    )
+    r = preview_sell(ISIN, Decimal("40"), Decimal("15"))
+    assert r["valid"] is True
+    assert r["remaining_qty"] == Decimal("60")
+    assert r["remaining_invested"] == Decimal("630.00")

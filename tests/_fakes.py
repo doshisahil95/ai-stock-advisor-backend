@@ -105,7 +105,20 @@ class _Cursor:
         self._docs = docs
 
     def sort(self, key, direction: int = 1):
-        self._docs.sort(key=lambda d: _sort_key(d.get(key)), reverse=(direction == -1))
+        # pymongo accepts BOTH sort("field", dir) and the multi-key
+        # sort([("f1", d1), ("f2", d2), ...]) form. #77 U6-c uses the latter
+        # ((trade_date, created_at)); model it here. Apply keys in REVERSE so
+        # the primary key wins (Python's sort is stable).
+        if isinstance(key, (list, tuple)) and key and isinstance(key[0], (list, tuple)):
+            for field, dir_ in reversed(list(key)):
+                self._docs.sort(
+                    key=lambda d, f=field: _sort_key(d.get(f)),
+                    reverse=(dir_ == -1),
+                )
+        else:
+            self._docs.sort(
+                key=lambda d: _sort_key(d.get(key)), reverse=(direction == -1)
+            )
         return self
 
     def skip(self, n: int):

@@ -147,7 +147,17 @@ def compute_capital_gains(fy: str | None = None) -> dict:
 
     lots: list[dict] = []
     for isin, group in by_isin.items():
-        group.sort(key=lambda t: t.get("trade_date") or datetime.min)
+        # #77 U6-c: tie-break same-trade_date rows by created_at so the tax
+        # replay processes lots in the SAME order as validate_replay and
+        # _recompute_holding_impl. A trade_date-only sort is unstable for equal
+        # keys, which could attribute a disposal to a different lot and flip its
+        # STCG/LTCG classification vs what the ledger recompute booked.
+        group.sort(
+            key=lambda t: (
+                t.get("trade_date") or datetime.min,
+                t.get("created_at") or datetime.min,
+            )
+        )
         realized = _fifo_replay(group).get("_realized_lots", [])
         if not realized:
             continue

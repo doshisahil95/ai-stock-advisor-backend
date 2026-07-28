@@ -22,9 +22,8 @@ from app.models._common import _convert_decimals_to_decimal128, utcnow
 from app.models.cost_basis_adjustment import CostBasisAdjustment
 from app.models.transaction import Transaction
 from app.services import corporate_action_service
-from app.services.holdings_service import recompute_holding
-from app.services.transactions_audit_service import log_change
 from app.services.holdings_service import recompute_holding, validate_replay
+from app.services.transactions_audit_service import log_change
 
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -48,6 +47,34 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, list):
         return [_serialize(v) for v in value]
     return value
+
+
+def _safe_recompute(isin: str, what: str) -> str | None:
+    """#77 U6-a: recompute a holding after an already-persisted ledger mutation
+    (edit/delete), converting a recompute failure into a returnable WARNING
+    string instead of a 500.
+
+    The audit row + ledger write have already committed by the time this runs,
+    so a TD20 lock-timeout RuntimeError (or any recompute error) must not leave
+    the caller with a 500 and no idea whether the change landed — that is the
+    exact "did it land?" ambiguity the recorded_with_warning contract exists to
+    kill on add_buy/sell/corporate-action. Returns None on success, else a
+    human-readable warning.
+    """
+    try:
+        recompute_holding(isin)
+        return None
+    except Exception:  # pragma: no cover - defensive, mirrors add_buy
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "recompute_holding failed after %s for %s", what, isin
+        )
+        return (
+            f"{what}, but the holding aggregate could not be recomputed and may "
+            f"be stale. Re-run recompute for this ISIN (POST /admin/recompute/"
+            f"{isin}) to refresh."
+        )
 
 
 # ── Request models ───────────────────────────────────────────────────────────
@@ -146,12 +173,17 @@ def search_transactions(
             status.HTTP_400_BAD_REQUEST,
             f"from_date ({from_date}) cannot be after to_date ({to_date})",
         )
-    today_eod_naive = datetime.now(
-        timezone.utc
-    ).replace(  # tz-ok: future-date validation bound, made naive inline below
-        hour=23, minute=59, second=59, tzinfo=None
+    # #77 U6-d: the "cannot be in the future" bound must be TODAY in IST, not
+    # UTC. Dates in this system are IST; a UTC bound wrongly rejects a
+    # legitimately-today (IST) to_date between 18:30 IST and midnight IST (when
+    # UTC is still on the previous calendar day). Compute today's IST date and
+    # allow any to_date up to end-of-day on it.
+    _IST = timezone(timedelta(hours=5, minutes=30))
+    today_ist = datetime.now(_IST).date()  # tz-ok: IST calendar date for the bound
+    today_eod_ist_naive = datetime(
+        today_ist.year, today_ist.month, today_ist.day, 23, 59, 59
     )
-    if parsed_to and parsed_to.replace(tzinfo=None) > today_eod_naive:
+    if parsed_to and parsed_to.replace(tzinfo=None) > today_eod_ist_naive:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"to_date ({to_date}) cannot be in the future",
@@ -262,8 +294,16 @@ def edit_transaction(tx_id: str, payload: EditTransactionRequest) -> dict:
         {"$set": _convert_decimals_to_decimal128(update_fields)},
     )
     after = Collections.transactions().find_one({"_id": oid})
-    recompute_holding(before["isin"])
-    return _serialize(after)
+    # #77 U6-a: the audit row + ledger mutation have ALREADY persisted. A
+    # recompute failure (e.g. a TD20 per-ISIN lock timeout RuntimeError) must
+    # NOT surface as a 500 that leaves the caller unsure whether the edit
+    # landed. Mirror the add_buy/sell/corp-action recorded_with_warning
+    # contract: report the persisted edit + a stale-holding warning.
+    result = _serialize(after)
+    warning = _safe_recompute(before["isin"], "Transaction edited")
+    if warning:
+        result["recompute_warning"] = warning
+    return result
 
 
 @router.delete(
@@ -315,13 +355,18 @@ def delete_transaction(tx_id: str, payload: DeleteTransactionRequest) -> dict:
         {"_id": oid},
         {"$set": {"deleted_at": now, "updated_at": now}},
     )
-    recompute_holding(before["isin"])
+    # #77 U6-a: audit + soft-delete already persisted; a recompute failure
+    # returns a warning, not a 500 (mirrors the edit/add_buy contract).
+    warning = _safe_recompute(before["isin"], "Transaction deleted")
 
-    return {
+    response = {
         "message": f"Transaction {tx_id} soft-deleted",
         "isin": before["isin"],
         "symbol": before.get("symbol"),
     }
+    if warning:
+        response["recompute_warning"] = warning
+    return response
 
 
 @router.get("/audit/recent", summary="Recent edits/deletes across all transactions")

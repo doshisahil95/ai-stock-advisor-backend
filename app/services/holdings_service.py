@@ -333,11 +333,16 @@ def _recompute_holding_impl(isin: str) -> Holding | None:
     txs_coll = Collections.transactions()
     holdings_coll = Collections.holdings()
 
-    # Pull all non-deleted transactions for this ISIN, oldest first
+    # Pull all non-deleted transactions for this ISIN, oldest first.
+    # #77 U6-c: tie-break same-trade_date rows by created_at so the REAL replay
+    # processes them in the SAME order validate_replay checks
+    # ((trade_date, created_at)). A plain trade_date sort is Mongo-unstable for
+    # equal keys, so an edit could PASS validation under one ordering yet the
+    # replay match different lots -> different realized P&L + STCG/LTCG.
     transactions = list(
         txs_coll.find(
             {"isin": isin, "deleted_at": None},
-        ).sort("trade_date", ASCENDING)
+        ).sort([("trade_date", ASCENDING), ("created_at", ASCENDING)])
     )
 
     if not transactions:
@@ -555,7 +560,9 @@ def preview_sell(
     transactions = list(
         Collections.transactions()
         .find({"isin": isin, "deleted_at": None})
-        .sort("trade_date", ASCENDING)
+        # #77 U6-c: same (trade_date, created_at) tie-break as the real replay
+        # so the preview consumes lots in the identical order to the SELL.
+        .sort([("trade_date", ASCENDING), ("created_at", ASCENDING)])
     )
 
     if not transactions:
@@ -661,9 +668,13 @@ def preview_sell(
     realized_pnl = realized_pnl.quantize(Decimal("0.01"))
     remaining_qty = (available_qty - sell_quantity).quantize(Decimal("0.0001"))
     fully_exits = remaining_qty == 0
+    # #77 U6-b: remaining_invested must INCLUDE residual per-lot fees to mirror
+    # _fifo_replay (invested = Σ qty*price + Σ fees). The old qty*price-only sum
+    # made the preview's remaining avg-cost diverge from the value the SELL
+    # actually persists whenever any surviving lot carried fees.
     remaining_invested = sum(
         (
-            (lot["qty"] * lot["price"]).quantize(Decimal("0.01"))
+            (lot["qty"] * lot["price"] + lot["fees"]).quantize(Decimal("0.01"))
             for lot in working
             if lot["qty"] > 0
         ),
