@@ -94,6 +94,25 @@ def _to_float(val: Any) -> float | None:
         return None
 
 
+def fmt_pct(val: Any) -> str:
+    """#51 / #79 U8-c: the SINGLE canonical percent formatter for LLM prompt
+    fundamentals blocks (dossier + chat), so the two never diverge.
+
+    Fundamentals ratios are stored in DECIMAL-fraction form at ingest
+    (fundamentals_service._build_fundamentals_doc normalizes e.g. ROE and
+    dividend_yield so 0.025 == 2.5%), so multiplying by 100 here yields the
+    correct percent. dividend_yield specifically is normalized by
+    _normalize_dividend_yield (values > 1 are divided by 100) before storage, so
+    a stored 0.0046 renders as "0.46%" — not the "46%" the pre-normalization
+    Chat-6 bug produced. Keep this the ONLY place that scales fundamentals
+    percentages for prompts.
+    """
+    v = _to_float(val)
+    if v is None:
+        return "n/a"
+    return f"{v * 100:.2f}%"
+
+
 def _clamp_sentence(text: str, limit: int) -> str:
     """Clamp to `limit` chars WITHOUT slicing mid-word.
 
@@ -282,11 +301,7 @@ def _build_user_prompt(
             v = v / div
         return f"{v:,.2f}{suffix}"
 
-    def _fmt_pct(val: Any) -> str:
-        v = _to_float(val)
-        if v is None:
-            return "n/a"
-        return f"{v * 100:.2f}%"
+    _fmt_pct = fmt_pct  # #51/#79 U8-c: single shared formatter (no divergence)
 
     parts = [
         f"## CANDIDATE: {candidate.symbol} ({candidate.name})",

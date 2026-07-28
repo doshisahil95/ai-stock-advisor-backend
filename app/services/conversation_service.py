@@ -45,7 +45,7 @@ from app.services import (
     news_classifier,
     news_fetcher,
 )
-from app.services.dossier_service import _format_news_summaries, _to_float
+from app.services.dossier_service import _format_news_summaries, _to_float, fmt_pct
 from app.services.price_service import bulk_get_latest_prices
 from app.services.suggestion_engine import (
     compute_portfolio_value,
@@ -291,11 +291,9 @@ def _fmt_num(val, suffix: str = "", div: float | None = None) -> str:
     return f"{v:,.2f}{suffix}"
 
 
-def _fmt_pct(val) -> str:
-    v = _to_float(val)
-    if v is None:
-        return "n/a"
-    return f"{v * 100:.2f}%"
+# #51/#79 U8-c: use the single canonical formatter from dossier_service so the
+# chat and dossier percent rendering can never drift apart.
+_fmt_pct = fmt_pct
 
 
 def _format_fundamentals_block(f: dict) -> str:
