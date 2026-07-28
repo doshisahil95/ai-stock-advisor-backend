@@ -19,6 +19,7 @@ import json
 from app.services.dossier_service import (
     _clamp_sentence,
     _empty_dossier,
+    _extract_json_object,
     _parse_dossier,
 )
 
@@ -177,3 +178,40 @@ def test_horizon_prose_not_cut_mid_word_via_parser():
         # boundary cut: the kept body is a prefix ending at a source space
         body = move[:-1]
         assert long_move.startswith(body)
+
+
+# ── #76 U5-b: robust JSON extraction ─────────────────────────────────
+
+
+def test_extract_json_whole_string():
+    assert _extract_json_object('{"a": 1}') == {"a": 1}
+
+
+def test_extract_json_with_prose_prefix_and_suffix():
+    text = 'Here is the dossier:\n{"a": 1, "b": "x"}\nHope that helps!'
+    assert _extract_json_object(text) == {"a": 1, "b": "x"}
+
+
+def test_extract_json_ignores_stray_brace_in_prose_after_object():
+    # A trailing "}" in prose used to extend the rfind("}") slice and break
+    # json.loads; the balanced scan stops at the first object's close.
+    text = '{"a": 1, "note": "ok"} and then a rogue } appears'
+    assert _extract_json_object(text) == {"a": 1, "note": "ok"}
+
+
+def test_extract_json_first_of_two_objects():
+    text = '{"a": 1}\n{"b": 2}'
+    assert _extract_json_object(text) == {"a": 1}
+
+
+def test_extract_json_brace_inside_string_value():
+    # A "}" inside a string value must not close the object early.
+    text = '{"a": "has a } brace", "b": 2}'
+    assert _extract_json_object(text) == {"a": "has a } brace", "b": 2}
+
+
+def test_parse_dossier_survives_trailing_prose_brace():
+    good = _buy_json()
+    parsed = _parse_dossier(good + "\n\nNote: watch the } quarter.", direction="buy")
+    assert parsed is not None
+    assert parsed["hold_horizon"] == "long"

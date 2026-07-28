@@ -336,6 +336,69 @@ def _build_user_prompt(
     return prompt
 
 
+def _extract_json_object(text: str) -> dict | None:
+    """#76 U5-b: pull the dossier JSON object out of an LLM reply robustly.
+
+    Strategy (first success wins):
+      1. Parse the whole string.
+      2. Scan from the first '{' tracking brace depth (respecting quoted
+         strings + escapes) to its matching '}', and parse that balanced slice.
+         This is immune to a stray '}' in prose or a trailing second object,
+         both of which broke the old find/rfind slice.
+      3. Legacy widest-slice fallback (first '{' .. last '}').
+    Returns the dict, or None if nothing parses.
+    """
+    # 1. whole string
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError:
+        pass
+
+    # 2. first balanced {...}
+    start = text.find("{")
+    if start >= 0:
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start : i + 1])
+                        if isinstance(obj, dict):
+                            return obj
+                    except json.JSONDecodeError:
+                        break  # fall through to the legacy fallback
+                    break
+
+    # 3. legacy widest slice
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            obj = json.loads(text[start : end + 1])
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
     """Extract and validate the dossier JSON from Claude's response.
 
@@ -352,16 +415,14 @@ def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
 
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end < 0 or end <= start:
-        return None
-
-    try:
-        parsed = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-
+    # #76 U5-b: robust JSON extraction. The old find("{")..rfind("}") slice
+    # spanned any stray brace in narrative prose or a second JSON object, so a
+    # perfectly good dossier could fail to parse. Try, in order:
+    #   1. the whole text as JSON (Claude usually returns pure JSON),
+    #   2. the first BALANCED top-level {...} object (brace-depth scan, so a
+    #      later stray "}" or a trailing second object can't truncate/extend it),
+    #   3. the legacy widest-slice fallback (kept as a last resort).
+    parsed = _extract_json_object(text)
     if not isinstance(parsed, dict):
         return None
 
@@ -502,7 +563,11 @@ def _generate_one(
         try:
             message = client.messages.create(
                 model=settings.ANTHROPIC_MODEL_PRIMARY,
-                max_tokens=2048,
+                # #76 U5-b: 2048 was tight for a buy dossier (3×3-item arrays +
+                # 4 hold-horizon prose fields), so a well-formed answer could be
+                # truncated mid-JSON and BOTH retries would truncate identically.
+                # 4096 gives comfortable headroom over the prompt's ask.
+                max_tokens=4096,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )

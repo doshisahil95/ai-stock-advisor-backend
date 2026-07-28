@@ -123,7 +123,12 @@ def compute_news_signals_for_isin(
         if severity == "high" and sentiment == "negative":
             high_sev_neg += 1
 
-        when = a.get("fetched_at")
+        # #76 U5-d: velocity + days_since_latest must reflect when the story was
+        # PUBLISHED, not when we happened to fetch it. Windowing these on
+        # fetched_at let a news backfill (many articles ingested at once)
+        # inflate story_velocity and corrupt days_since_latest_news. Prefer
+        # published_at; fall back to fetched_at only when published_at is absent.
+        when = a.get("published_at") or a.get("fetched_at")
         if when is not None:
             if when.tzinfo is None:
                 when = when.replace(tzinfo=timezone.utc)

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from contextlib import contextmanager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +26,40 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 log = logging.getLogger("run_weekly_suggestions")
+
+
+class _SuggestionRunInFlight(Exception):
+    """A run for this direction is already in flight (manual OR another cron)."""
+
+
+@contextmanager
+def _direction_lock(direction: str):
+    """#76 U5-f: acquire the SAME per-direction advisory lock the manual
+    `POST /suggestions/run` uses (suggestion_run_locks, _id==direction), so a
+    manual "Run now" and the Sunday cron can never run the same direction
+    concurrently. The manual router claimed this lock but the cron never did —
+    so an overlapping manual run raced the cron. The lock is claimed by whoever
+    starts first; the loser fails fast. A 900s TTL reclaims a crashed holder.
+    """
+    from datetime import datetime, timezone  # local: keep top-of-file fast
+
+    from pymongo.errors import DuplicateKeyError
+
+    from app.db.client import Collections
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # tz-ok: naive-UTC lock stamp
+    try:
+        Collections.suggestion_run_locks().insert_one(
+            {"_id": direction, "started_at": now}
+        )
+    except DuplicateKeyError as exc:
+        raise _SuggestionRunInFlight(
+            f"a {direction} suggestions run is already in flight"
+        ) from exc
+    try:
+        yield
+    finally:
+        Collections.suggestion_run_locks().delete_one({"_id": direction})
 
 
 def _run_single(
@@ -88,9 +123,10 @@ def main() -> int:
         job_name = "weekly_suggestions"
 
         def _do_buy():
-            exit_code, meta, _run = _run_single(
-                "buy", notify=notify, skip_dossiers=skip_dossiers
-            )
+            with _direction_lock("buy"):  # #76 U5-f
+                exit_code, meta, _run = _run_single(
+                    "buy", notify=notify, skip_dossiers=skip_dossiers
+                )
             if exit_code != 0:
                 raise RuntimeError(f"buy pipeline status={meta.get('buy_status')}")
             return meta
@@ -100,22 +136,31 @@ def main() -> int:
             # ctx.meta — the latter was a throwaway attribute _persist never
             # read, so every weekly_suggestions heartbeat stored empty metadata
             # (buy/sell status + counts lost for forensics).
-            ctx.metadata.update(_do_buy())
+            try:
+                ctx.metadata.update(_do_buy())
+            except _SuggestionRunInFlight as exc:
+                log.warning("Skipping buy cron run: %s", exc)
+                ctx.mark_skipped(f"run_in_flight: {exc}")
         return 0
 
     if args.direction == "sell":
         job_name = "weekly_suggestions_sell"
 
         def _do_sell():
-            exit_code, meta, _run = _run_single(
-                "sell", notify=notify, skip_dossiers=skip_dossiers
-            )
+            with _direction_lock("sell"):  # #76 U5-f
+                exit_code, meta, _run = _run_single(
+                    "sell", notify=notify, skip_dossiers=skip_dossiers
+                )
             if exit_code != 0:
                 raise RuntimeError(f"sell pipeline status={meta.get('sell_status')}")
             return meta
 
         with cron_run(job_name) as ctx:
-            ctx.metadata.update(_do_sell())  # #75 U4-b: was ctx.meta (throwaway)
+            try:
+                ctx.metadata.update(_do_sell())  # #75 U4-b: was ctx.meta (throwaway)
+            except _SuggestionRunInFlight as exc:
+                log.warning("Skipping sell cron run: %s", exc)
+                ctx.mark_skipped(f"run_in_flight: {exc}")
         return 0
 
     # direction == "both": one heartbeat, sequential runs, combined digest.
@@ -130,24 +175,30 @@ def main() -> int:
 
         log.info("=== Running BOTH directions (F2 combined cron path) ===")
 
+        # #76 U5-f: hold the per-direction advisory lock around each side so a
+        # manual "Run now" for the same direction can't run concurrently. If a
+        # manual run already holds a side's lock we skip that side (fresh data
+        # is already being produced) rather than double-run it.
         # 1. Buy run -- notify=False, we'll combine deliveries below.
-        buy_run = run_suggestions(
-            run_type="scheduled",
-            notify=False,
-            direction="buy",
-            skip_dossiers=skip_dossiers,
-        )
+        with _direction_lock("buy"):
+            buy_run = run_suggestions(
+                run_type="scheduled",
+                notify=False,
+                direction="buy",
+                skip_dossiers=skip_dossiers,
+            )
         log.info(
             "  buy:  status=%s top=%d", buy_run.status, len(buy_run.top_candidates)
         )
 
         # 2. Sell run -- notify=False, same reason.
-        sell_run = run_suggestions(
-            run_type="scheduled",
-            notify=False,
-            direction="sell",
-            skip_dossiers=skip_dossiers,
-        )
+        with _direction_lock("sell"):
+            sell_run = run_suggestions(
+                run_type="scheduled",
+                notify=False,
+                direction="sell",
+                skip_dossiers=skip_dossiers,
+            )
         log.info(
             "  sell: status=%s top=%d", sell_run.status, len(sell_run.top_candidates)
         )
@@ -205,7 +256,13 @@ def main() -> int:
         return meta
 
     with cron_run(job_name) as ctx:
-        ctx.metadata.update(_do_both())  # #75 U4-b: was ctx.meta (throwaway)
+        try:
+            ctx.metadata.update(_do_both())  # #75 U4-b: was ctx.meta (throwaway)
+        except _SuggestionRunInFlight as exc:
+            # #76 U5-f: a manual "Run now" is already producing fresh data for a
+            # direction; skip this scheduled run rather than double-running.
+            log.warning("Skipping both-direction cron run: %s", exc)
+            ctx.mark_skipped(f"run_in_flight: {exc}")
     return 0
 
 

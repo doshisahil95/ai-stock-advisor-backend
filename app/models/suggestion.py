@@ -26,7 +26,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models._common import BaseDoc, Money, PyObjectId, utcnow
 
 SuggestionRunStatus = Literal["running", "success", "partial", "failed"]
-SuggestionTrackingStatus = Literal["open", "acted", "passed", "expired"]
+# #76 U5-a: "rejected" was missing. submit_feedback stamps
+# tracking_status=payload.action (action ∈ acted/passed/rejected) and
+# outcome_tracker counts a "rejected" bucket, so a raw-dict write of "rejected"
+# succeeds but any SuggestionOutcome(**doc) hydration on that row raised a
+# ValidationError (latent crash + silent schema rot). "rejected" is now a
+# first-class tracking status.
+SuggestionTrackingStatus = Literal[
+    "open", "acted", "passed", "rejected", "expired"
+]
 
 # F2: buy-side scans NIFTY 100 minus held; sell-side scans held.
 # Default "buy" for back-compat: existing persisted SuggestionRun /

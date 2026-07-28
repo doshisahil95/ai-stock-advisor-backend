@@ -715,11 +715,19 @@ def _run_sell_pipeline(
 
         # Compute portfolio value once. Uses bulk_get_latest_prices which
         # prefers today's intraday quote then falls back to EOD.
-        latest_prices = bulk_get_latest_prices(isins)
-        portfolio_value = compute_portfolio_value(filtered_holdings, latest_prices)
+        # #76 U5-c: the denominator for portfolio_weight_pct must be the TOTAL
+        # portfolio, i.e. ALL active holdings — NOT the post-exclusion
+        # `filtered_holdings` (which drops rejected/acted names). Using the
+        # filtered subset understated the total and overstated every weight (a
+        # dossier could claim a weight > 100%). Price the full active set.
+        all_active_isins = [h["isin"] for h in holdings]
+        pv_prices = bulk_get_latest_prices(all_active_isins)
+        portfolio_value = compute_portfolio_value(holdings, pv_prices)
         log.info(
-            "  Portfolio value: INR %s (basis for portfolio_weight_pct)",
+            "  Portfolio value: INR %s (basis for portfolio_weight_pct, all %d "
+            "active holdings)",
             portfolio_value,
+            len(holdings),
         )
 
         # Reuse buy-side freshness filter — same fundamentals/price age rules.
