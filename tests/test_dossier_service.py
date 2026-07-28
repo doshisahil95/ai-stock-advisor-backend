@@ -31,7 +31,8 @@ def _buy_json(**overrides) -> str:
         "bull_case": ["b1", "b2", "b3"],
         "bear_case": ["r1", "r2", "r3"],
         "key_risks": ["k1", "k2", "k3"],
-        "valuation_verdict": "reasonable -- trades near peer median.",
+        "valuation_verdict": "reasonable",
+        "valuation_rationale": "Trades near the peer-median P/E with above-median ROE.",
         "portfolio_fit": "Low overlap with current holdings.",
         "hold_horizon": "long",
         "hold_horizon_expected_move": "~15-20% re-rating over 12-18 months if ROE holds.",
@@ -215,3 +216,51 @@ def test_parse_dossier_survives_trailing_prose_brace():
     parsed = _parse_dossier(good + "\n\nNote: watch the } quarter.", direction="buy")
     assert parsed is not None
     assert parsed["hold_horizon"] == "long"
+
+
+# ── #44 TD3: valuation split ─────────────────────────────────────────
+
+
+def test_valuation_rationale_surfaced():
+    parsed = _parse_dossier(_buy_json(), direction="buy")
+    assert parsed is not None
+    assert parsed["valuation_verdict"] == "reasonable"
+    assert parsed["valuation_rationale"].startswith("Trades near")
+
+
+def test_missing_valuation_rationale_coerces_to_marker():
+    import json as _json
+
+    raw = _json.loads(_buy_json())
+    raw.pop("valuation_rationale", None)  # older prompt: no rationale key
+    parsed = _parse_dossier(_json.dumps(raw), direction="buy")
+    assert parsed is not None
+    # narrative still parses (rationale is NOT required) and the marker is set
+    assert parsed["valuation_verdict"] == "reasonable"
+    assert parsed["valuation_rationale"].startswith("(")
+
+
+def test_sell_dossier_has_valuation_rationale():
+    sell_raw = {
+        "plain_english_summary": "s",
+        "one_line_thesis": "t",
+        "bull_case": ["b1", "b2", "b3"],
+        "bear_case": ["r1", "r2", "r3"],
+        "key_risks": ["k1", "k2", "k3"],
+        "valuation_verdict": "premium",
+        "valuation_rationale": "P/E well above the 5-year median.",
+        "tax_consideration": "LTCG-eligible.",
+        "concentration_note": "8% of portfolio.",
+    }
+    import json as _json
+
+    parsed = _parse_dossier(_json.dumps(sell_raw), direction="sell")
+    assert parsed is not None
+    assert parsed["valuation_verdict"] == "premium"
+    assert parsed["valuation_rationale"].startswith("P/E")
+
+
+def test_empty_dossier_has_valuation_rationale():
+    for direction in ("buy", "sell"):
+        d = _empty_dossier("api_error", direction=direction)
+        assert "valuation_rationale" in d

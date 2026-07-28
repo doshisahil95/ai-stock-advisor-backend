@@ -42,7 +42,8 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - bull_case: an array of EXACTLY 3 strings, each max 200 characters, each grounded in the input data
 - bear_case: an array of EXACTLY 3 strings, each max 200 characters
 - key_risks: an array of EXACTLY 3 strings, each max 150 characters
-- valuation_verdict: a string, max 200 characters. Choose one label from these options and add a brief rationale: deep value, reasonable, fairly priced, premium, overpriced
+- valuation_verdict: a string, EXACTLY one of these lowercase labels (the label ONLY, no rationale here): deep value, reasonable, fairly priced, premium, overpriced
+- valuation_rationale: a string, max 200 characters, briefly explaining WHY that valuation label fits (grounded in the input data, e.g. P/E vs peers, P/B, earnings growth). Do NOT restate the label.
 - portfolio_fit: a string, max 250 characters, commenting on sector overlap with current holdings
 - hold_horizon: a string, EXACTLY one of these three lowercase words: short, medium, long. This is the expected time the investment thesis needs to play out. Guidance: "short" = roughly 1 to 3 months (a tactical idea driven by momentum or a near-term news catalyst); "medium" = roughly 3 to 12 months (an earnings-cycle or re-rating thesis that should resolve within a year); "long" = 12 months or more (a structural / compounding thesis, which also aligns with India's 12-month long-term capital-gains boundary). Capital parked with no time frame is dead capital, so you MUST commit to one bucket even when the data is thin -- pick the bucket the signals lean toward and explain the uncertainty in the rationale.
 - hold_horizon_expected_move: a string of COMPLETE sentences, max 250 characters (finish your last sentence within the budget -- do NOT trail off mid-thought). State, in plain language, the approximate gain or outcome that would justify tying up capital for the chosen horizon, grounded ONLY in the input data (e.g. valuation gap to peers, earnings-growth trajectory, distance from 52-week high). This is a reasoned expectation, NOT a promise or a price target, and NOT a buy instruction. If the data does not support any quantified expectation, say so honestly (e.g. "Data too thin to frame an expected move; treat as a watch-and-learn position.").
@@ -72,7 +73,8 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - bull_case: an array of EXACTLY 3 strings, each max 200 characters. Reasons to CONTINUE HOLDING. Grounded in the input data.
 - bear_case: an array of EXACTLY 3 strings, each max 200 characters. Reasons to CONSIDER TRIMMING the position. Grounded in the input data.
 - key_risks: an array of EXACTLY 3 strings, each max 150 characters. Specific tail risks to be aware of regardless of the decision.
-- valuation_verdict: a string, max 200 characters. Choose one label from these options and add a brief rationale: deep value, reasonable, fairly priced, premium, overpriced.
+- valuation_verdict: a string, EXACTLY one of these lowercase labels (the label ONLY, no rationale here): deep value, reasonable, fairly priced, premium, overpriced
+- valuation_rationale: a string, max 200 characters, briefly explaining WHY that valuation label fits (grounded in the input data). Do NOT restate the label.
 - tax_consideration: a string, max 250 characters. Plainly state whether the position is LTCG-eligible (held > 365 days) or STCG (held <= 365 days), the rough tax cost on a sale TODAY, and whether waiting for LTCG (if applicable) materially changes the math.
 - concentration_note: a string, max 250 characters. State the position's weight in the portfolio and whether that weight is elevated (>10% in a single stock is meaningfully concentrated).
 
@@ -469,6 +471,18 @@ def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
     parsed["plain_english_summary"] = str(parsed["plain_english_summary"])[:500]
     parsed["one_line_thesis"] = str(parsed["one_line_thesis"])[:200]
     parsed["valuation_verdict"] = str(parsed["valuation_verdict"])[:300]
+    # #44 (TD3): split valuation into a LABEL (valuation_verdict) + a separate
+    # rationale (valuation_rationale) for a cleaner UI. Coerce-and-default like
+    # #55's hold-horizon: valuation_rationale is deliberately NOT in `required`,
+    # so an older prompt (label+rationale packed into valuation_verdict) or a
+    # garbled response never nukes an otherwise-good narrative. Missing/blank
+    # rationale becomes the standard "(insufficient data)" marker so the
+    # frontend's startsWith("(") guard hides it and falls back to the label.
+    _vr = parsed.get("valuation_rationale")
+    if _vr is None or not str(_vr).strip():
+        parsed["valuation_rationale"] = "(insufficient data)"
+    else:
+        parsed["valuation_rationale"] = str(_vr)[:300]
 
     if direction == "sell":
         parsed["tax_consideration"] = str(parsed["tax_consideration"])[:300]
@@ -526,6 +540,7 @@ def _empty_dossier(reason: str, direction: str = "buy") -> dict:
             "(narrative unavailable)",
         ],
         "valuation_verdict": f"(unavailable: {reason})",
+        "valuation_rationale": "(unavailable)",  # #44 (TD3)
         "narrative_unavailable": True,
         "narrative_unavailable_reason": reason,
     }
