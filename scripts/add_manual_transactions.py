@@ -41,7 +41,7 @@ MANUAL_TRANSACTIONS = [
         "price": Decimal(
             "904.00"
         ),  # Retail discount price (₹949 - ₹45 retail discount)
-        "trade_date": datetime(2022, 5, 17, tzinfo=timezone.utc),
+        "trade_date": datetime(2022, 5, 13, tzinfo=timezone.utc),
         "total_fees": Decimal("0"),
         "source": "manual_ipo_allotment",
         "source_ref": "IPO_LIC_2022:90_applied_39_allotted",
@@ -226,6 +226,44 @@ MANUAL_TRANSACTIONS = [
         "source": "manual_corporate_action",
         "source_ref": "BONUS_BPCL_2024:1to1_46_bonus_on_46_held",
         "notes": "BPCL 1:1 bonus issue — 46 bonus shares for 46 held. Zero cost. Avg cost dilutes from ~₹522 to ~₹261 before subsequent Feb 2025 sale.",
+    },
+    # ── LIC 1:1 Bonus (record date 02-Jun-2026) ─────────────────────────────
+    # 1 bonus share for every 1 share held. You held 39 LICI (IPO allotment)
+    # → 39 bonus shares. Zero-cost; FIFO dilutes avg cost ₹904 → ₹452.
+    # Confirmed via ICICI demat statement: "LIC ... Buy 39 @ ₹0.00 STT Not Paid
+    # ... 02-Jun-2026" (39 + 39 = 78 held, matches ICICI holdings snapshot).
+    {
+        "isin": "INE0J1Y01017",  # LICI
+        "symbol": "LICI",
+        "exchange": "NSE",
+        "type": "BUY",
+        "quantity": Decimal("39"),
+        "price": Decimal("0"),
+        "trade_date": datetime(2026, 6, 2, tzinfo=timezone.utc),
+        "total_fees": Decimal("0"),
+        "source": "manual_corporate_action",
+        "source_ref": "BONUS_LICI_2026:1to1_39_bonus_on_39_held",
+        "notes": "LIC 1:1 bonus issue — 39 bonus shares for 39 held. Zero cost. Avg cost dilutes from ₹904 to ₹452. Record date 02-Jun-2026 per ICICI demat statement.",
+    },
+    # ── Trent 17-share bonus (record date 08-Jun-2026) ──────────────────────
+    # You held 35 TRENT (all via order-book buys Jul-2024 → Feb-2025) → 17
+    # zero-cost bonus shares credited 08-Jun-2026 (35 + 17 = 52 held, matches
+    # ICICI holdings snapshot). Confirmed via ICICI demat statement: "TRENT ...
+    # Buy 17 @ ₹0.00 STT Not Paid ... 08-Jun-2026". Recorded as the exact
+    # broker-allotted zero-cost quantity (mirrors the CONCOR odd-lot pattern);
+    # FIFO dilutes avg cost ₹5,737 → ₹3,858.
+    {
+        "isin": "INE849A01020",  # TRENT
+        "symbol": "TRENT",
+        "exchange": "NSE",
+        "type": "BUY",
+        "quantity": Decimal("17"),
+        "price": Decimal("0"),
+        "trade_date": datetime(2026, 6, 8, tzinfo=timezone.utc),
+        "total_fees": Decimal("0"),
+        "source": "manual_corporate_action",
+        "source_ref": "BONUS_TRENT_2026:17_bonus_on_35_held",
+        "notes": "Trent bonus issue — 17 bonus shares credited on 35 held. Zero cost. Avg cost dilutes from ₹5,737 to ₹3,858. Record date 08-Jun-2026 per ICICI demat statement.",
     },
 ]
 
