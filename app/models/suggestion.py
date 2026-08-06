@@ -91,11 +91,23 @@ class CandidateScore(BaseModel):
         description="Reasons the confidence score was below 100",
     )
 
-    # Per-group breakdown
+    # Per-group breakdown — BUY side (quality/valuation/momentum/news).
+    # Populated on buy runs; left 0.0 on sell runs.
     quality_score: float = 0.0
     valuation_score: float = 0.0
     momentum_score: float = 0.0
     news_score: float = 0.0  # Always 0 in Unit 1 (no news yet)
+
+    # Per-group breakdown — SELL side (TD7/#45). First-class fields so sell
+    # group scores are persisted symmetrically with the buy fields instead of
+    # being dropped and reconstructed presentation-side. Populated on sell
+    # runs; left 0.0 on buy runs. Default 0.0 so pre-#45 persisted sell docs
+    # (which never carried these) coerce cleanly on hydration — those
+    # historical runs are append-only and are NOT backfilled.
+    booking_opportunity_score: float = 0.0
+    valuation_stretch_score: float = 0.0
+    risk_score: float = 0.0
+    tax_concentration_score: float = 0.0
 
     # Per-signal breakdown
     signals: list[SignalScore] = Field(default_factory=list)

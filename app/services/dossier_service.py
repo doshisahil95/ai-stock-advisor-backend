@@ -305,16 +305,35 @@ def _build_user_prompt(
 
     _fmt_pct = fmt_pct  # #51/#79 U8-c: single shared formatter (no divergence)
 
+    # TD7/#45: the score breakdown is direction-specific. Buy candidates carry
+    # quality/valuation/momentum/news; sell candidates carry booking_opportunity
+    # /valuation_stretch/risk/tax_concentration (now first-class persisted
+    # fields). Before #45 the buy quartet was emitted for BOTH directions, so
+    # every sell dossier fed the LLM "Quality: 0.0 / Valuation: 0.0 / ..." —
+    # garbage the narrative was then scored on.
+    if direction == "sell":
+        score_breakdown_lines = [
+            "## SCORE BREAKDOWN",
+            f"- Booking Opportunity: {candidate.booking_opportunity_score:.1f}/100",
+            f"- Valuation Stretch: {candidate.valuation_stretch_score:.1f}/100",
+            f"- Risk: {candidate.risk_score:.1f}/100",
+            f"- Tax & Concentration: {candidate.tax_concentration_score:.1f}/100",
+        ]
+    else:
+        score_breakdown_lines = [
+            "## SCORE BREAKDOWN",
+            f"- Quality: {candidate.quality_score:.1f}/100",
+            f"- Valuation: {candidate.valuation_score:.1f}/100",
+            f"- Momentum: {candidate.momentum_score:.1f}/100",
+            f"- News: {candidate.news_score:.1f}/100",
+        ]
+
     parts = [
         f"## CANDIDATE: {candidate.symbol} ({candidate.name})",
         f"Sector: {candidate.sector or 'unknown'}",
         f"Composite Score: {candidate.composite_score:.1f}/100   Rank: #{candidate.rank}   Confidence: {candidate.confidence_score:.0f}/100",
         "",
-        "## SCORE BREAKDOWN",
-        f"- Quality: {candidate.quality_score:.1f}/100",
-        f"- Valuation: {candidate.valuation_score:.1f}/100",
-        f"- Momentum: {candidate.momentum_score:.1f}/100",
-        f"- News: {candidate.news_score:.1f}/100",
+        *score_breakdown_lines,
         "",
         "## FUNDAMENTALS",
         f"- Market Cap: INR {_fmt_num(f.get('market_cap'), ' Cr', div=1_00_00_000)}",

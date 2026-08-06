@@ -1144,10 +1144,15 @@ def score_sell_candidates(
             news_freshness_days=news_freshness,
         )
 
-        # CandidateScore has fixed quality/valuation/momentum/news fields
-        # (buy-side group names). For sell, we leave them 0.0; the sell
-        # group_scores ride in the signals list and explainability surfaces
-        # them via group_meta in chunk 5/7.
+        # TD7/#45: sell group scores are now FIRST-CLASS persisted fields on
+        # CandidateScore (booking_opportunity/valuation_stretch/risk/
+        # tax_concentration), populated from the group_scores dict just like
+        # the buy pipeline populates quality/valuation/momentum/news. The
+        # buy-named fields stay 0.0 for a sell run (buy semantics don't apply);
+        # direction on the parent SuggestionRun disambiguates which quartet is
+        # meaningful. explainability._build_group_meta reads f"{group}_score",
+        # so these keys now flow through to sell group_meta correctly (before
+        # #45 they were dropped here and group_meta read nonexistent keys).
         results.append(
             CandidateScore(
                 isin=isin,
@@ -1163,6 +1168,10 @@ def score_sell_candidates(
                 valuation_score=0.0,
                 momentum_score=0.0,
                 news_score=0.0,
+                booking_opportunity_score=group_scores.get("booking_opportunity", 0.0),
+                valuation_stretch_score=group_scores.get("valuation_stretch", 0.0),
+                risk_score=group_scores.get("risk", 0.0),
+                tax_concentration_score=group_scores.get("tax_concentration", 0.0),
                 signals=signal_scores,
                 gates=gates,
                 gates_passed=passed,
