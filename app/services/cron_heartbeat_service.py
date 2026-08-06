@@ -52,8 +52,18 @@ _FALLBACK_LOG_PATH = "/home/ubuntu/cron-heartbeat-fallback.log"
 class CronSpec:
     """Static metadata about a registered cron entry.
 
-    Drives the health check ("was this expected today? did it run?").
-    Keep in sync with `crontab -l` on EC2 whenever you add/change a job.
+    Drives the health check ("was this expected today? did it run?") AND
+    (TD21/#46) the version-controlled crontab: `scripts/render_crontab.py`
+    reads `cron_expr` + `command` + `log_file` from this registry to render
+    the committed `ops/crontab`, which `deploy.sh` installs + drift-validates.
+    The registry is now the single source of truth for the schedule — do NOT
+    hand-edit the crontab; edit here, run `render_crontab.py > ops/crontab`,
+    and commit the artifact.
+
+    TD14-drift note: `cron_name` MUST equal the string the script passes to
+    `cron_run(...)`, and `command` MUST list only flags the script's argparse
+    actually accepts (the Sunday `--notify --run-type` drift TD14 fixed is
+    exactly what a rendered-from-registry crontab makes structurally impossible).
     """
 
     cron_name: str
@@ -61,6 +71,16 @@ class CronSpec:
     schedule_human: str  # human-readable summary, not parsed
     expected_weekdays: set[int]  # IST weekday numbers Mon=0..Sun=6
     min_runs_per_day: int = 1  # >1 only for intraday-style crons
+    # TD21/#46 — the parseable crontab fields. All three are set together for a
+    # live cron, or all left None for a registry-only entry that renders NO
+    # crontab line (today: the idle `weekly_suggestions_sell`, #49/TD40).
+    cron_expr: str | None = None  # 5-field cron schedule, e.g. "0 7 * * 0"
+    command: str | None = None  # script path + flags relative to repo root, e.g.
+    #                             "scripts/run_weekly_suggestions.py --direction=both".
+    #                             The `cd <repo> && PYTHONPATH=. <uv> run python`
+    #                             wrapper prefix + `>> <log> 2>&1` redirect are
+    #                             applied by render_crontab.py, NOT stored here.
+    log_file: str | None = None  # basename under /home/ubuntu, e.g. "cron-suggestions.log"
 
 
 CRON_REGISTRY: list[CronSpec] = [
@@ -83,6 +103,9 @@ CRON_REGISTRY: list[CronSpec] = [
         # {6} ONLY if you split the crontab into a standalone sell-side job
         # that logs its own heartbeat under this cron_name.
         expected_weekdays=set(),
+        # TD21/#46: cron_expr/command/log_file left None — this idle entry
+        # renders NO crontab line. If you ever split out a standalone sell
+        # cron, set all three here AND flip expected_weekdays back to {6}.
     ),
     # Phase 1 crons (instrumented in this commit)
     CronSpec(
@@ -90,12 +113,18 @@ CRON_REGISTRY: list[CronSpec] = [
         description="Refresh NSE master from NSE EQUITY_L.csv",
         schedule_human="daily 03:00 IST",
         expected_weekdays=WEEKDAYS_ALL,
+        cron_expr="0 3 * * *",
+        command="scripts/refresh_instruments.py",
+        log_file="cron-instruments.log",
     ),
     CronSpec(
         cron_name="refresh_prices",
         description="EOD price refresh (held + monitored + NIFTY 100)",
         schedule_human="weekdays 19:00 IST",
         expected_weekdays=WEEKDAYS_MON_FRI,
+        cron_expr="0 19 * * 1-5",
+        command="scripts/refresh_prices.py",
+        log_file="cron-prices.log",
     ),
     CronSpec(
         cron_name="refresh_prices_intraday",
@@ -103,12 +132,18 @@ CRON_REGISTRY: list[CronSpec] = [
         schedule_human="weekdays 09:15-15:45 IST every 15m (~28 runs)",
         expected_weekdays=WEEKDAYS_MON_FRI,
         min_runs_per_day=1,
+        cron_expr="*/15 9-15 * * 1-5",
+        command="scripts/refresh_prices_intraday.py",
+        log_file="cron-prices-intraday.log",
     ),
     CronSpec(
         cron_name="take_reconciliation_snapshot",
         description="Auto reconciliation snapshot vs ICICI",
         schedule_human="weekdays 19:30 IST",
         expected_weekdays=WEEKDAYS_MON_FRI,
+        cron_expr="30 19 * * 1-5",
+        command="scripts/take_reconciliation_snapshot.py",
+        log_file="cron-reconciliation.log",
     ),
     # Phase 2 crons (registered in this commit — F5a)
     CronSpec(
@@ -116,24 +151,40 @@ CRON_REGISTRY: list[CronSpec] = [
         description="Weekly fundamentals refresh (NIFTY 100)",
         schedule_human="Sunday 06:00 IST",
         expected_weekdays=SUNDAY,
+        cron_expr="0 6 * * 0",
+        command="scripts/refresh_fundamentals.py",
+        log_file="cron-fundamentals.log",
     ),
     CronSpec(
         cron_name="fetch_news_for_universe",
         description="Weekly Tavily news fetch + Haiku classify",
         schedule_human="Sunday 06:30 IST",
         expected_weekdays=SUNDAY,
+        # --include-held is MANDATORY (A16): without it, held names get no news.
+        cron_expr="30 6 * * 0",
+        command="scripts/fetch_news_for_universe.py --include-held",
+        log_file="cron-news.log",
     ),
     CronSpec(
         cron_name="weekly_suggestions",
         description="Weekly buy + sell suggestions run + combined digest",
         schedule_human="Sunday 07:00 IST",
         expected_weekdays=SUNDAY,
+        # --direction=both is the ONLY flag the live line carries. The script's
+        # argparse accepts --direction/--no-notify/--skip-dossiers ONLY; it does
+        # NOT accept --notify or --run-type (the TD14 drift). Do not add them.
+        cron_expr="0 7 * * 0",
+        command="scripts/run_weekly_suggestions.py --direction=both",
+        log_file="cron-suggestions.log",
     ),
     CronSpec(
         cron_name="track_suggestion_outcomes",
         description="Daily outcome price snapshots (30/60/90/180d windows)",
         schedule_human="weekdays 19:45 IST",
         expected_weekdays=WEEKDAYS_MON_FRI,
+        cron_expr="45 19 * * 1-5",
+        command="scripts/track_suggestion_outcomes.py",
+        log_file="cron-outcomes.log",
     ),
     # Daily news body purge — storage hygiene (P2-4 / #13 / TD27)
     CronSpec(
@@ -141,6 +192,9 @@ CRON_REGISTRY: list[CronSpec] = [
         description="Purge classified news_articles body_text older than 30 days",
         schedule_human="daily 02:30 IST",
         expected_weekdays=WEEKDAYS_ALL,
+        cron_expr="30 2 * * *",
+        command="scripts/purge_news_bodies.py",
+        log_file="cron-news-purge.log",
     ),
     # The health check itself (records its own heartbeat)
     CronSpec(
@@ -148,6 +202,9 @@ CRON_REGISTRY: list[CronSpec] = [
         description="Daily F4 health check",
         schedule_human="daily 21:00 IST",
         expected_weekdays=WEEKDAYS_ALL,
+        cron_expr="0 21 * * *",
+        command="scripts/cron_health_check.py",
+        log_file="cron-health.log",
     ),
 ]
 
@@ -162,6 +219,73 @@ def get_spec(cron_name: str) -> CronSpec | None:
         if spec.cron_name == cron_name:
             return spec
     return None
+
+
+# ────────────────────────────────────────────────────────────────────
+# TD21/#46 — crontab rendering constants + helpers.
+#
+# The live EC2 crontab wraps every line as:
+#   cd <REPO_DIR> && PYTHONPATH=. <UV_BIN> run python <command> >> <LOG_DIR>/<log> 2>&1
+# These constants are the SINGLE source of that wrapper so a rendered line can
+# never drift from what the box actually runs. Verified byte-for-byte against
+# `crontab -l` on EC2 (Chat 11, #46). If the deploy user, repo path, uv install
+# path, or log dir ever changes, change it HERE and re-render `ops/crontab`.
+CRON_REPO_DIR = "/home/ubuntu/ai-stock-advisor-backend"
+CRON_UV_BIN = "/home/ubuntu/.local/bin/uv"
+CRON_LOG_DIR = "/home/ubuntu"
+
+# Header banner written at the top of the rendered `ops/crontab`. Kept in the
+# service (not the script) so the renderer and any future consumer agree on it.
+CRONTAB_HEADER = (
+    "# ─────────────────────────────────────────────────────────────────\n"
+    "# GENERATED FILE — DO NOT EDIT BY HAND.\n"
+    "# Source of truth: app/services/cron_heartbeat_service.py::CRON_REGISTRY\n"
+    "# Regenerate:      PYTHONPATH=. uv run python -m scripts.render_crontab > ops/crontab\n"
+    "# Installed by:    deploy.sh (which also drift-validates crontab -l vs this file)\n"
+    "# TD21/#46 — version-controls the schedule; makes TD14-class drift impossible.\n"
+    "# ─────────────────────────────────────────────────────────────────\n"
+)
+
+
+def render_cron_line(spec: CronSpec) -> str:
+    """Render ONE crontab line for a live spec, or '' for a registry-only entry.
+
+    A spec with cron_expr/command/log_file all None (the idle
+    `weekly_suggestions_sell`) renders no line. Any spec that sets SOME but not
+    ALL of the three is a registry bug and raises — that guarantees a live cron
+    can never be half-defined (e.g. a schedule with no command).
+    """
+    fields = (spec.cron_expr, spec.command, spec.log_file)
+    if all(f is None for f in fields):
+        return ""
+    if any(f is None for f in fields):
+        raise ValueError(
+            f"CronSpec {spec.cron_name!r} partially defines the crontab fields "
+            f"(cron_expr/command/log_file must be all-set or all-None): "
+            f"cron_expr={spec.cron_expr!r} command={spec.command!r} "
+            f"log_file={spec.log_file!r}"
+        )
+    return (
+        f"{spec.cron_expr} cd {CRON_REPO_DIR} && PYTHONPATH=. {CRON_UV_BIN} "
+        f"run python {spec.command} >> {CRON_LOG_DIR}/{spec.log_file} 2>&1"
+    )
+
+
+def render_crontab() -> str:
+    """Render the full committed `ops/crontab` from CRON_REGISTRY.
+
+    Deterministic: registry order, each live line preceded by a `# <name> — <human>`
+    comment (so a human reading the crontab still sees the schedule intent).
+    Ends with exactly one trailing newline so `crontab -l` (which appends one)
+    round-trips byte-identically. Pure: no DB, no network.
+    """
+    parts: list[str] = [CRONTAB_HEADER]
+    for spec in CRON_REGISTRY:
+        line = render_cron_line(spec)
+        if not line:
+            continue
+        parts.append(f"\n# {spec.cron_name} — {spec.schedule_human}\n{line}\n")
+    return "".join(parts)
 
 
 # ────────────────────────────────────────────────────────────────────

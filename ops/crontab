@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────
+# GENERATED FILE — DO NOT EDIT BY HAND.
+# Source of truth: app/services/cron_heartbeat_service.py::CRON_REGISTRY
+# Regenerate:      PYTHONPATH=. uv run python -m scripts.render_crontab > ops/crontab
+# Installed by:    deploy.sh (which also drift-validates crontab -l vs this file)
+# TD21/#46 — version-controls the schedule; makes TD14-class drift impossible.
+# ─────────────────────────────────────────────────────────────────
+
+# refresh_instruments — daily 03:00 IST
+0 3 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_instruments.py >> /home/ubuntu/cron-instruments.log 2>&1
+
+# refresh_prices — weekdays 19:00 IST
+0 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices.py >> /home/ubuntu/cron-prices.log 2>&1
+
+# refresh_prices_intraday — weekdays 09:15-15:45 IST every 15m (~28 runs)
+*/15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
+
+# take_reconciliation_snapshot — weekdays 19:30 IST
+30 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/take_reconciliation_snapshot.py >> /home/ubuntu/cron-reconciliation.log 2>&1
+
+# refresh_fundamentals — Sunday 06:00 IST
+0 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_fundamentals.py >> /home/ubuntu/cron-fundamentals.log 2>&1
+
+# fetch_news_for_universe — Sunday 06:30 IST
+30 6 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/fetch_news_for_universe.py --include-held >> /home/ubuntu/cron-news.log 2>&1
+
+# weekly_suggestions — Sunday 07:00 IST
+0 7 * * 0 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/run_weekly_suggestions.py --direction=both >> /home/ubuntu/cron-suggestions.log 2>&1
+
+# track_suggestion_outcomes — weekdays 19:45 IST
+45 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/track_suggestion_outcomes.py >> /home/ubuntu/cron-outcomes.log 2>&1
+
+# purge_news_bodies — daily 02:30 IST
+30 2 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/purge_news_bodies.py >> /home/ubuntu/cron-news-purge.log 2>&1
+
+# cron_health_check — daily 21:00 IST
+0 21 * * * cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/cron_health_check.py >> /home/ubuntu/cron-health.log 2>&1
