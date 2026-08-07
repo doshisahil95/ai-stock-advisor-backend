@@ -159,6 +159,7 @@ def get_excluded_isins(
     now: datetime | None = None,
     rejection_window_days: int = REJECTED_EXCLUDE_WINDOW_DAYS,
     acted_window_days: int = ACTED_EXCLUDE_WINDOW_DAYS,
+    direction: SuggestionDirection = "buy",
 ) -> dict[str, set[str]]:
     """Return ISINs to exclude from build_universe, split by bucket.
 
@@ -173,11 +174,18 @@ def get_excluded_isins(
     a fresh look because market conditions change. See enrich_run for the
     user_action gating logic.
 
-    Note (F2 chunk 5): monitored_stocks is currently direction-agnostic.
-    A user rejecting a SELL suggestion for INFY will also suppress the next
-    BUY suggestion for INFY for 90 days. Acceptable for v1 since both
-    interpretations are reasonable ("I'm done thinking about INFY") and the
-    next chunk(s) of work may add a direction column to monitored_stocks.
+    TD1/#43 (direction-scoped exclusion): monitored_stocks stays ONE doc per
+    ISIN (no dual rows), but the feedback writer now stamps `feedback_direction`
+    ("buy"/"sell") on the doc. This function excludes an ISIN only when its
+    `feedback_direction` matches the requested `direction`, so a user rejecting
+    a SELL suggestion for INFY no longer also suppresses the next BUY suggestion
+    for INFY (and vice versa) — the leak previously documented here.
+
+    BACK-COMPAT: docs written before #43 (and the two live pre-#43 docs) have
+    no `feedback_direction`. A missing/None value is treated as matching the
+    requested direction, so exclusion behavior for those docs is BYTE-IDENTICAL
+    to the prior direction-agnostic behavior until direction-tagged feedback is
+    written. The buy pipeline passes direction="buy", the sell pipeline "sell".
     """
     if now is None:
         now = datetime.now(
@@ -193,7 +201,14 @@ def get_excluded_isins(
     # ever-feedback'd ISINs is tiny (single-user, low frequency).
     cursor = Collections.monitored_stocks().find(
         {"status": {"$in": ["rejected", "tracking"]}},
-        {"_id": 0, "isin": 1, "status": 1, "rejected_at": 1, "acted_at": 1},
+        {
+            "_id": 0,
+            "isin": 1,
+            "status": 1,
+            "rejected_at": 1,
+            "acted_at": 1,
+            "feedback_direction": 1,
+        },
     )
 
     rejected: set[str] = set()
@@ -201,6 +216,12 @@ def get_excluded_isins(
     for doc in cursor:
         isin = doc.get("isin")
         if not isin:
+            continue
+        # TD1/#43: only apply this feedback to the requested direction. A
+        # missing/None feedback_direction (legacy/pre-#43 docs) matches ANY
+        # direction, preserving the prior direction-agnostic behavior.
+        fb_dir = doc.get("feedback_direction")
+        if fb_dir is not None and fb_dir != direction:
             continue
         status_val = doc.get("status")
         if status_val == "rejected":
@@ -489,7 +510,9 @@ def _run_buy_pipeline(
             log.info("  --limit applied: %d stocks", len(universe))
 
         held = get_held_isins()
-        excluded = get_excluded_isins(now=started_at)
+        # TD1/#43: buy pipeline only honors buy-side (or legacy/direction-less)
+        # feedback exclusions.
+        excluded = get_excluded_isins(now=started_at, direction="buy")
         filtered, exclusions = filter_universe(universe, held, excluded)
         run.excluded_held = exclusions["held"]
         run.excluded_rejected = exclusions["rejected"]
@@ -677,7 +700,9 @@ def _run_sell_pipeline(
             holdings = holdings[:limit]
             log.info("  --limit applied: %d holdings", len(holdings))
 
-        excluded = get_excluded_isins(now=started_at)
+        # TD1/#43: sell pipeline only honors sell-side (or legacy/direction-
+        # less) feedback exclusions.
+        excluded = get_excluded_isins(now=started_at, direction="sell")
         filtered_holdings, exclusions = filter_sell_universe(holdings, excluded)
         # Reuse the same SuggestionRun fields for visibility — held is N/A
         # for sell-side so excluded_held stays 0.

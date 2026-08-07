@@ -44,6 +44,11 @@ from app.models._common import BaseDoc, Money, PyObjectId, utcnow
 AddedBy = Literal["agent", "user_query", "user_explicit"]
 MonitoringStatus = Literal["tracking", "passed", "rejected", "watchlist"]
 FeedbackAction = Literal["acted", "passed", "rejected"]
+# TD1/#43: which side of the book a feedback action targets. Mirrors
+# SuggestionDirection in models/suggestion.py; kept local to avoid a cross-
+# model import. Used by MonitoredStockFeedbackPatch + the MonitoredStock
+# feedback_direction field so exclusion can be direction-scoped.
+FeedbackDirection = Literal["buy", "sell"]
 AlertOn = Literal[
     "price_target", "earnings", "news", "52w_high", "52w_low", "volume_spike"
 ]
@@ -109,6 +114,24 @@ class MonitoredStock(BaseDoc):
     last_feedback_at: datetime | None = None
     last_feedback_note: str = ""
 
+    # TD1/#43: which side of the book the LAST feedback action was for. Lets
+    # get_excluded_isins suppress an ISIN only on the direction the user gave
+    # feedback on (a sell-side "rejected" no longer also suppresses the buy
+    # side for 90d, and vice versa). Optional + default None so the two live
+    # pre-#43 docs (and every legacy doc) coerce cleanly; None is treated as
+    # "applies to the requested direction" so exclusion behavior is BYTE-
+    # IDENTICAL to today until direction-tagged feedback is written. This is
+    # the schema-light alternative to the full "dual rows per ISIN" TD1 design
+    # (which would break the single-doc-per-ISIN invariant + the partial
+    # unique index + the watchlist upsert-on-{isin}). Watchlist writes never
+    # touch this field (a watchlist entry is not a buy/sell decision). NOTE:
+    # the sibling cosmetic leak in explainability._build_user_action (a stale
+    # user_action badge can show on both a buy and a sell card for the same
+    # ISIN) is KNOWINGLY left unfixed here — it is gated to feedback at/after
+    # run start and the current UI does not send feedback direction, so it
+    # cannot manifest in practice today.
+    feedback_direction: FeedbackDirection | None = None
+
     # Audit
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -149,6 +172,11 @@ class MonitoredStockFeedbackPatch(BaseModel):
     acted_at: datetime | None = None
     passed_at: datetime | None = None
     rejected_at: datetime | None = None
+    # TD1/#43: the side of the book this feedback is for (from the feedback
+    # request's `direction`, default "buy"). Always set by submit_feedback so
+    # future exclusions are direction-scoped; kept as a plain str field here
+    # (not optional) because the writer always supplies it going forward.
+    feedback_direction: FeedbackDirection = "buy"
 
 
 class MonitoredStockWatchlistPatch(BaseModel):

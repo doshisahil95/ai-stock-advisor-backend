@@ -445,6 +445,9 @@ def submit_feedback(
         acted_at=now if payload.action == "acted" else None,
         passed_at=now if payload.action == "passed" else None,
         rejected_at=now if payload.action == "rejected" else None,
+        # TD1/#43: record which side of the book this feedback is for so
+        # get_excluded_isins can suppress the ISIN only on that direction.
+        feedback_direction=payload.direction,
     )
     set_doc = patch.model_dump(exclude_none=True)
     result = Collections.monitored_stocks().update_one(
