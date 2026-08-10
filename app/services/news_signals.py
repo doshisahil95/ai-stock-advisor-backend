@@ -62,11 +62,21 @@ def compute_news_signals_for_isin(
     cutoff_recent = now - timedelta(days=recency_split_days)
 
     coll = Collections.news_articles()
+    # #80 H3: query on published_at for the window (not fetched_at) so the
+    # selected population is consistent with the math below that uses published_at
+    # for velocity/recency. A backfill (articles fetched recently but published
+    # weeks ago) was wrongly included in the 30-day window by the fetched_at
+    # filter but then partitioned as "older" by the published_at math —
+    # inflating story_velocity. Fall back to fetched_at for legacy docs that
+    # lack published_at (using $or so neither clause excludes the other).
     cursor = coll.find(
         {
             "entities_isins": isin,
             "classified": True,
-            "fetched_at": {"$gte": cutoff_window},
+            "$or": [
+                {"published_at": {"$gte": cutoff_window}},
+                {"published_at": {"$exists": False}, "fetched_at": {"$gte": cutoff_window}},
+            ],
         },
         {
             "_id": 0,

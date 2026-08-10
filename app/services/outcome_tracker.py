@@ -183,41 +183,62 @@ def snapshot_open_outcomes() -> dict:
             nifty_field = f"nifty_at_{window_days}d"
             excess_field = f"excess_return_{window_days}d"
 
-            if outcome.get(field_name) is not None:
+            # #80 M5: guard each sub-field independently. The old code skipped
+            # the entire window when field_name was already set, which meant:
+            # if field_name landed on run N (stock price found) but nifty_ret
+            # was None that run → excess_field never written → run N+1 sees
+            # field_name is not None → continue → excess_return permanently
+            # missing. Fix: only skip if BOTH the price AND the excess are set.
+            price_already_set = outcome.get(field_name) is not None
+            excess_already_set = outcome.get(excess_field) is not None
+            if price_already_set and excess_already_set:
                 continue
             if days_since < window_days:
                 continue
 
             target_date = suggested_at + timedelta(days=window_days)
-            price_at = list(
-                Collections.prices_daily()
-                .find(
-                    {"isin": outcome["isin"], "date": {"$lte": target_date}},
-                    {"close": 1, "date": 1},
+
+            # Re-use the already-persisted stock price if available, avoiding
+            # a redundant DB read on the excess-fill-in run.
+            if price_already_set:
+                # Only need to fill in the excess — look up the price from DB
+                # (it's stored on the outcome doc, read via Decimal128 accessor).
+                raw_price = outcome.get(field_name)
+                stock_price = _dec(raw_price)
+            else:
+                price_at = list(
+                    Collections.prices_daily()
+                    .find(
+                        {"isin": outcome["isin"], "date": {"$lte": target_date}},
+                        {"close": 1, "date": 1},
+                    )
+                    .sort("date", -1)
+                    .limit(1)
                 )
-                .sort("date", -1)
-                .limit(1)
-            )
-            if not price_at:
-                continue
-            stock_price = _dec(price_at[0]["close"])
+                if not price_at:
+                    continue
+                stock_price = _dec(price_at[0]["close"])
+                if stock_price is None:
+                    continue
+                updates[field_name] = Decimal128(str(stock_price))
+
             if stock_price is None:
                 continue
-            updates[field_name] = Decimal128(str(stock_price))
 
-            nifty_ret = _compute_nifty100_ew_return(
-                nifty100_isins,
-                suggested_at,
-                target_date,
-            )
-            if nifty_ret is not None:
-                updates[nifty_field] = Decimal128(str(round(nifty_ret, 4)))
-
-            suggested_price = _flt(outcome.get("suggested_at_price"))
-            if suggested_price and suggested_price > 0:
-                stock_ret = (float(stock_price) / suggested_price - 1) * 100
+            if not excess_already_set:
+                nifty_ret = _compute_nifty100_ew_return(
+                    nifty100_isins,
+                    suggested_at,
+                    target_date,
+                )
                 if nifty_ret is not None:
-                    updates[excess_field] = round(stock_ret - nifty_ret, 4)
+                    updates[nifty_field] = Decimal128(str(round(nifty_ret, 4)))
+
+                suggested_price = _flt(outcome.get("suggested_at_price"))
+                if suggested_price and suggested_price > 0:
+                    stock_ret = (float(stock_price) / suggested_price - 1) * 100
+                    if nifty_ret is not None:
+                        updates[excess_field] = round(stock_ret - nifty_ret, 4)
 
             stats[f"snapshots_{window_days}d"] += 1
 

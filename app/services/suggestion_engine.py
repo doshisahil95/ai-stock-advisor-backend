@@ -696,6 +696,14 @@ def _run_sell_pipeline(
         run.universe_size = len(holdings)
         log.info("Universe: %d active holdings", len(holdings))
 
+        # #80 M7: capture the full holding list BEFORE --limit truncation so
+        # portfolio_value is always computed from ALL active holdings (not just
+        # the first N). The #76 U5-c fix correctly set the denominator to ALL
+        # active holdings, but that fix is bypassed when --limit truncates
+        # `holdings` before the portfolio_value computation below, overstating
+        # portfolio_weight_pct and potentially showing values > 100%.
+        all_holdings_for_pv = holdings
+
         if limit:
             holdings = holdings[:limit]
             log.info("  --limit applied: %d holdings", len(holdings))
@@ -745,9 +753,10 @@ def _run_sell_pipeline(
         # `filtered_holdings` (which drops rejected/acted names). Using the
         # filtered subset understated the total and overstated every weight (a
         # dossier could claim a weight > 100%). Price the full active set.
-        all_active_isins = [h["isin"] for h in holdings]
+        # #80 M7: use all_holdings_for_pv (full set, pre-limit) for the denominator.
+        all_active_isins = [h["isin"] for h in all_holdings_for_pv]
         pv_prices = bulk_get_latest_prices(all_active_isins)
-        portfolio_value = compute_portfolio_value(holdings, pv_prices)
+        portfolio_value = compute_portfolio_value(all_holdings_for_pv, pv_prices)
         log.info(
             "  Portfolio value: INR %s (basis for portfolio_weight_pct, all %d "
             "active holdings)",

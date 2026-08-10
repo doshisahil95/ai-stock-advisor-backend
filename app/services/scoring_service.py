@@ -355,7 +355,11 @@ def extract_signals(
         signals["dist_from_52w_low_pct"] = None
 
     if news_signals and news_signals.get("has_news"):
-        signals["news_net_sentiment"] = float(news_signals["net_sentiment"]) * 100
+        # #80 M3: use .get() not bracket access — a legacy/partial news dict
+        # where has_news is truthy but net_sentiment is absent would raise
+        # KeyError; float(None) raises TypeError. Either aborts the whole run.
+        ns = news_signals.get("net_sentiment")
+        signals["news_net_sentiment"] = float(ns) * 100 if ns is not None else None
         signals["news_story_velocity"] = float(news_signals.get("story_velocity", 1.0))
         signals["news_story_count"] = min(
             float(news_signals.get("story_count", 0)), 30.0
@@ -1126,12 +1130,21 @@ def score_sell_candidates(
         latest_price_value = None
         if prices:
             pdate = prices[0].get("date")
+            # #80 M4: extract close OUTSIDE `if pdate` (mirrors buy-side).
+            # Buy-side sets latest_price_value unconditionally when prices exist;
+            # sell-side set it inside `if pdate`, leaving it None when the price
+            # doc has a close but a missing date field. A None current_price
+            # flows into create_outcomes_for_run as suggested_at_price=0, which
+            # permanently disables excess-return computation for that outcome
+            # (the `if suggested_price and suggested_price > 0` guard never fires
+            # and the field guard `if outcome.get(field_name) is not None`
+            # short-circuits all future runs for that outcome).
+            latest_price_value = _dec(prices[0].get("close"))
             if pdate:
                 if pdate.tzinfo is None:
                     pdate = pdate.replace(tzinfo=timezone.utc)
                 price_age_days = (now - pdate).total_seconds() / 86400.0
                 latest_price_ts = pdate
-                latest_price_value = _dec(prices[0].get("close"))
         news_freshness = news_sig.get("days_since_latest_news") if news_sig else None
 
         confidence, deductions = compute_confidence(

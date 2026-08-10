@@ -595,16 +595,29 @@ def _generate_one(
     from anthropic import Anthropic
 
     client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    user_prompt = _build_user_prompt(
-        candidate,
-        fundamentals,
-        news_articles,
-        held_symbols_by_sector,
-        direction=direction,
-        holding=holding,
-        portfolio_value=portfolio_value,
-        next_earnings=next_earnings,
-    )
+    # #80 M6: wrap prompt build in try/except. _build_user_prompt is called
+    # OUTSIDE the retry try/except, so any exception (e.g. a bad f-string
+    # format on candidate fields, or an unexpected type in the position context
+    # block) escapes _generate_one, escapes generate_dossiers_for_top_k, and
+    # marks the whole run FAILED — even though scoring fully succeeded. One
+    # malformed candidate's prompt must not kill the entire dossier phase.
+    try:
+        user_prompt = _build_user_prompt(
+            candidate,
+            fundamentals,
+            news_articles,
+            held_symbols_by_sector,
+            direction=direction,
+            holding=holding,
+            portfolio_value=portfolio_value,
+            next_earnings=next_earnings,
+        )
+    except Exception:
+        log.exception(
+            "Prompt build failed for %s (direction=%s); returning empty dossier",
+            candidate.symbol, direction,
+        )
+        return _empty_dossier("prompt_build_error", direction=direction)
 
     system_prompt = _SYSTEM_PROMPT_SELL if direction == "sell" else _SYSTEM_PROMPT
 
