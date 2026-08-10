@@ -90,6 +90,103 @@ def _format_score_breakdown_html(run: SuggestionRun, candidate: Any) -> str:
     )
 
 
+def _dossier_extra_html(dossier: dict, direction: str) -> str:
+    """#82: render the dossier fields that show on the card but were
+    missing from the email — valuation_rationale, hold_horizon (+
+    expected_move), and the #81 suggested stop/target.
+
+    All fields use the same startsWith('(') availability guard as the
+    frontend so unavailable/marker strings are silently skipped.
+    Returns an HTML fragment (may be empty string if nothing to show).
+    """
+
+    def _avail(s: str | None) -> str | None:
+        return s if (s and not s.startswith("(")) else None
+
+    parts: list[str] = []
+
+    # Valuation rationale (both directions).
+    vr = _avail(dossier.get("valuation_rationale"))
+    if vr:
+        parts.append(
+            f'<p style="margin: 4px 0; font-size: 11px; color: #555; font-style: italic;">'
+            f"Why: {vr}"
+            "</p>"
+        )
+
+    # Hold-horizon (buy-side only).
+    if direction == "buy":
+        horizon = dossier.get("hold_horizon")
+        move = _avail(dossier.get("hold_horizon_expected_move"))
+        if horizon and horizon not in ("", "(unavailable)"):
+            label = {"short": "Short (1–3 m)", "medium": "Medium (3–12 m)", "long": "Long (12 m+)"}.get(
+                horizon, horizon
+            )
+            parts.append(
+                f'<p style="margin: 4px 0; font-size: 11px; color: #444;">'
+                f'<strong>Horizon:</strong> {label}'
+                + (f" — {move}" if move else "")
+                + "</p>"
+            )
+
+    # Suggested stop/target (#81, both directions).
+    target = _avail(dossier.get("suggested_target"))
+    stop = _avail(dossier.get("suggested_stop"))
+    rationale = _avail(dossier.get("suggested_stop_target_rationale"))
+    if target or stop:
+        ref_parts: list[str] = []
+        if target:
+            ref_parts.append(f'<span style="color: #166534;">▲ Target: {target}</span>')
+        if stop:
+            ref_parts.append(f'<span style="color: #991b1b;">▼ Stop: {stop}</span>')
+        parts.append(
+            '<p style="margin: 4px 0; font-size: 11px; color: #444;">'
+            + " &nbsp;|&nbsp; ".join(ref_parts)
+            + "</p>"
+        )
+        if rationale:
+            parts.append(
+                f'<p style="margin: 2px 0; font-size: 10px; color: #888; font-style: italic;">'
+                f"Ref: {rationale}</p>"
+            )
+
+    return "\n".join(parts)
+
+
+def _dossier_extra_text(dossier: dict, direction: str) -> list[str]:
+    """#82: plain-text equivalent of _dossier_extra_html."""
+
+    def _avail(s: str | None) -> str | None:
+        return s if (s and not s.startswith("(")) else None
+
+    lines: list[str] = []
+
+    vr = _avail(dossier.get("valuation_rationale"))
+    if vr:
+        lines.append(f"    Why: {vr}")
+
+    if direction == "buy":
+        horizon = dossier.get("hold_horizon")
+        move = _avail(dossier.get("hold_horizon_expected_move"))
+        if horizon and horizon not in ("", "(unavailable)"):
+            label = {"short": "Short (1–3 m)", "medium": "Medium (3–12 m)", "long": "Long (12 m+)"}.get(
+                horizon, horizon
+            )
+            lines.append(f"    Horizon: {label}" + (f" — {move}" if move else ""))
+
+    target = _avail(dossier.get("suggested_target"))
+    stop = _avail(dossier.get("suggested_stop"))
+    rationale = _avail(dossier.get("suggested_stop_target_rationale"))
+    if target:
+        lines.append(f"    Target ref: {target}")
+    if stop:
+        lines.append(f"    Stop ref:   {stop}")
+    if rationale:
+        lines.append(f"    Ref note:   {rationale}")
+
+    return lines
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Single-direction (buy or sell) digest formatters
 # ─────────────────────────────────────────────────────────────────────
@@ -133,6 +230,7 @@ def _format_email_html(run: SuggestionRun, dossiers: list[dict]) -> str:
         )
         verdict = dossier.get("valuation_verdict", "(no verdict)")
 
+        extra_html = _dossier_extra_html(dossier, run.direction)
         html_parts.append(
             '<div style="margin-bottom: 20px; padding: 12px; background: #f9f9f9; border-radius: 6px; border-left: 4px solid #2563eb;">'
             '<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;">'
@@ -142,7 +240,8 @@ def _format_email_html(run: SuggestionRun, dossiers: list[dict]) -> str:
             f'<p style="margin: 8px 0; font-size: 14px; color: #333; line-height: 1.5;">{plain_english}</p>'
             f"{_format_score_breakdown_html(run, c)}"
             f'<p style="margin: 6px 0 0; font-size: 12px; color: #555; font-style: italic;">Valuation: {verdict}</p>'
-            "</div>"
+            + (f"\n{extra_html}" if extra_html else "")
+            + "</div>"
         )
 
     html_parts.append(
@@ -182,6 +281,8 @@ def _format_email_text(run: SuggestionRun, dossiers: list[dict]) -> str:
         lines.append(f"  {_format_score_breakdown(run, c)}")
         lines.append(f"  {summary}")
         lines.append(f"  Valuation: {dossier.get('valuation_verdict', '(none)')}")
+        # #82: add the fields shown on the card but missing from the email.
+        lines.extend(_dossier_extra_text(dossier, run.direction))
         lines.append("")
     lines.append(f"Open: {DEFAULT_DASHBOARD_URL}")
     return "\n".join(lines)
@@ -268,6 +369,7 @@ def _format_side_html(
         )
         verdict = dossier.get("valuation_verdict", "(no verdict)")
 
+        extra_html = _dossier_extra_html(dossier, run.direction)
         parts.append(
             f'<div style="margin-bottom: 16px; padding: 12px; background: #f9f9f9; border-radius: 6px; border-left: 4px solid {accent_color};">'
             '<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;">'
@@ -277,7 +379,8 @@ def _format_side_html(
             f'<p style="margin: 8px 0; font-size: 13px; color: #333; line-height: 1.5;">{plain_english}</p>'
             f"{_format_score_breakdown_html(run, c)}"
             f'<p style="margin: 4px 0 0; font-size: 11px; color: #555; font-style: italic;">Valuation: {verdict}</p>'
-            "</div>"
+            + (f"\n{extra_html}" if extra_html else "")
+            + "</div>"
         )
 
     return "\n".join(parts)
@@ -337,6 +440,9 @@ def _format_side_text(run: SuggestionRun, dossiers: list[dict], heading: str) ->
         )
         lines.append(f"    {_format_score_breakdown(run, c)}")
         lines.append(f"    {summary}")
+        lines.append(f"    Valuation: {dossier.get('valuation_verdict', '(none)')}")
+        # #82: add fields shown on the card (valuation_rationale, horizon, stop/target).
+        lines.extend(_dossier_extra_text(dossier, run.direction))
     return "\n".join(lines)
 
 
