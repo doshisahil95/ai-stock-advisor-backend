@@ -15,7 +15,9 @@ from app.models._common import Money, _convert_decimals_to_decimal128, utcnow
 from app.models.holding import Holding
 from app.models.transaction import Transaction
 from app.services.holdings_service import (
+    per_isin_write_lock,
     recompute_holding,
+    recompute_holding_locked,
     preview_sell,
     validate_replay,
 )
@@ -327,18 +329,11 @@ def sell(isin: str, req: SellRequest) -> dict:
     # the timeline -- which _fifo_replay would only log as an oversell warning,
     # never reject. Replay the full per-ISIN timeline (existing non-deleted
     # transactions + this proposed SELL) and 400 BEFORE writing to the ledger.
-    existing_txs = list(
-        Collections.transactions().find({"isin": isin, "deleted_at": None})
-    )
-    proposed_sell = {
-        "type": "SELL",
-        "quantity": req.quantity,
-        "price": req.price,
-        "trade_date": req.trade_date,
-    }
-    ok, reason = validate_replay(existing_txs + [proposed_sell])
-    if not ok:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+    # #80 H1: hold the per-ISIN write lock across read->validate->insert->
+    # recompute so two concurrent SELLs can't each pass validate_replay against
+    # a stale read and both insert (a combined oversell _fifo_replay only logs).
+    # trade_value/created_at are stamped so validate_replay's (trade_date,
+    # created_at) tie-break matches the real recompute ordering (#77 U6-c).
     tx = Transaction(
         isin=isin,
         symbol=holding["symbol"],
@@ -351,15 +346,33 @@ def sell(isin: str, req: SellRequest) -> dict:
         notes=req.notes,
         source="manual",
     )
-    Collections.transactions().insert_one(tx.to_mongo())
-    # TD19: the SELL is now persisted to the immutable ledger. recompute_holding
-    # rebuilds the derived holding and can fail independently; previously that
-    # 500'd even though the SELL had already landed. Wrap so a recompute failure
-    # returns success-with-warning rather than masking a persisted write. NOTE:
-    # recompute_holding returning None is a *legitimate* success (full exit),
-    # handled by the `if not new_holding` branch below -- only exceptions here.
+    tx_doc = tx.to_mongo()
     try:
-        new_holding = recompute_holding(isin)
+        with per_isin_write_lock(isin):
+            existing_txs = list(
+                Collections.transactions().find({"isin": isin, "deleted_at": None})
+            )
+            proposed_sell = {
+                "type": "SELL",
+                "quantity": req.quantity,
+                "price": req.price,
+                "trade_date": req.trade_date,
+                "created_at": tx_doc.get("created_at"),
+            }
+            ok, reason = validate_replay(existing_txs + [proposed_sell])
+            if not ok:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+            Collections.transactions().insert_one(tx_doc)
+            # TD19: the SELL is now persisted. recompute rebuilds the derived
+            # holding and can fail independently; a failure must not 500 and
+            # mask the persisted write (handled below). recompute_holding_locked
+            # runs the impl WITHOUT re-acquiring the lock we already hold.
+            new_holding = recompute_holding_locked(isin)
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        # per_isin_write_lock acquire timeout -> another write is in flight.
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     except Exception:
         log.exception("recompute_holding failed after SELL insert for %s", isin)
         return {

@@ -323,6 +323,41 @@ def recompute_holding(isin: str) -> Holding | None:
         return _recompute_holding_impl(isin)
 
 
+# ─── #80 H1: whole-write-path serialization ──────────────────────────────
+# The TD20 lock above wraps ONLY the recompute. But the validate_replay ->
+# insert_one -> recompute sequence in the buy/sell/corp-action routers is a
+# check-then-act with NO atomic backstop: two concurrent SELLs on the same
+# ISIN (double-click / retry / overlapping script) can each read existing
+# transactions, each pass validate_replay (neither sees the other's row yet),
+# and both insert -> a combined oversell _fifo_replay only LOGS, never rejects.
+# per_isin_write_lock exposes the SAME advisory lock so a router can hold it
+# across the ENTIRE read->validate->insert->recompute critical section, and
+# recompute_holding_locked runs the recompute impl WITHOUT re-acquiring (the
+# lock is not reentrant — a second insert of the same _id would self-deadlock
+# until timeout). Callers MUST already hold the lock when calling the _locked
+# variant.
+
+
+@contextmanager
+def per_isin_write_lock(isin: str):
+    """Public per-ISIN advisory lock for the full write critical section (H1).
+
+    Same primitive as recompute_holding's internal lock. Hold this across
+    read-existing -> validate_replay -> insert_one -> recompute_holding_locked
+    so concurrent same-ISIN writes serialize and the validate->insert window is
+    atomic. Raises RuntimeError on lock-acquire timeout (map to 409 upstream).
+    """
+    with _per_isin_recompute_lock(isin):
+        yield
+
+
+def recompute_holding_locked(isin: str) -> Holding | None:
+    """recompute_holding body WITHOUT acquiring the lock — call ONLY while
+    already inside per_isin_write_lock(isin) (H1). Standalone callers must use
+    recompute_holding() instead."""
+    return _recompute_holding_impl(isin)
+
+
 def _recompute_holding_impl(isin: str) -> Holding | None:
     """Rebuild the holding for `isin` from its transactions.
 
@@ -412,6 +447,14 @@ def _recompute_holding_impl(isin: str) -> Holding | None:
         # Filter on isin only (no deleted_at constraint) so this works whether
         # we're soft-deleting an active row, refreshing an already-deleted row,
         # or creating a fresh soft-deleted record (e.g., post --wipe-live).
+        #
+        # #80 M2: mirror the active branch's cleanup (line ~515) — delete any
+        # stale soft-deleted docs for this ISIN BEFORE the upsert so we are
+        # guaranteed at most ONE doc per ISIN. Without this, legacy F2 state
+        # (multiple soft-deleted docs per ISIN) survives a full-exit recompute
+        # and portfolio_service's unfiltered find({}) scan double-counts
+        # realized_pnl + dividends in the lifetime totals.
+        holdings_coll.delete_many({"isin": isin, "deleted_at": {"$ne": None}})
         update_doc = _convert_decimals_to_decimal128(
             {
                 **computed,
@@ -643,10 +686,15 @@ def preview_sell(
         buy_cost_per_share = lot["price"] + (
             lot["fees"] / lot["qty"] if lot["qty"] > 0 else Decimal("0")
         )
-        lot_realized = (
-            consumed * (sell_proceeds_per_share - buy_cost_per_share)
-        ).quantize(Decimal("0.01"))
-        realized_pnl += lot_realized
+        # #80 M1: accumulate realized P&L in FULL precision and quantize ONCE at
+        # the end with ROUND_HALF_UP, exactly like _fifo_replay. The old code
+        # quantized each lot with default (banker's / HALF_EVEN) rounding then
+        # summed, so a multi-lot preview could disagree with the value the SELL
+        # actually persists by ₹0.01+ — the same preview≠persist regression
+        # #72/#77 targeted. The per-lot figure below is rounded for DISPLAY only
+        # and is NOT summed into the total.
+        lot_realized_full = consumed * (sell_proceeds_per_share - buy_cost_per_share)
+        realized_pnl += lot_realized_full
         lots_consumed.append(
             {
                 "trade_date": (
@@ -656,7 +704,9 @@ def preview_sell(
                 ),
                 "qty_consumed": consumed,
                 "cost_per_share": lot["price"],
-                "realized_pnl": lot_realized,
+                "realized_pnl": lot_realized_full.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                ),
             }
         )
         # Deplete fees proportionally on the working lot too
@@ -665,21 +715,24 @@ def preview_sell(
         lot["qty"] -= consumed
         qty_to_sell -= consumed
 
-    realized_pnl = realized_pnl.quantize(Decimal("0.01"))
+    # #80 M1: quantize the accumulated full-precision realized P&L ONCE, HALF_UP
+    # (matches _fifo_replay line ~248).
+    realized_pnl = realized_pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     remaining_qty = (available_qty - sell_quantity).quantize(Decimal("0.0001"))
     fully_exits = remaining_qty == 0
     # #77 U6-b: remaining_invested must INCLUDE residual per-lot fees to mirror
-    # _fifo_replay (invested = Σ qty*price + Σ fees). The old qty*price-only sum
-    # made the preview's remaining avg-cost diverge from the value the SELL
-    # actually persists whenever any surviving lot carried fees.
+    # _fifo_replay (invested = Σ qty*price + Σ fees).
+    # #80 L1: sum in FULL precision and quantize ONCE HALF_UP — the old per-lot
+    # quantize (default banker's rounding) before summing could drift a cent
+    # from the aggregate _fifo_replay persists, skewing remaining_avg_cost.
     remaining_invested = sum(
         (
-            (lot["qty"] * lot["price"] + lot["fees"]).quantize(Decimal("0.01"))
+            (lot["qty"] * lot["price"] + lot["fees"])
             for lot in working
             if lot["qty"] > 0
         ),
         start=Decimal("0"),
-    )
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     remaining_avg_cost = (
         (remaining_invested / remaining_qty).quantize(Decimal("0.0001"))
         if remaining_qty > 0
@@ -739,6 +792,24 @@ def validate_replay(transactions: list[dict]) -> tuple[bool, str | None]:
         qty = _to_decimal(tx.get("quantity"))
         price = _to_decimal(tx.get("price"))
         trade_date = tx.get("trade_date")
+        # #80 B1 backstop: the edit path mutates the immutable ledger via a raw
+        # update_one that bypasses Transaction._validate_trade_qty, so a negative
+        # quantity or price must be rejected HERE too (defense-in-depth) — a
+        # negative BUY qty/price silently flips realized-P&L signs in every
+        # downstream FIFO replay. Model-level gt=0/ge=0 covers the normal path;
+        # this covers any raw-dict / bypass caller of validate_replay.
+        if qty is not None and qty < 0:
+            return (
+                False,
+                f"{tx_type or 'transaction'} has a negative quantity ({qty}); "
+                f"blocked to prevent ledger corruption.",
+            )
+        if price is not None and price < 0:
+            return (
+                False,
+                f"{tx_type or 'transaction'} has a negative price ({price}); "
+                f"blocked to prevent ledger corruption.",
+            )
         if tx_type == "BUY":
             open_lots.append({"qty": qty, "price": price})
         elif tx_type == "SELL":

@@ -18,19 +18,28 @@ from pymongo.errors import DuplicateKeyError
 import re
 
 from app.db.client import Collections
-from app.models._common import _convert_decimals_to_decimal128, utcnow
+from app.models._common import Money, _convert_decimals_to_decimal128, utcnow
 from app.models.cost_basis_adjustment import CostBasisAdjustment
 from app.models.transaction import Transaction
 from app.services import corporate_action_service
-from app.services.holdings_service import recompute_holding, validate_replay
+from app.services.holdings_service import (
+    per_isin_write_lock,
+    recompute_holding,
+    recompute_holding_locked,
+    validate_replay,
+)
 from app.services.transactions_audit_service import log_change
 
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-Money = Decimal
+# NOTE (#80 B1): `Money` is the VALIDATED type from app.models._common
+# (Annotated[Decimal, BeforeValidator] — accepts Decimal/str/int/float, rejects
+# NaN/Inf). A prior local `Money = Decimal` alias here was a BARE Decimal with
+# NO validation, which combined with EditTransactionRequest carrying no
+# gt=0/ge=0 constraints let a negative qty/price edit corrupt the immutable
+# ledger via the raw update_one path (bypassing Transaction._validate_trade_qty).
 
 
 def _serialize(value: Any) -> Any:
@@ -86,10 +95,17 @@ class EditTransactionRequest(BaseModel):
     Reason is required per audit invariant (Project_State §11)."""
 
     model_config = ConfigDict(extra="forbid")
-    quantity: Money | None = None
-    price: Money | None = None
+    # #80 B1: match the create path's guards (holdings.add_buy/sell use gt=0 /
+    # ge=0). Without these an edit could set a negative/zero qty or price and
+    # corrupt the immutable ledger (the raw update_one path bypasses
+    # Transaction._validate_trade_qty). NOTE: qty here is gt=0 for BUY/SELL
+    # edits; corp-action rows (SPLIT/BONUS/DIVIDEND) are guarded from this edit
+    # path on the frontend and by the read-only notice, and their qty semantics
+    # differ — the transactions router edit is for BUY/SELL rows.
+    quantity: Money | None = Field(default=None, gt=0)
+    price: Money | None = Field(default=None, gt=0)
     trade_date: datetime | None = None
-    total_fees: Money | None = None
+    total_fees: Money | None = Field(default=None, ge=0)
     notes: str | None = None
     # F21 fix (Chat 5.5+): reason is REQUIRED. Pre-fix it was optional, so
     # callers could mutate the immutable ledger with no audit justification,
@@ -567,23 +583,32 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
         )
         # Guard: a SPLIT before any BUY (or otherwise impossible) is rejected,
         # mirroring the validate_replay guard on the sell/edit/delete paths.
-        existing_txs = list(
-            Collections.transactions().find({"isin": isin, "deleted_at": None})
-        )
-        ok, reason = validate_replay(existing_txs + [row])
-        if not ok:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+        # #80 H1: hold the per-ISIN write lock across read->validate->insert->
+        # recompute, same as the sell path. The source_ref unique index already
+        # backstops duplicate-source_ref concurrency (#72 U1-b); the lock
+        # additionally closes the gap where two requests with DIFFERENT
+        # source_refs validate against the same stale existing-txns snapshot.
         tx = Transaction(**row)
-        # #72 U1-b: the partial-unique index on source_ref is the atomic backstop
-        # for the check-then-insert TOCTOU. A concurrent duplicate loses the race
-        # and is reported as already_recorded instead of double-scaling lots.
         try:
-            Collections.transactions().insert_one(tx.to_mongo())
-        except DuplicateKeyError:
-            return _already_recorded_response(isin, source_ref)
-        result = _finish_corp_action(isin, symbol, "SPLIT recorded")
-        result["source_ref"] = source_ref
-        return result
+            with per_isin_write_lock(isin):
+                existing_txs = list(
+                    Collections.transactions().find({"isin": isin, "deleted_at": None})
+                )
+                ok, reason = validate_replay(existing_txs + [row])
+                if not ok:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
+                try:
+                    Collections.transactions().insert_one(tx.to_mongo())
+                except DuplicateKeyError:
+                    return _already_recorded_response(isin, source_ref)
+                result = _finish_corp_action(isin, symbol, "SPLIT recorded",
+                                             _locked=True)
+                result["source_ref"] = source_ref
+                return result
+        except HTTPException:
+            raise
+        except RuntimeError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
 
     # ── BONUS ──────────────────────────────────────────────────────────────
     if req.action_type == "bonus":
@@ -757,12 +782,21 @@ def record_corporate_action(req: RecordCorporateActionRequest) -> dict:
     return response
 
 
-def _finish_corp_action(isin: str, symbol: str, what: str) -> dict:
+def _finish_corp_action(
+    isin: str, symbol: str, what: str, _locked: bool = False
+) -> dict:
     """Recompute the affected holding after a corp-action insert, mirroring the
     add_buy/sell TD19 recorded_with_warning contract (a persisted ledger row +
-    a recompute that may fail independently must not 500)."""
+    a recompute that may fail independently must not 500).
+
+    _locked=True: caller already holds per_isin_write_lock; use the lock-free
+    recompute_holding_locked impl to avoid a self-deadlock (#80 H1).
+    """
     try:
-        recompute_holding(isin)
+        if _locked:
+            recompute_holding_locked(isin)
+        else:
+            recompute_holding(isin)
     except Exception:  # pragma: no cover - defensive, mirrors add_buy
         return {
             "status": "recorded_with_warning",
