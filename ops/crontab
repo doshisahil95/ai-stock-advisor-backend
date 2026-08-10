@@ -12,7 +12,7 @@
 # refresh_prices — weekdays 19:00 IST
 0 19 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices.py >> /home/ubuntu/cron-prices.log 2>&1
 
-# refresh_prices_intraday — weekdays 09:15-15:45 IST every 15m (~28 runs)
+# refresh_prices_intraday — weekdays 09:00-15:45 IST every 15m (~28 runs)
 */15 9-15 * * 1-5 cd /home/ubuntu/ai-stock-advisor-backend && PYTHONPATH=. /home/ubuntu/.local/bin/uv run python scripts/refresh_prices_intraday.py >> /home/ubuntu/cron-prices-intraday.log 2>&1
 
 # take_reconciliation_snapshot — weekdays 19:30 IST
