@@ -174,7 +174,11 @@ For a REAL recovery INTO prod, replace step (2) with `mongorestore --uri "$MONGO
 
 **Repos:** backend `https://github.com/doshisahil95/ai-stock-advisor-backend` · frontend `https://github.com/doshisahil95/ai-stock-advisor-frontend`.
 
-**Last verified SHAs (2026-08-07 — Chat 13 FILING pass; backend HEAD `b529ae240657a022f7bd4a4e52007fad0827d3ec`, frontend HEAD `20c117d446eb8e4f9ff5915a4f2949707b114e65`):**
+**Last verified SHAs (2026-08-11 — Chat 13 ALL ITEMS SHIPPED; backend HEAD advances through multiple commits; frontend HEAD advances. Exact SHAs available after final doc commit.):**
+
+* **Chat 13 (2026-08-11) — #80 full code review + #81 stop/target + #82 email parity ALL SHIPPED.** See master_todo.md "Last updated" for the full per-item detail. Key facts: `dossier_service.py` grew 3 new keys in both prompts + `_parse_dossier` + `_empty_dossier` (coerce-and-default, never required, advisory-only); `digest_delivery.py` grew `_dossier_extra_html`/`_dossier_extra_text` helpers wired into all four per-candidate render functions; `suggestion-card.tsx` renders a "Suggested reference levels" section with advisory disclaimer. EC2-verified: 136 pytest + hygiene PASSED; live buy run produced real LLM-authored stop/target (DIVISLAB: stop ₹7,800, target near 52w high, rationale grounded in P/E data). #80's 1 BLOCKING + 4 HIGH + 11 MEDIUM all fixed in 4 batches; 12 LOW documented-deferred in master_todo. Non-blocking future code cycles #83 (RESEND_CC) and #84 (bootstrap_instance.sh) remain open.
+
+**Prior — Last verified SHAs (2026-08-07 — Chat 13 FILING pass; backend HEAD `b529ae240657a022f7bd4a4e52007fad0827d3ec`, frontend HEAD `20c117d446eb8e4f9ff5915a4f2949707b114e65`):**
 
 * **Chat 13 (2026-08-07) — FILING pass, no code yet.** Three new user-requested items filed in `master_todo.md` as #80/#81/#82 (+ NEW Phase 13), plus the two future code cycles as #83/#84:
   * **#80 — Full backend + frontend code review (round 3).** Every-file review (~70 backend + ~60 frontend) to find bugs/breakages/issues, then fix. Same investigation-first protocol as #52/#69: parallel explore agents by slice, self-verify every BLOCKING/HIGH finding at HEAD, kill false positives, deliver a categorized report (BLOCKING/HIGH/MEDIUM/LOW + file:line), user approves, fix in batches with commit + EC2 test blocks. LIVE post-GO-LIVE system — surgical fixes only, do not touch correct data. DO THIS FIRST (before #81/#82).
