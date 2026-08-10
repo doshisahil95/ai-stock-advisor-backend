@@ -49,6 +49,9 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - hold_horizon_expected_move: a string of COMPLETE sentences, max 250 characters (finish your last sentence within the budget -- do NOT trail off mid-thought). State, in plain language, the approximate gain or outcome that would justify tying up capital for the chosen horizon, grounded ONLY in the input data (e.g. valuation gap to peers, earnings-growth trajectory, distance from 52-week high). This is a reasoned expectation, NOT a promise or a price target, and NOT a buy instruction. If the data does not support any quantified expectation, say so honestly (e.g. "Data too thin to frame an expected move; treat as a watch-and-learn position.").
 - hold_horizon_rationale: a string, max 250 characters, explaining WHY this horizon fits (what kind of thesis it is and what drives the timing).
 - hold_horizon_review_trigger: a string, max 200 characters, naming the concrete condition that should make the investor re-examine or exit EARLY, before the horizon is up (e.g. "if it closes below its 52-week support", "re-check after the next earnings print", "if debt-to-equity climbs further").
+- suggested_target: a string, max 200 characters. An ANALYTICAL REFERENCE POINT (NOT a trade instruction or a promise) for what a reasonable upside level might look like over the chosen hold horizon, grounded ONLY in the input data (e.g. "near the 52-week high of ₹X", "a P/E re-rating to Y implies ₹Z", "peers trade at X× P/B which maps to roughly ₹Y"). Use ranges, not single prices. If the data does not support ANY estimate, say so honestly (e.g. "Insufficient data to frame an upside level."). The user decides whether to act.
+- suggested_stop: a string, max 200 characters. An ANALYTICAL REFERENCE POINT (NOT a trade instruction) for a price level at which the buy thesis would be materially invalidated -- i.e. a level below which the original reasoning no longer holds. Ground this in the data (e.g. "if it breaks below the 52-week low of ₹X", "below the pre-earnings support of ₹Y", "a deterioration to below peer-median P/B"). Use ranges. If the data does not support any estimate, say so honestly.
+- suggested_stop_target_rationale: a string, max 250 characters. Explain WHY you chose those reference points -- what data drove the target and what data drove the stop. Be honest about uncertainty. Do NOT repeat the numbers; explain the reasoning.
 
 If the input data is insufficient to produce a confident bull or bear case, use phrases like "Limited data available on..." rather than inventing reasons."""
 
@@ -77,6 +80,9 @@ OUTPUT SCHEMA -- return a single JSON object with these fields:
 - valuation_rationale: a string, max 200 characters, briefly explaining WHY that valuation label fits (grounded in the input data). Do NOT restate the label.
 - tax_consideration: a string, max 250 characters. Plainly state whether the position is LTCG-eligible (held > 365 days) or STCG (held <= 365 days), the rough tax cost on a sale TODAY, and whether waiting for LTCG (if applicable) materially changes the math.
 - concentration_note: a string, max 250 characters. State the position's weight in the portfolio and whether that weight is elevated (>10% in a single stock is meaningfully concentrated).
+- suggested_target: a string, max 200 characters. An ANALYTICAL REFERENCE POINT (NOT a trade instruction) for a level at which trimming or full exit would be well-timed -- e.g. near a resistance level, above LTCG threshold, or at a stretched valuation multiple. Grounded in the input data. Use ranges. If the data does not support any estimate, say so honestly.
+- suggested_stop: a string, max 200 characters. An ANALYTICAL REFERENCE POINT (NOT a trade instruction) for a level at which waiting is no longer rational -- i.e. "if it drops here, the original thesis has failed" or "further downside would erase LTCG eligibility, making a hold-and-hope worse." Grounded in the input data. Use ranges. If the data does not support any estimate, say so honestly.
+- suggested_stop_target_rationale: a string, max 250 characters. Explain WHY you chose those reference points, referencing the user's cost basis, holding period, tax window (LTCG/STCG), and current unrealized gain where available. Be honest about uncertainty.
 
 If any input field is missing, say so explicitly in the relevant field (e.g., "Holding period not available -- cannot give tax verdict.") rather than inventing values.
 """
@@ -531,6 +537,20 @@ def _parse_dossier(raw_text: str, direction: str = "buy") -> dict | None:
                 # so a well-formed answer passes through unchanged.
                 parsed[_hk] = _clamp_sentence(str(val), 400)
 
+    # #81: LLM-authored suggested stop-loss + target — BOTH directions.
+    # Same coerce-and-default pattern as #55 / #44: keys NOT in `required`,
+    # so a garbled or absent stop/target NEVER nukes an otherwise-good
+    # narrative. Missing/blank → "(insufficient data)" so the frontend's
+    # startsWith("(") availability guard hides them. The advisory nature is
+    # enforced in the prompt ("ANALYTICAL REFERENCE POINT, NOT a trade
+    # instruction"); the system never trades.
+    for _sk in ("suggested_target", "suggested_stop", "suggested_stop_target_rationale"):
+        val = parsed.get(_sk)
+        if val is None or not str(val).strip():
+            parsed[_sk] = "(insufficient data)"
+        else:
+            parsed[_sk] = _clamp_sentence(str(val), 400)
+
     return parsed
 
 
@@ -575,6 +595,10 @@ def _empty_dossier(reason: str, direction: str = "buy") -> dict:
         base["hold_horizon_expected_move"] = "(unavailable)"
         base["hold_horizon_rationale"] = "(unavailable)"
         base["hold_horizon_review_trigger"] = "(unavailable)"
+    # #81: stop/target fallback — both directions (keys are shared).
+    base["suggested_target"] = "(unavailable)"
+    base["suggested_stop"] = "(unavailable)"
+    base["suggested_stop_target_rationale"] = "(unavailable)"
     return base
 
 

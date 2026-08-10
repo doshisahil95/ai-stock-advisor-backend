@@ -264,3 +264,89 @@ def test_empty_dossier_has_valuation_rationale():
     for direction in ("buy", "sell"):
         d = _empty_dossier("api_error", direction=direction)
         assert "valuation_rationale" in d
+
+
+# ── #81: LLM-authored suggested stop-loss + target ───────────────────
+
+
+def _buy_json_with_stop_target(**overrides) -> str:
+    base = {
+        **json.loads(_buy_json()),
+        "suggested_target": "Near the 52-week high of ₹1,400 (a ~15% move from current levels).",
+        "suggested_stop": "Below ₹1,100 — a break there invalidates the momentum thesis.",
+        "suggested_stop_target_rationale": "Target derived from 52w high and peer P/E; stop from 6-month support.",
+    }
+    base.update(overrides)
+    return json.dumps(base)
+
+
+def test_buy_dossier_surfaces_stop_target():
+    """#81: a buy dossier with all three stop/target keys surfaces them."""
+    parsed = _parse_dossier(_buy_json_with_stop_target(), direction="buy")
+    assert parsed is not None
+    assert isAvail(parsed.get("suggested_target"))
+    assert isAvail(parsed.get("suggested_stop"))
+    assert isAvail(parsed.get("suggested_stop_target_rationale"))
+
+
+def test_sell_dossier_surfaces_stop_target():
+    """#81: sell dossiers also get stop/target keys (exit reference points)."""
+    import json as _json
+    sell_raw = {
+        "plain_english_summary": "s",
+        "one_line_thesis": "t",
+        "bull_case": ["b1", "b2", "b3"],
+        "bear_case": ["r1", "r2", "r3"],
+        "key_risks": ["k1", "k2", "k3"],
+        "valuation_verdict": "premium",
+        "valuation_rationale": "P/E above median.",
+        "tax_consideration": "LTCG-eligible.",
+        "concentration_note": "8% of portfolio.",
+        "suggested_target": "Trim near ₹2,000 — stretched valuation vs sector.",
+        "suggested_stop": "If it drops below ₹1,600, the recovery thesis has failed.",
+        "suggested_stop_target_rationale": "Target from P/B stretch; stop from cost-basis proximity.",
+    }
+    parsed = _parse_dossier(_json.dumps(sell_raw), direction="sell")
+    assert parsed is not None
+    assert isAvail(parsed.get("suggested_target"))
+    assert isAvail(parsed.get("suggested_stop"))
+
+
+def test_missing_stop_target_coerces_to_marker():
+    """#81: absent stop/target keys become the unavailable marker — never nukes the narrative."""
+    parsed = _parse_dossier(_buy_json(), direction="buy")  # no stop/target keys
+    assert parsed is not None
+    # hold_horizon still works (regression check)
+    assert parsed["hold_horizon"] == "long"
+    # stop/target absent → marker
+    assert parsed.get("suggested_target", "").startswith("(")
+    assert parsed.get("suggested_stop", "").startswith("(")
+    assert parsed.get("suggested_stop_target_rationale", "").startswith("(")
+
+
+def test_blank_stop_coerces_to_marker():
+    """#81: blank stop/target values become the unavailable marker."""
+    parsed = _parse_dossier(
+        _buy_json_with_stop_target(suggested_stop="", suggested_stop_target_rationale="  "),
+        direction="buy",
+    )
+    assert parsed is not None
+    assert parsed.get("suggested_stop", "").startswith("(")
+    assert parsed.get("suggested_stop_target_rationale", "").startswith("(")
+    # suggested_target is still present
+    assert isAvail(parsed.get("suggested_target"))
+
+
+def test_empty_dossier_has_stop_target():
+    """#81: _empty_dossier shape includes all three stop/target keys for both directions."""
+    for direction in ("buy", "sell"):
+        d = _empty_dossier("api_error", direction=direction)
+        assert "suggested_target" in d
+        assert "suggested_stop" in d
+        assert "suggested_stop_target_rationale" in d
+        assert d["suggested_target"].startswith("(")
+
+
+def isAvail(s: str | None) -> bool:
+    """Mirror the frontend availability guard: non-empty and doesn't start with '('."""
+    return bool(s and len(s) > 0 and not s.startswith("("))
