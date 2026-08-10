@@ -16,6 +16,7 @@ This is append-only. Used for:
 from __future__ import annotations
 
 import json
+import os
 import zoneinfo
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -236,9 +237,18 @@ def get_spec(cron_name: str) -> CronSpec | None:
 # never drift from what the box actually runs. Verified byte-for-byte against
 # `crontab -l` on EC2 (Chat 11, #46). If the deploy user, repo path, uv install
 # path, or log dir ever changes, change it HERE and re-render `ops/crontab`.
-CRON_REPO_DIR = "/home/ubuntu/ai-stock-advisor-backend"
-CRON_UV_BIN = "/home/ubuntu/.local/bin/uv"
-CRON_LOG_DIR = "/home/ubuntu"
+#
+# #84 (#61 follow-on): these are now env-overridable so a self-hoster on a
+# different user/path can render a correct crontab WITHOUT editing this file
+# (scripts/bootstrap_instance.sh exports CRON_REPO_DIR/CRON_UV_BIN/CRON_LOG_DIR
+# then runs render_crontab). The DEFAULTS are the author's EC2 values, unchanged
+# — so on the live box (envs unset) render_crontab() reproduces the committed
+# ops/crontab BYTE-FOR-BYTE and deploy.sh's drift-check stays green. Read via
+# os.getenv (not pydantic Settings) so render_crontab.py stays PURE / CI-safe —
+# no secrets file needed to render a crontab.
+CRON_REPO_DIR = os.getenv("CRON_REPO_DIR", "/home/ubuntu/ai-stock-advisor-backend")
+CRON_UV_BIN = os.getenv("CRON_UV_BIN", "/home/ubuntu/.local/bin/uv")
+CRON_LOG_DIR = os.getenv("CRON_LOG_DIR", "/home/ubuntu")
 
 # Header banner written at the top of the rendered `ops/crontab`. Kept in the
 # service (not the script) so the renderer and any future consumer agree on it.

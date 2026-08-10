@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────
+# TEMPLATE — backend API systemd unit (#84 / #61 follow-on).
+# NOT a live unit. scripts/bootstrap_instance.sh substitutes the @TOKENS@
+# and installs the result as /etc/systemd/system/portfolio-advisor.service.
+# Mirrors the author's live EC2 unit documented in Project_State §4:
+# single process / single worker (no --workers) — sync handlers run in
+# Uvicorn's threadpool; this is why per-ISIN serialization uses a Mongo
+# advisory lock, not asyncio.Lock (TD20).
+#
+# Tokens (all supplied by bootstrap_instance.sh; listed WITHOUT the @@ so this
+# comment is not itself rewritten by the sed substitution):
+#   RUN_USER        service user (e.g. ubuntu)
+#   REPO_DIR        absolute path to ai-stock-advisor-backend
+#   SECRETS_PATH    absolute path to secrets.env (root:RUN_USER, mode 0640)
+#   UV_BIN          absolute path to the uv binary
+#   API_HOST        bind host (0.0.0.0)
+#   API_PORT        bind port (8000)
+# ─────────────────────────────────────────────────────────────────
+[Unit]
+Description=Personal AI Stock Advisor — backend API (FastAPI/uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+WorkingDirectory=@REPO_DIR@
+EnvironmentFile=@SECRETS_PATH@
+Environment=PYTHONPATH=@REPO_DIR@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@UV_BIN@ run uvicorn app.main:app --host @API_HOST@ --port @API_PORT@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

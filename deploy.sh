@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
-cd ~/ai-stock-advisor-backend
+
+# #84 (#61 follow-on): repo dir + healthcheck host are env-overridable so this
+# UPDATE script works on a non-author box without edits. Defaults are the
+# author's EC2 values — unset on the live box → behavior byte-identical.
+# (First-time provisioning is scripts/bootstrap_instance.sh, not this script.)
+DEPLOY_REPO_DIR="${DEPLOY_REPO_DIR:-$HOME/ai-stock-advisor-backend}"
+HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://100.112.20.41:8000/health}"
+
+cd "$DEPLOY_REPO_DIR"
 echo "→ Pulling latest..."
 git pull
 echo "→ Syncing deps..."
@@ -35,6 +43,6 @@ sudo systemctl restart portfolio-advisor.service
 sleep 2
 sudo systemctl status portfolio-advisor.service --no-pager | head -10
 echo "→ Healthcheck..."
-curl -s http://100.112.20.41:8000/health
+curl -s "$HEALTHCHECK_URL"
 echo ""
 echo "✅ Deploy complete"

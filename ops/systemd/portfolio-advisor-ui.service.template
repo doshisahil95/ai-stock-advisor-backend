@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────
+# TEMPLATE — frontend UI systemd unit (#84 / #61 follow-on).
+# NOT a live unit. scripts/bootstrap_instance.sh substitutes the @TOKENS@
+# and installs the result as /etc/systemd/system/portfolio-advisor-ui.service.
+# Mirrors the author's live EC2 unit documented in Project_State §4:
+# `next start` on :3000 with the hardening block (NoNewPrivileges, PrivateTmp,
+# ProtectSystem=strict, ReadWritePaths = frontend dir + /tmp).
+#
+# Tokens (all supplied by bootstrap_instance.sh; listed WITHOUT the @@ so this
+# comment is not itself rewritten by the sed substitution):
+#   RUN_USER             service user (e.g. ubuntu)
+#   REPO_DIR_FRONTEND    absolute path to ai-stock-advisor-frontend
+#   UI_PORT              listen port (3000)
+#   API_BASE_URL         backend base URL, no trailing slash
+#                        (e.g. http://<tailscale-ip>:8000)
+# ─────────────────────────────────────────────────────────────────
+[Unit]
+Description=Personal AI Stock Advisor — frontend UI (Next.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@RUN_USER@
+WorkingDirectory=@REPO_DIR_FRONTEND@
+Environment=NODE_ENV=production
+Environment=PORT=@UI_PORT@
+Environment=NEXT_PUBLIC_API_BASE_URL=@API_BASE_URL@
+ExecStart=/usr/bin/env npm run start
+Restart=on-failure
+RestartSec=5
+
+# Hardening (Project_State §4)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=@REPO_DIR_FRONTEND@ /tmp
+
+[Install]
+WantedBy=multi-user.target
