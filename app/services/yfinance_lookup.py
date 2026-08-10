@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 
 import yfinance as yf
 
 log = logging.getLogger(__name__)
+
+# #80 M9: replace @lru_cache with a success-only in-process cache.
+# @lru_cache caches FAILURES (empty result dict) permanently for the process
+# lifetime — a single transient yfinance hiccup wipes metadata resolution for
+# a symbol until the service restarts (potentially hours/days on the single
+# long-lived Uvicorn worker). We only cache results where the lookup actually
+# succeeded (non-empty name or ISIN).
+_metadata_cache: dict[tuple[str, str], dict] = {}
 
 
 def to_yfinance_ticker(symbol: str, exchange: str = "NSE") -> str:
@@ -22,7 +29,6 @@ def to_yfinance_ticker(symbol: str, exchange: str = "NSE") -> str:
     return f"{symbol}{suffix}"
 
 
-@lru_cache(maxsize=512)
 def fetch_metadata(symbol: str, exchange: str = "NSE") -> dict:
     """Fetch name, sector, industry, ISIN for a symbol.
 
@@ -32,6 +38,10 @@ def fetch_metadata(symbol: str, exchange: str = "NSE") -> dict:
     Returns a dict with keys: name, sector, industry, isin, current_price.
     Missing fields are returned as empty strings / None.
     """
+    cache_key = (symbol.upper(), exchange.upper())
+    if cache_key in _metadata_cache:
+        return _metadata_cache[cache_key]
+
     ticker_str = to_yfinance_ticker(symbol, exchange)
     try:
         ticker = yf.Ticker(ticker_str)
@@ -47,7 +57,7 @@ def fetch_metadata(symbol: str, exchange: str = "NSE") -> dict:
         if not (len(isin) == 12 and isin.isalnum()):
             isin = ""
 
-        return {
+        result = {
             "symbol": symbol.upper(),
             "exchange": exchange.upper(),
             "yfinance_ticker": ticker_str,
@@ -58,8 +68,13 @@ def fetch_metadata(symbol: str, exchange: str = "NSE") -> dict:
             "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
             "currency": info.get("currency", "INR"),
         }
+        # Only cache on success (non-empty name or ISIN = lookup actually worked).
+        if result["name"] or result["isin"]:
+            _metadata_cache[cache_key] = result
+        return result
     except Exception as exc:
         log.warning("yfinance lookup failed for %s: %s", ticker_str, exc)
+        # Do NOT cache failures — a transient error must be retried next call.
         return {
             "symbol": symbol.upper(),
             "exchange": exchange.upper(),

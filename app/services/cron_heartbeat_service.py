@@ -129,9 +129,15 @@ CRON_REGISTRY: list[CronSpec] = [
     CronSpec(
         cron_name="refresh_prices_intraday",
         description="15-min intraday quotes for active holdings",
-        schedule_human="weekdays 09:15-15:45 IST every 15m (~28 runs)",
+        schedule_human="weekdays 09:00-15:45 IST every 15m (~28 runs)",
         expected_weekdays=WEEKDAYS_MON_FRI,
-        min_runs_per_day=1,
+        # #80 L6: raised from 1 to 10. With ~28 runs/day, min_runs_per_day=1
+        # meant 27 silent failures looked healthy (a single 09:00 run counted
+        # as "OK for today"). 10 catches systematic cron failure or a crash
+        # after the early ticks while tolerating a few missed individual runs.
+        # The expected_weekdays guard means this only triggers Mon-Fri in IST
+        # (weekends never false-alarm regardless of this value).
+        min_runs_per_day=10,
         cron_expr="*/15 9-15 * * 1-5",
         command="scripts/refresh_prices_intraday.py",
         log_file="cron-prices-intraday.log",

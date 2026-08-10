@@ -195,9 +195,49 @@ def evaluate_news_alerts(window_days: int = 3) -> int:
             if blurb and blurb != headline:
                 body = f"{headline} — {blurb}" if headline else blurb
 
+            # #80 H2: mirror the #73 fix applied to stop-loss/target evaluators —
+            # build + validate the Alert BEFORE the push so a ValidationError
+            # (e.g. ISIN length, unknown field) surfaces before any push fires.
+            # Then wrap insert_one in try/except: a transient Mongo write failure
+            # after a delivered push must not cause the next run to re-push
+            # (missing "sent" row → dedup sees nothing → re-fires).
+            # Before this fix: push → Alert() → insert_one (unguarded), so any
+            # post-push exception left no audit row → duplicate real pushes.
             delivery_status = "sent"
             delivery_error = ""
             ntfy_message_id = ""
+
+            # Build + validate the Alert first (raises ValidationError if bad).
+            try:
+                alert = Alert(
+                    alert_type="news_event",
+                    severity="high",
+                    channel="ntfy_public_news",
+                    isin=isin,
+                    symbol=symbol,
+                    title=title,
+                    body=body,
+                    llm_reasoning=blurb,
+                    cited_news_ids=[article_id],
+                    trigger_data=TriggerData(
+                        extras={
+                            "sentiment": sentiment,
+                            "themes": themes,
+                            "url": art.get("url", ""),
+                        }
+                    ),
+                    ntfy_message_id="",
+                    delivery_status="sent",
+                    delivery_error="",
+                )
+            except Exception:
+                log.exception(
+                    "Alert model validation failed for %s (article %s); skipping",
+                    isin, article_id,
+                )
+                continue
+
+            # Push only after the model is validated.
             try:
                 resp = push_public(
                     channel="news",
@@ -213,28 +253,19 @@ def evaluate_news_alerts(window_days: int = 3) -> int:
                 delivery_status = "failed"
                 delivery_error = str(exc)
 
-            alert = Alert(
-                alert_type="news_event",
-                severity="high",
-                channel="ntfy_public_news",
-                isin=isin,
-                symbol=symbol,
-                title=title,
-                body=body,
-                llm_reasoning=blurb,
-                cited_news_ids=[article_id],
-                trigger_data=TriggerData(
-                    extras={
-                        "sentiment": sentiment,
-                        "themes": themes,
-                        "url": art.get("url", ""),
-                    }
-                ),
-                ntfy_message_id=ntfy_message_id,
-                delivery_status=delivery_status,
-                delivery_error=delivery_error,
-            )
-            alerts_log.insert_one(alert.to_mongo())
+            # Stamp the push result onto the alert before persisting.
+            alert.ntfy_message_id = ntfy_message_id
+            alert.delivery_status = delivery_status  # type: ignore[assignment]
+            alert.delivery_error = delivery_error
+
+            try:
+                alerts_log.insert_one(alert.to_mongo())
+            except Exception:
+                log.exception(
+                    "alerts_log insert failed for news_event %s (article %s); "
+                    "push was delivered=%s — next run will retry (no sent row)",
+                    isin, article_id, delivery_status == "sent",
+                )
             fired += 1
 
     if fired:

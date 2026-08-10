@@ -224,7 +224,16 @@ def refresh_one(isin: str, symbol: str, exchange: str = "NSE") -> dict | None:
     info = fetch_one_yfinance(symbol, exchange)
     if info is None:
         return None
+    # #80 M8: sanitize the raw info dict before storing it. The raw yfinance
+    # `info` dict can contain datetime.date, numpy scalars, or other non-BSON
+    # types (e.g. governanceEpochDate). _convert_decimals_to_decimal128 only
+    # handles Decimal→Decimal128; non-BSON types cause an InvalidDocument raise
+    # from pymongo, which without a per-item try/except in refresh_universe
+    # aborts the ENTIRE Sunday fundamentals cron. _sanitize_for_bson is already
+    # used by the earnings-calendar path (line ~440) for the same reason.
     doc = _build_fundamentals_doc(isin, symbol, exchange, info)
+    # Sanitize source_raw in-place before the Decimal128 conversion.
+    doc["source_raw"] = _sanitize_for_bson(info)
 
     Collections.instruments_fundamentals().update_one(
         {"isin": isin},
@@ -256,7 +265,24 @@ def refresh_universe(instruments: list[dict], throttle_sec: float = 0.3) -> dict
         symbol = inst["symbol"]
         exchange = inst.get("exchange", "NSE")
 
-        result = refresh_one(isin, symbol, exchange)
+        # #80 M8: wrap per-item in try/except (matches refresh_earnings_universe
+        # and refresh_dividends_universe siblings). Without this, a single
+        # malformed yfinance info dict (e.g. non-BSON numpy scalar in source_raw)
+        # aborts the ENTIRE fundamentals cron mid-universe instead of skipping
+        # the one bad stock and continuing.
+        try:
+            result = refresh_one(isin, symbol, exchange)
+        except Exception as exc:
+            log.exception(
+                "  [%d/%d] ERROR %s (%s): unhandled exception in refresh_one",
+                i + 1, len(instruments), symbol, isin,
+            )
+            stats["failed"] += 1
+            stats["failed_isins"].append(isin)
+            if throttle_sec > 0 and i < len(instruments) - 1:
+                import time as _time; _time.sleep(throttle_sec)
+            continue
+
         if result is None:
             stats["failed"] += 1
             stats["failed_isins"].append(isin)

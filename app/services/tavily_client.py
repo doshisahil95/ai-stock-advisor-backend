@@ -195,6 +195,11 @@ def search(
     # TavilyQuotaExceeded at the cap with no TOCTOU window (P2-5 / #19); the old
     # get_today_quota() pre-check + separate increment has been collapsed into
     # the single conditional find_one_and_update inside _increment_quota.
+    # #80 M10 note: the quota is incremented BEFORE the actual Tavily call and
+    # is NOT refunded if the call fails / retries are exhausted. This means a
+    # flaky day can trip the local ceiling early. Accepted trade-off: the counter
+    # tracks ATTEMPTS not completions, which is a conservative (safe) accounting.
+    # To change to "count only successes", decrement on non-2xx failure here.
     new_total = _increment_quota(use_case, credits)
     log.info(
         "Tavily search [%s, %s, topic=%s, %d credits] (%d/%d today): %s",
@@ -232,7 +237,11 @@ def search(
         except Exception as exc:
             last_exc = exc
             err_str = str(exc).lower()
-            if "quota" in err_str or "rate" in err_str or "429" in err_str:
+            # #80 M10: "rate" was too broad — it matched "accurate", "generate",
+            # etc., misclassifying benign errors as TavilyQuotaExceeded which
+            # aborts the whole news-fetch cron (stop_on_quota_exceeded=True).
+            # Tighten to "rate limit" / "too many" / "429" as the real signals.
+            if "quota" in err_str or "rate limit" in err_str or "too many" in err_str or "429" in err_str:
                 log.warning("Tavily quota/rate error: %s", exc)
                 raise TavilyQuotaExceeded(f"Tavily API quota error: {exc}") from exc
             log.warning(
