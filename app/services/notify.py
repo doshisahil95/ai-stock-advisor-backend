@@ -29,6 +29,32 @@ _PRIORITY_MAP = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
 
 resend.api_key = settings.RESEND_API_KEY
 
+
+def _parse_cc_recipients(primary: str) -> list[str]:
+    """Parse settings.RESEND_CC into a clean BCC list (master_todo #83 / #60 Part A).
+
+    RESEND_CC is a comma-separated string in the secrets file. Split on commas,
+    strip whitespace, drop empty entries, de-duplicate (preserving order), and
+    exclude the primary recipient so it is never both To and Bcc. Returns [] when
+    RESEND_CC is unset — in that case email() adds no bcc key and behavior is
+    byte-identical to pre-#83. Additive-only: RESEND_TO stays the single primary.
+    """
+    seen: set[str] = set()
+    if primary:
+        seen.add(primary.strip().lower())
+    out: list[str] = []
+    for raw in settings.RESEND_CC.split(","):
+        addr = raw.strip()
+        if not addr:
+            continue
+        key = addr.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(addr)
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Resend transient-failure retry (master_todo #20, P3-4 — Phase 6)
 # ─────────────────────────────────────────────────────────────────────
@@ -151,6 +177,7 @@ def email(
     html: str,
     to: str | None = None,
     text: str | None = None,
+    include_cc: bool = True,
 ) -> dict:
     """Send an email via Resend.
 
@@ -160,6 +187,12 @@ def email(
         to: Recipient address. Defaults to settings.RESEND_TO.
         text: Optional plain-text body. When provided, Resend sends
             multipart/alternative so non-HTML clients render correctly.
+        include_cc: When True (default), any addresses in settings.RESEND_CC
+            are added as BCC recipients (de-duped, primary excluded) so digests
+            and drift alerts fan out to an advisor/spouse. Pass False for
+            operator-only mail (cron-health) so it stays author-only. When
+            RESEND_CC is unset this flag has no observable effect (master_todo
+            #83 / #60 Part A).
 
     Returns:
         dict shaped {"ok": bool, "id": str | None, "error": str | None}.
@@ -179,14 +212,22 @@ def email(
     immediately. The {ok, id, error} contract and the no-raise guarantee are
     unchanged — see the module-level retry notes above.
     """
+    primary = to or settings.RESEND_TO
     payload: dict[str, object] = {
         "from": settings.RESEND_FROM,
-        "to": to or settings.RESEND_TO,
+        "to": primary,
         "subject": subject,
         "html": html,
     }
     if text is not None:
         payload["text"] = text
+    # #83 (#60 Part A): fan extra recipients out via BCC (hidden from each
+    # other). Only when opted-in AND RESEND_CC is non-empty — otherwise no bcc
+    # key is added and the send is byte-identical to pre-#83.
+    if include_cc:
+        bcc = _parse_cc_recipients(primary)
+        if bcc:
+            payload["bcc"] = bcc
 
     last_error: str | None = None
     for attempt in range(1, _EMAIL_SEND_MAX_ATTEMPTS + 1):

@@ -165,10 +165,13 @@ def main() -> int:
                 "</p>"
             )
             # notify.email() never raises — returns {ok, id, error}.
+            # include_cc=False: cron-health mail is operator noise, stays
+            # author-only (never fans out to RESEND_CC). #83 / #60 Part A.
             email_result = email(
                 subject="Portfolio Advisor — cron health-check FAILED (Mongo unreachable)",
                 html=self_fail_html,
                 text=self_fail_text,
+                include_cc=False,
             )
             if email_result.get("ok"):
                 print(f"✓ Self-failure alert email sent: id={email_result.get('id')}")
@@ -246,6 +249,7 @@ def main() -> int:
                 subject=f"Portfolio Advisor — cron health OK ({len(healthy)} healthy)",
                 html=hb_html,
                 text=hb_text,
+                include_cc=False,  # operator-only, stays author-only (#83)
             )
             if hb_email.get("ok"):
                 print(f"✓ Positive heartbeat email sent: id={hb_email.get('id')}")
@@ -320,6 +324,7 @@ def main() -> int:
             subject=f"Portfolio Advisor — cron health: {len(anomalies)} issue(s)",
             html=html_body,
             text=text_body,
+            include_cc=False,  # operator-only, stays author-only (#83)
         )
         email_ok = bool(email_result.get("ok"))
         if email_ok:

@@ -49,7 +49,14 @@ class Settings(BaseSettings):
     # Resend
     RESEND_API_KEY: str
     RESEND_FROM: str
-    RESEND_TO: str
+    RESEND_TO: str  # single PRIMARY recipient; user_profile seed derives from this
+    # #83 (#60 Part A): optional ADDITIONAL digest/alert recipients, comma-separated
+    # in the secrets file (e.g. "advisor@example.com,spouse@example.com"). Additive
+    # to RESEND_TO — when unset ("") every email path is byte-identical to before.
+    # notify.email() puts these in BCC so recipients aren't exposed to each other,
+    # de-duped and with the primary RESEND_TO stripped out. Per-message opt-out via
+    # notify.email(include_cc=False) keeps operator/cron-health mail author-only.
+    RESEND_CC: str = ""
 
     # Server binding
     TAILSCALE_IP: str = "100.112.20.41"
