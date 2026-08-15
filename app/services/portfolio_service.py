@@ -387,11 +387,19 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
     sector_invested: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     sector_current: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     sector_count: dict[str, int] = defaultdict(int)
+    # #80 L3: sector unrealized P&L must compare like-for-like. `invested` is
+    # summed for EVERY holding, but `current_value` only exists for priced
+    # holdings — so P&L = current - invested was apples-to-oranges (a sector
+    # with any unpriced holding read spuriously negative). Track a priced-only
+    # invested base and compute P&L off THAT; the DISPLAYED `invested` stays the
+    # full sum (below) so the sector's true cost is still shown.
+    sector_invested_priced: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for h in annotated:
         sector = h["sector"] or "Unknown"
         sector_invested[sector] += h["invested"]
         if h["current_value"]:
             sector_current[sector] += h["current_value"]
+            sector_invested_priced[sector] += h["invested"]
         sector_count[sector] += 1
 
     sector_breakdown = []
@@ -401,8 +409,11 @@ def compute_summary(holdings: list[dict], latest_prices: dict[str, dict]) -> dic
     ):
         inv = sector_invested[sector]
         cur = sector_current[sector]
-        pnl = (cur - inv).quantize(Decimal("0.01"))
-        pnl_pct = float((pnl / inv) * 100) if inv > 0 else 0.0
+        # P&L compares current value against the invested base of the SAME
+        # (priced) holdings, not the full sector invested (#80 L3).
+        inv_priced = sector_invested_priced[sector]
+        pnl = (cur - inv_priced).quantize(Decimal("0.01"))
+        pnl_pct = float((pnl / inv_priced) * 100) if inv_priced > 0 else 0.0
         pct_of_portfolio = (
             float((cur / total_current) * 100) if total_current > 0 else 0.0
         )

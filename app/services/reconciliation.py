@@ -439,6 +439,11 @@ def get_snapshot_history(limit: int = 30) -> list[dict]:
 # not an exact timestamp.
 _DIVIDEND_MATCH_WINDOW_DAYS = 21
 
+# #80 L5: a recorded DIVIDEND may sit at most this many days BEFORE the ex-date
+# and still match (pure data-entry slack). Beyond this, a pre-ex-date txn belongs
+# to an earlier announcement and must NOT satisfy this ex-date. Small on purpose.
+_DIVIDEND_MATCH_BACKDATE_TOLERANCE_DAYS = 2
+
 # An announced ex-date must be older than this before a missing receipt is
 # treated as "you likely received a payout you haven't booked" (rather than
 # "announced, too soon to expect the credit"). Covers the settle/credit lag.
@@ -585,13 +590,25 @@ def compute_dividend_drift() -> list[dict]:
             held_then = first_floor is not None and first_floor <= ex_floor
 
             # Look for a recorded DIVIDEND within the match window of the ex-date.
+            # #80 L5: the window is DIRECTIONAL — a payout physically cannot
+            # settle BEFORE its own ex-date (India credits 2-6 weeks AFTER), so
+            # only a trade_date on/after the ex-date can match. A small negative
+            # tolerance (_DIVIDEND_MATCH_BACKDATE_TOLERANCE_DAYS) absorbs manual
+            # data-entry slack. The old symmetric abs(...)≤21 let a DIVIDEND up
+            # to 21 days BEFORE the ex-date (i.e. a prior interim payout) satisfy
+            # this ex-date, mislabeling a genuine miss as "matched".
             matched_trade_date = None
             for t in div_txns:
                 td = t.get("trade_date")
                 if td is None:
                     continue
                 td_floor = _naive_date_floor(td)
-                if abs((td_floor - ex_floor).days) <= _DIVIDEND_MATCH_WINDOW_DAYS:
+                delta_days = (td_floor - ex_floor).days
+                if (
+                    -_DIVIDEND_MATCH_BACKDATE_TOLERANCE_DAYS
+                    <= delta_days
+                    <= _DIVIDEND_MATCH_WINDOW_DAYS
+                ):
                     matched_trade_date = td_floor
                     break
 

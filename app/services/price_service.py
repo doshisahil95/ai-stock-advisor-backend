@@ -606,15 +606,23 @@ def insert_intraday_quotes(rows: list[dict]) -> int:
 
 
 def bulk_get_latest_intraday(isins: list[str]) -> dict[str, dict]:
-    """For each ISIN, return the most recent intraday quote captured TODAY (UTC).
+    """For each ISIN, return the most recent intraday quote captured TODAY (IST).
 
     Returns {} for ISINs without an intraday quote today (e.g. weekends, off hours).
+
+    #80 L7: "today" is bounded in IST (the market's timezone), matching the rest
+    of the intraday path (see _to_ist staleness checks), not UTC. utcnow() is
+    naive-UTC and captured_at is stored naive-UTC, so we take IST-midnight and
+    convert back to a naive-UTC instant for the compare. During market hours
+    (09:15-15:30 IST) this selects the same rows as the old UTC-midnight bound;
+    it only removes the latent 00:00-05:30 IST off-hours ambiguity.
     """
     if not isins:
         return {}
 
-    now_utc = utcnow()
-    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    now_ist = utcnow().replace(tzinfo=timezone.utc).astimezone(IST)
+    ist_midnight = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = ist_midnight.astimezone(timezone.utc).replace(tzinfo=None)
 
     pipeline = [
         {

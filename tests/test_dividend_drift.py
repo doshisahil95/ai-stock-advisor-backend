@@ -118,6 +118,39 @@ def test_recorded_outside_window_is_still_missing(fake_db, frozen_now):
     assert row["announcements"][0]["status"] == "missing_receipt"
 
 
+def test_pre_ex_date_dividend_does_not_match(fake_db, frozen_now):
+    # #80 L5: a DIVIDEND dated well BEFORE the ex-date belongs to an earlier
+    # announcement — a payout cannot settle before its own ex-date. The old
+    # symmetric abs(...)<=21 window WOULD have matched this (18 days before);
+    # the directional window must reject it, so the ex-date stays missing.
+    ex = datetime(2026, 1, 10)
+    recorded = datetime(2025, 12, 23)  # 18 days BEFORE ex → prior payout
+    assert 0 < (ex - recorded).days <= _DIVIDEND_MATCH_WINDOW_DAYS
+    fake_db["holdings"].seed(_hold(qty="700"))
+    fake_db["dividend_announcements"].seed(_ann(ex, "4.0"))
+    fake_db["transactions"].seed(_div_txn(recorded, "4.0"))
+
+    row = _row(compute_dividend_drift())
+
+    assert row["missing_count"] == 1
+    assert row["announcements"][0]["status"] == "missing_receipt"
+
+
+def test_small_backdate_tolerance_still_matches(fake_db, frozen_now):
+    # #80 L5: a 1-day pre-ex-date txn is data-entry slack, within the small
+    # backdate tolerance, and should still match.
+    ex = datetime(2026, 1, 10)
+    recorded = datetime(2026, 1, 9)  # 1 day before ex → within tolerance
+    fake_db["holdings"].seed(_hold(qty="700"))
+    fake_db["dividend_announcements"].seed(_ann(ex, "4.0"))
+    fake_db["transactions"].seed(_div_txn(recorded, "4.0"))
+
+    row = _row(compute_dividend_drift())
+
+    assert row["missing_count"] == 0
+    assert row["announcements"][0]["status"] == "matched"
+
+
 def test_future_ex_date_is_pending(fake_db, frozen_now):
     ex = datetime(2026, 9, 1)  # after NOW
     fake_db["holdings"].seed(_hold(qty="700"))
