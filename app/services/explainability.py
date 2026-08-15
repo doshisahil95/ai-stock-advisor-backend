@@ -817,6 +817,7 @@ def enrich_run(run_dict: dict) -> dict:
         c["user_action"] = _build_user_action(
             monitored_by_isin.get(isin) if isin else None,
             run_started_at,
+            direction=run_dict.get("direction", "buy"),
         )
 
     run_dict["feedback_meta"] = FEEDBACK_META
@@ -845,6 +846,7 @@ def _load_monitored_bulk(isins: list[str]) -> dict[str, dict]:
             "last_feedback_action": 1,
             "last_feedback_at": 1,
             "last_feedback_note": 1,
+            "feedback_direction": 1,  # #80 badge leak: direction-scope the badge
             "acted_at": 1,
             "passed_at": 1,
             "rejected_at": 1,
@@ -880,14 +882,21 @@ def _to_aware_utc_dt(dt: datetime | None) -> datetime | None:
 def _build_user_action(
     ms_doc: dict | None,
     run_started_at: datetime | None,
+    direction: str = "buy",
 ) -> dict | None:
     """Return {action, at, note} if the user gave feedback on this candidate
-    AT OR AFTER the current run started; otherwise None (so the UI renders
-    the card fresh, not collapsed).
+    AT OR AFTER the current run started AND in this run's direction; otherwise
+    None (so the UI renders the card fresh, not collapsed).
 
     Rationale: a "passed" or "acted" from a previous run is stale state.
     Resurfacing the same ISIN means the new run scored it again — that
     deserves a fresh look. See PROJECT_STATE §13 F6 and §20.7 trade-off.
+
+    #80 badge leak (sibling of #43): feedback is direction-scoped
+    (monitored_stocks.feedback_direction, added in #43). A sell-context
+    "acted"/"passed" must NOT collapse the buy card for the same ISIN, and
+    vice versa. A legacy doc with no feedback_direction (None) matches any
+    direction, preserving pre-#43 back-compat.
     """
     if not ms_doc:
         return None
@@ -896,6 +905,9 @@ def _build_user_action(
     if not action or last_at is None:
         return None
     if run_started_at is not None and last_at < run_started_at:
+        return None
+    fb_direction = ms_doc.get("feedback_direction")
+    if fb_direction is not None and fb_direction != direction:
         return None
     return {
         "action": action,

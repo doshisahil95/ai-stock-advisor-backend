@@ -171,7 +171,9 @@ def _classify_batch(articles: list[dict]) -> dict[str, dict]:
         return {}
 
     raw_text = ""
-    for block in message.content:
+    # #80 L12: normalize content to [] (SDK returns a list on success, but this
+    # is defense-in-depth against a None/absent content edge).
+    for block in message.content or []:
         if hasattr(block, "text"):
             raw_text += block.text
 
@@ -187,7 +189,7 @@ def _classify_batch(articles: list[dict]) -> dict[str, dict]:
                 messages=[{"role": "user", "content": user_prompt}],
             )
             raw_text = ""
-            for block in message.content:
+            for block in message.content or []:  # #80 L12 None-guard
                 if hasattr(block, "text"):
                     raw_text += block.text
             parsed = _parse_response(raw_text)
@@ -445,7 +447,9 @@ def _call_entity_confirm_batch(pairs: list[dict]) -> dict[str, bool]:
             return {}
 
         raw = "".join(
-            block.text for block in message.content if hasattr(block, "text")
+            block.text
+            for block in message.content or []  # #80 L12 None-guard
+            if hasattr(block, "text")
         )
         parsed = _parse_response(raw)  # reuse existing JSON-array parser
         if parsed is None:

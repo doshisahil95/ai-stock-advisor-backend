@@ -162,6 +162,18 @@ def _fifo_replay(transactions: Iterable[dict]) -> dict:
                 )
             )
         elif ttype == "SELL":
+            # #80 L2 (defense-in-depth): a non-positive SELL qty is already
+            # blocked upstream (Transaction model gt=0 + validate_replay), and
+            # would be a silent no-op here anyway (the division is guarded and
+            # the loop below never enters). Make the skip explicit + logged so a
+            # bad row can never quietly distort the replay.
+            if qty <= 0:
+                log.warning(
+                    "Skipping SELL tx %s with non-positive qty %s during replay",
+                    tx.get("_id"),
+                    qty,
+                )
+                continue
             remaining_to_sell = qty
             sell_proceeds_per_share = price - (fees / qty if qty > 0 else Decimal("0"))
             while remaining_to_sell > 0 and lots:

@@ -672,7 +672,7 @@ def _generate_one(
             )
 
         raw_text = ""
-        for block in message.content:
+        for block in message.content or []:  # #80 L12 None-guard
             if hasattr(block, "text"):
                 raw_text += block.text
 

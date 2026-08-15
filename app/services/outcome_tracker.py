@@ -306,12 +306,16 @@ def compute_system_performance(direction: str | None = None) -> dict:
         base_filter = {"direction": direction}
 
     def _q(extra: dict) -> dict:
+        # #80 L4: combine base_filter + extra via $and unconditionally. The old
+        # {**base, **extra} spread was safe for today's callers (extra never
+        # shared a key with base) but would silently clobber a colliding key
+        # (e.g. a future 'direction' in extra overwriting base's direction). An
+        # explicit $and preserves BOTH clauses regardless of overlap or $or.
         if not base_filter:
             return extra
-        if "$or" in base_filter and "$or" in extra:
-            # combine via $and to preserve both clauses
-            return {"$and": [base_filter, extra]}
-        return {**base_filter, **extra}
+        if not extra:
+            return base_filter
+        return {"$and": [base_filter, extra]}
 
     flip = direction == "sell"
 
