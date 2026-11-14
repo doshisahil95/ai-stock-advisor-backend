@@ -2,6 +2,8 @@
 
 Personal AI Stock Advisor — backend. FastAPI + Pydantic v2 + MongoDB Atlas. Single-user portfolio + research tool for NSE equities. **Strictly advisory; the system never trades.**
 
+> **2026-11-14 — EC2 rebuilt from scratch** (the original instance was accidentally terminated): Tailscale IP is now `100.107.240.8` (node tagged `tag:server`), Elastic IP `13.204.207.223`. Full runbook in [`docs/self_hosting.md`](docs/self_hosting.md); historical `100.112.20.41`/`3.111.254.128` references below refer to the pre-rebuild box.
+>
 > Last updated: 2026-07-28 (#69 round-2 review pass — synced this README with the shipped code: corrected the `run_weekly_suggestions` crontab line to the LIVE `--direction=both` (the `--notify`/`--run-type` flags do NOT exist on the script's argparse and would break the Sunday cron if pasted), corrected the CRON_REGISTRY count to 11, added the `purge_news_bodies` cron + the endpoints/collections/alerts shipped since Chat 5.5. Earlier baseline: 2026-05-24 post-Chat-5.5 TD cleanup).
 > Companion docs: [`docs/data_flow.md`](docs/data_flow.md) for the per-collection / per-pipeline mental model; `docs/Project_State.md` for the full architectural spec, audit log, and open questions.
 
@@ -23,7 +25,7 @@ A two-phase system:
 
 The two phases live in the same FastAPI app and the same Mongo database. Phase 2 is read-only on Phase 1 data.
 
-All access is via Tailscale (no public ingress). The single user is the author. Compute is one EC2 t3.micro in `ap-south-1` (Tailscale IP `100.112.20.41`) hosting both backend (`:8000`) and frontend (`:3000`).
+All access is via Tailscale (no public ingress). The single user is the author. Compute is one EC2 t3.micro in `ap-south-1` (Tailscale IP `100.107.240.8`, node tagged `tag:server`; Elastic IP `13.204.207.223`) hosting both backend (`:8000`) and frontend (`:3000`). **The instance was rebuilt from scratch 2026-11-14 (the original was terminated) — see `docs/self_hosting.md` for the runbook; historical `100.112.20.41`/`3.111.254.128` references elsewhere in this README refer to the pre-rebuild box.**
 
 ---
 

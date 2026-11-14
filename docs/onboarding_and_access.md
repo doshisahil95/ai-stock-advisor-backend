@@ -158,7 +158,8 @@ full read access to the live portfolio — treat it as such.
 
 ### Concepts
 
-- The EC2 box is a tailnet node (`100.112.20.41`) running frontend `:3000`
+- The EC2 box is a tailnet node (`100.107.240.8`, rebuilt 2026-11-14) carrying Tailscale
+  tag **`tag:server`**, running frontend `:3000`
   and backend `:8000`. There is **no public ingress**.
 - A second person needs (a) to be on the tailnet, and (b) network permission
   (ACL) to reach the EC2 node's ports.
@@ -173,7 +174,7 @@ Best when the advisor is technical / willing to install Tailscale.
 2. They install the Tailscale client and accept the invite.
 3. Restrict them to *only* the EC2 node's web ports via an ACL grant (see
    below) — do **not** give them access to your whole tailnet.
-4. They browse to `http://100.112.20.41:3000`.
+4. They browse to `http://100.107.240.8:3000`.
 
 **Option 2 — Share a single node with them (Tailscale "node sharing").**
 Best when you want to expose *only* the EC2 box, nothing else on your tailnet.
@@ -215,6 +216,17 @@ Apply `tag:advisor-app` to the EC2 machine (Machines → node → Edit ACL tags)
 and `tag:advisor-viewer` to the shared/invited user. With Option 2 (node
 sharing) the share itself already limits reach to the one node; the ACL is
 defense-in-depth.
+
+> **ACTUAL current tailnet policy (as of the 2026-11-14 rebuild).** The live ACL
+> does **not** use the `tag:advisor-viewer` / `tag:advisor-app` split sketched
+> above. It uses a single tag — **`tag:server`** — with
+> `src: ["autogroup:member"]` → `dst: ["tag:server:22,443,3000,8000"]`, plus a
+> Tailscale-SSH rule (`src: ["autogroup:member"]` → `dst: ["tag:server"]`,
+> `users: ["ubuntu"]`, action `check`). So **every** tailnet member can reach the
+> server's web ports today; the least-privilege sketch above is the design to
+> move toward, not the current state. The exact live policy is recorded in
+> `docs/self_hosting.md` §3. **The EC2 node must carry `tag:server` or it is
+> unreachable** (the ACL has no rule for untagged nodes).
 
 ### CORS / API reachability caveat
 

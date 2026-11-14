@@ -133,11 +133,11 @@ Not regulatory advice. Dossiers/suggestions use phrasing like "the system flagge
 
 **Frontend:** Next.js 16 (Turbopack) · React 19 · TypeScript strict · Tailwind v4 · shadcn/ui Nova preset · Recharts · TanStack Query (mutations use `refetchQueries`, synchronous; the two `invalidateQueries` outliers in notes-panel.tsx + refresh-button.tsx swapped in 5.13 TD28) · react-hook-form + zod · sonner · next-themes. NO markdown-rendering dependency — LLM markdown (e.g. chat answers) is rendered by a self-contained `MarkdownLite` inside `components/chat-panel.tsx` (Chat 6).
 
-**Hosting:** AWS EC2 t3.micro (ap-south-1), Elastic IP 3.111.254.128 (whitelisted in Atlas) · Tailscale-only app traffic, no public ingress, no Caddy · MongoDB Atlas M10 (separate; access list = EC2 EIP + dev IPs).
+**Hosting:** AWS EC2 t3.micro (ap-south-1), Elastic IP **13.204.207.223** (whitelisted in Atlas) · Tailscale-only app traffic, no public ingress, no Caddy · MongoDB Atlas M10 (separate; access list = EC2 EIP + dev IPs). **REBUILT 2026-11-14** (the original instance was terminated) — current Tailscale IP **`100.107.240.8`**, node tagged `tag:server`; see `docs/self_hosting.md` §7 for the full rebuild record.
 
 ## Section 4: Infrastructure paths and ports
 
-**Network:** EC2 Tailscale IP `100.112.20.41` · EC2 Elastic IPv4 `3.111.254.128` · SSH `ssh ubuntu@100.112.20.41`. Backend port: **EC2 8000, Mac local 8001**. Frontend port: 3000 (both). Always specify which machine. Convention: "SSH into EC2 first, then curl localhost:8000."
+**Network:** EC2 Tailscale IP **`100.107.240.8`** (rebuilt 2026-11-14; the old instance was `100.112.20.41`) · EC2 Elastic IPv4 **`13.204.207.223`** (was `3.111.254.128`) · SSH `ssh ubuntu@13.204.207.223` (or over the tailnet once `tag:server` is applied). The EC2 node carries Tailscale tag **`tag:server`** — the tailnet ACL grants members only `tag:server:22,443,3000,8000`, so an untagged node is unreachable. Backend port: **EC2 8000, Mac local 8001**. Frontend port: 3000 (both). Always specify which machine. Convention: "SSH into EC2 first, then curl localhost:8000." **Historical `100.112.20.41` / `3.111.254.128` references elsewhere in this file (Section 0 bootstrap, Section 14 conventions, Section 17 diagnostics, SHA-pinned test blocks) refer to the pre-rebuild instance.**
 
 **Repo paths — Mac:** `~/Projects/Personal/ai-stock-advisor/ai-stock-advisor-backend` and `.../ai-stock-advisor-frontend`. **EC2:** `/home/ubuntu/ai-stock-advisor-backend` (`~/ai-stock-advisor-backend`) and `.../ai-stock-advisor-frontend`.
 
@@ -816,7 +816,7 @@ When any trigger fires, say verbatim: **`I AM LOSING CONTEXT`**
 
 ## Section 17: "Am I hallucinating?" diagnostic questions
 
-* Backend port Mac local → **8001**. EC2 → **8000**. SSH → **`ssh ubuntu@100.112.20.41`**.
+* Backend port Mac local → **8001**. EC2 → **8000**. SSH → **`ssh ubuntu@13.204.207.223`** (Elastic IP; EC2 Tailscale IP `100.107.240.8`, node tagged `tag:server`). The old box was `100.112.20.41` / `3.111.254.128` (rebuilt 2026-11-14).
 * Secrets on EC2 → **`/etc/portfolio-advisor/secrets.env`**. On Mac → **`<repo>/.env`**.
 * How do I run a script on EC2 → as a MODULE from the repo root: **`uv run python -m scripts.<name>`** (or `PYTHONPATH=. … scripts/<name>.py`). A by-file-path run raises `ModuleNotFoundError: No module named 'app'` (Chat 8). Tests → **`uv run python -m pytest`** (pyproject `pythonpath=["."]`; Chat B #33).
 * `recompute_holding(isin)` → only authoritative writer to holdings; idempotent; FIFO; serialized per-ISIN via recompute_locks (TD20). Idempotency regression-guarded by tests/test_recompute_holding.py (#33).
