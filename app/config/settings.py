@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     RESEND_CC: str = ""
 
     # Server binding
-    TAILSCALE_IP: str = "100.112.20.41"
+    TAILSCALE_IP: str = "100.107.240.8"
     API_PORT: int = 8000
 
 

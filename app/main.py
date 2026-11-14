@@ -155,11 +155,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://100.112.20.41:3000",  # EC2 IP, used during dev
         "http://localhost:3000",  # Local fallback if needed
-        "https://*.ts.net",  # Tailscale Funnel domains
     ],
-    allow_origin_regex=r"https://.*\.ts\.net",  # Funnel subdomain wildcard
+    # Any Tailscale tailnet (100.x) or localhost origin, any port; plus https ts.net.
+    allow_origin_regex=r"http://(100\.\d+\.\d+\.\d+|localhost)(:\d+)?|https://.*\.ts\.net",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS", "PUT"],
     allow_headers=["*"],

@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from app.config.settings import settings
 from app.db.client import Collections
 from app.services.fundamentals_service import get_dividend_announcements_for_isin
 from app.services.notify import push_public, email
@@ -308,7 +309,7 @@ def _send_drift_alerts(snapshot: dict) -> list[str]:
         + "".join(f"<li>{line}</li>" for line in drift_lines)
         + "</ul>"
         + "<p>This usually means a corporate action was applied on one side but not the other.</p>"
-        + "<p><a href='http://100.112.20.41:3000/reconciliation'>Review on dashboard</a></p>"
+        + f"<p><a href='http://{settings.TAILSCALE_IP}:3000/reconciliation'>Review on dashboard</a></p>"
     )
 
     try:
