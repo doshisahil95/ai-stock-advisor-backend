@@ -62,6 +62,13 @@ author's box; set it to `tailscale ip -4`), plus `MONGODB_DB_NAME=portfolio`,
 `API_PORT`, and the optional `RESEND_CC`. See `settings.py` for the authoritative list.
 
 > **Gotchas:**
+> - **The secrets file MUST end with a trailing newline.** When you build it by copying a
+>   local `.env` and then appending with `tee -a`, a missing final newline makes the
+>   appended line GLUE onto the last key's value — e.g.
+>   `NTFY_PUBLIC_TOPIC_DIGESTS=…<TAILSCALE_IP=…>` — silently corrupting that key. The
+>   symptom is ntfy returning `400 Bad Request` for that one channel (e.g. `digests`)
+>   while the others work. Verify every key is on its own line:
+>   `sudo grep -E '^[A-Z_]+=' /etc/portfolio-advisor/secrets.env`.
 > - **`MONGODB_URI` must use a literal `&`**, not `\&`. A `\&` (common when a `.env` was
 >   written to be `source`-able by bash) leaks into the value and makes pymongo warn
 >   `"The value of retrywrites must be 'true' or 'false'"`.
