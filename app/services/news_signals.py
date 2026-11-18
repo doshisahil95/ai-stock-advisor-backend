@@ -67,15 +67,18 @@ def compute_news_signals_for_isin(
     # for velocity/recency. A backfill (articles fetched recently but published
     # weeks ago) was wrongly included in the 30-day window by the fetched_at
     # filter but then partitioned as "older" by the published_at math —
-    # inflating story_velocity. Fall back to fetched_at for legacy docs that
-    # lack published_at (using $or so neither clause excludes the other).
+    # inflating story_velocity. Fall back to fetched_at when published_at is
+    # ABSENT **or NULL** — {published_at: None} matches both. (The prior
+    # {"$exists": False} fallback missed docs whose published_at field EXISTS
+    # but is null, which is every article the fetcher currently writes — that
+    # matched ZERO articles and silently made the whole news signal inert.)
     cursor = coll.find(
         {
             "entities_isins": isin,
             "classified": True,
             "$or": [
                 {"published_at": {"$gte": cutoff_window}},
-                {"published_at": {"$exists": False}, "fetched_at": {"$gte": cutoff_window}},
+                {"published_at": None, "fetched_at": {"$gte": cutoff_window}},
             ],
         },
         {
