@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -239,6 +240,17 @@ def _normalize_published_at(raw: Any) -> datetime | None:
     if isinstance(raw, datetime):
         return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
     if isinstance(raw, str):
+        # RFC 2822 — Tavily's actual `published_date` format, e.g.
+        # "Thu, 22 Oct 2026 08:00:00 GMT". Tried FIRST because none of the
+        # strptime formats below match it, so this used to return None and every
+        # article was stored with published_at=null (which then broke the
+        # news_signals window — see the matching fix there).
+        try:
+            d = parsedate_to_datetime(raw)
+            if d is not None:
+                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            pass
         for fmt in (
             "%Y-%m-%dT%H:%M:%SZ",
             "%Y-%m-%dT%H:%M:%S.%fZ",
