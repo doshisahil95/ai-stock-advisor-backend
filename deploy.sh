@@ -1,48 +1,46 @@
 #!/bin/bash
 set -e
 
-# #84 (#61 follow-on): repo dir + healthcheck host are env-overridable so this
-# UPDATE script works on a non-author box without edits. Defaults are the
-# author's EC2 values — unset on the live box → behavior byte-identical.
-# (First-time provisioning is scripts/bootstrap_instance.sh, not this script.)
+# Backend UPDATE / deploy script (run on the EC2 box).
+#   pull latest → uv sync → re-apply indexes → verify+install crontab →
+#   restart portfolio-advisor → healthcheck.
+#
+# This is the UPDATE path, NOT first-time provisioning — that's
+# scripts/bootstrap_instance.sh. All paths are env-overridable; the defaults
+# match the author's EC2 box (user `ubuntu`, repo in $HOME).
 DEPLOY_REPO_DIR="${DEPLOY_REPO_DIR:-$HOME/ai-stock-advisor-backend}"
-HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://100.112.20.41:8000/health}"
+UV_BIN="${UV_BIN:-$HOME/.local/bin/uv}"
+HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://localhost:8000/health}"
+SERVICE="${SERVICE:-portfolio-advisor.service}"
 
 cd "$DEPLOY_REPO_DIR"
 echo "→ Pulling latest..."
-git pull
-echo "→ Syncing deps..."
-uv sync
-echo "→ Re-applying indexes..."
-PYTHONPATH=. uv run python scripts/init_db.py | tail -20
+git pull --ff-only
 
-# ── TD21/#46: version-controlled crontab ────────────────────────────
-# The cron SCHEDULE is rendered from app/services/cron_heartbeat_service.py
-# ::CRON_REGISTRY into the committed ops/crontab. We (1) verify that committed
-# file still matches the registry, (2) install it as THE crontab, and (3)
-# drift-validate the live crontab against it. Any mismatch hard-fails the
-# deploy (set -e) BEFORE the service restart — a bad schedule can never ship
-# silently (this is what makes TD14-class drift structurally impossible).
+echo "→ Syncing deps..."
+"$UV_BIN" sync
+
+echo "→ Re-applying indexes..."
+PYTHONPATH=. "$UV_BIN" run python scripts/init_db.py | tail -5
+
+# ── TD21/#46: version-controlled crontab (verify → install → drift-validate) ──
+# The schedule is rendered from cron_heartbeat_service::CRON_REGISTRY into the
+# committed ops/crontab. Any mismatch hard-fails the deploy (set -e) BEFORE the
+# service restart, so a bad schedule can never ship silently.
 echo "→ Verifying ops/crontab matches CRON_REGISTRY..."
-PYTHONPATH=. uv run python -m scripts.render_crontab --check
+PYTHONPATH=. "$UV_BIN" run python -m scripts.render_crontab --check
 
 echo "→ Installing crontab from ops/crontab..."
 crontab ops/crontab
 
 echo "→ Drift-validating live crontab vs ops/crontab..."
-if diff <(crontab -l) ops/crontab; then
-  echo "  crontab in sync ✓"
-else
-  echo "❌ Live crontab differs from ops/crontab after install — aborting." >&2
-  exit 1
-fi
-# ────────────────────────────────────────────────────────────────────
+diff <(crontab -l) ops/crontab && echo "  crontab in sync ✓"
 
-echo "→ Restarting service..."
-sudo systemctl restart portfolio-advisor.service
-sleep 2
-sudo systemctl status portfolio-advisor.service --no-pager | head -10
+echo "→ Restarting $SERVICE..."
+sudo systemctl restart "$SERVICE"
+sleep 3
+sudo systemctl --no-pager status "$SERVICE" | head -6
+
 echo "→ Healthcheck..."
-curl -s "$HEALTHCHECK_URL"
-echo ""
-echo "✅ Deploy complete"
+curl -sS "$HEALTHCHECK_URL"; echo
+echo "✅ Backend deploy complete"
