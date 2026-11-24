@@ -492,6 +492,7 @@ Check the Atlas console (M10 cluster `personal`). If the cluster is healthy but 
 10. **Soft-delete filter is universal.** Always include `{"deleted_at": null}` when querying `holdings`. Many bugs traced to a missing filter showing exited holdings in "active" aggregations.
 11.  **Self-hosted ntfy is gone (TD8, 2026-05-18; TD9 cleanup 2026-05-24).** `push_private` was removed Chat 5 commits 7a/7b; the orphan `NTFY_URL` / `NTFY_USER` / `NTFY_PASS` keys were removed from `settings.py` + `/etc/portfolio-advisor/secrets.env` in Chat 5.5 TD9.  The systemd unit on EC2 stays disabled + inactive.
 12. **GitHub raw URL cache can lag the actual repo HEAD.** When verifying file bytes before a code change (per Section 14 of Project_State.md), prefer `sed` against the on-disk file on EC2 over `curl` against `raw.githubusercontent.com`.
+13. **`news_articles.published_at` is nullable — never window on it alone.** Tavily returns `published_date` in RFC 2822 form ("Thu, 22 Oct 2026 08:00:00 GMT"); `news_fetcher._normalize_published_at` parses that first (before the ISO `strptime` formats). Before 2026-11-19 it did not, so every article was stored with `published_at=null`, and a `news_signals` window that queried `published_at` (with a `{"$exists": False}` fallback) matched zero docs — silently making the news signal inert for ~3 months. The window now falls back to `fetched_at` when `published_at` is null. Any new query/window over news must handle a null `published_at`. See master_todo #85.
 
 ---
 
