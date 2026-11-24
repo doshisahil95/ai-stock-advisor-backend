@@ -16,6 +16,8 @@ anti-pattern). That branch is verified live on EC2 -- see the chat test block.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import app.services.news_fetcher as nf
 from tests._fakes import FakeCollection
 
@@ -148,3 +150,41 @@ def test_persist_off_topic_keeps_provenance_but_empties_entity(monkeypatch):
     assert doc["fetched_for_symbols"] == ["HDFCBANK"]
     assert doc["entities_isins"] == []
     assert doc["entities_symbols"] == []
+
+
+# ── 3. published_at normalization (inert-news-signal regression) ─────────────
+
+
+def _as_utc(dt):
+    # _normalize_published_at may return naive-UTC or tz-aware UTC depending on
+    # the branch; normalize so the assertion is stable either way.
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def test_normalize_published_at_rfc2822():
+    # Tavily's actual published_date format — the root cause of the inert news
+    # signal (this used to return None -> published_at=null for every article).
+    d = nf._normalize_published_at("Thu, 22 Oct 2026 08:00:00 GMT")
+    assert _as_utc(d) == datetime(2026, 10, 22, 8, 0, tzinfo=timezone.utc)
+
+
+def test_normalize_published_at_iso_z():
+    d = nf._normalize_published_at("2026-10-22T08:00:00Z")
+    assert _as_utc(d) == datetime(2026, 10, 22, 8, 0, tzinfo=timezone.utc)
+
+
+def test_normalize_published_at_date_only():
+    d = nf._normalize_published_at("2026-10-22")
+    assert _as_utc(d) == datetime(2026, 10, 22, 0, 0, tzinfo=timezone.utc)
+
+
+def test_normalize_published_at_none_and_garbage():
+    assert nf._normalize_published_at(None) is None
+    assert nf._normalize_published_at("not a date") is None
+
+
+def test_normalize_published_at_datetime_passthrough():
+    naive = datetime(2026, 10, 22, 8, 0)
+    assert _as_utc(nf._normalize_published_at(naive)) == datetime(
+        2026, 10, 22, 8, 0, tzinfo=timezone.utc
+    )
